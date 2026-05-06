@@ -1,18 +1,32 @@
 /**
  * App bootstrap.
  *
- * Spawns N random-shape cars on a procedural hilly track and runs
- * the simulation in a fixed-timestep accumulator.  Each car drives
- * forward at full throttle until it stalls (no progress for several
- * seconds) — at which point it freezes in place with its travel
- * distance frozen as its fitness.  When every car has stalled (or a
- * hard cap on generation length is hit), the next generation kicks
- * off automatically with a fresh random track and a fresh batch of
- * random shapes.
+ * Glues four pieces together:
  *
- * Real evolution (selection, crossover, mutation) lands in 0.9.3 —
- * for now the next generation is just another random batch, so we
- * can verify the per-generation lifecycle works end-to-end.
+ *   1. Physics — apps/web/src/sim/world.ts.  Spawns N cars on a hilly
+ *      track, ticks physics, fires "finished" when each car stalls.
+ *   2. Renderer — apps/web/src/render/scene.ts.  Pixi.js, draws
+ *      track + cars, camera follows the lead runner, exposes a
+ *      click-on-car hook for debug-bundle copy.
+ *   3. GA — apps/web/src/ga/.  Selection / crossover / mutation that
+ *      turns the *previous* generation's fitness vector into the
+ *      *next* generation's genomes.
+ *   4. UI — index.html.  Sidebar for stats, restart button, EN/RU.
+ *
+ * Generation lifecycle:
+ *
+ *   gen 0 ─→ random genomes
+ *   gen N ─→ nextGeneration(prev fitnesses) via GA
+ *   ▼
+ *   simulate until everyone has stalled (or 60 s cap)
+ *   ▼
+ *   record (genome, fitness) for each car
+ *   ▼
+ *   short visual pause, then restart with next gen
+ *
+ * Click on any car at any time → its full debug bundle (track seed,
+ * generation, genome, current snapshot) is copied to the clipboard
+ * as JSON, suitable for pasting into a bug report.
  */
 
 import './styles/global.css';
@@ -26,15 +40,23 @@ import {
   SIM_DT,
   TUNING,
   type Genome,
-  type Track,
   type WorldHandle,
   type WorldSnapshot,
 } from './sim/world';
 import { mountScene, type SceneHandle } from './render/scene';
+import { nextGeneration, type GAParams, type Scored } from './ga/population';
 
 const CAR_COUNT = 24;
 /** Short visual pause between generations so the eye registers the new batch. */
 const GENERATION_PAUSE_MS = 600;
+
+// GA parameters are hardcoded for v0.9.3.  v0.9.4 will surface them
+// as user-adjustable sliders in the sidebar.
+const GA_DEFAULTS: GAParams = {
+  populationSize: CAR_COUNT,
+  eliteCount: 2,
+  mutationRate: 0.15,
+};
 
 type Hud = {
   total: HTMLElement;
@@ -66,15 +88,15 @@ async function bootstrap(): Promise<void> {
   };
   hud.version.textContent = `v${__APP_VERSION__}`;
 
-  // Generation index survives across restarts so the user sees the
-  // counter advance.  A manual restart (Space / button) resets it
-  // to zero, since "new shapes from scratch" is a new run.
+  // Cross-session evolution state.
   let generation = 0;
+  let lastResults: Scored[] | null = null;
 
   const restartBtn = document.getElementById('btn-restart');
   if (restartBtn instanceof HTMLButtonElement) {
     restartBtn.addEventListener('click', () => {
       generation = 0;
+      lastResults = null;
       void restart();
     });
   }
@@ -82,6 +104,7 @@ async function bootstrap(): Promise<void> {
     if (ev.code === 'Space') {
       ev.preventDefault();
       generation = 0;
+      lastResults = null;
       void restart();
     }
   });
@@ -93,15 +116,30 @@ async function bootstrap(): Promise<void> {
       session.stop();
       session.world.destroy();
     }
-    const seed = (Math.random() * 0xffffffff) >>> 0;
+    const trackSeed = (Math.random() * 0xffffffff) >>> 0;
+
+    // Build the genomes for this generation.  Gen 0 (or "Space"
+    // restart) seeds with random genomes; later generations are
+    // produced by the GA from the previous gen's fitness vector.
+    let genomes: Genome[];
+    if (lastResults && generation > 0) {
+      const gaRng = makeRng(trackSeed ^ 0xfeedface);
+      genomes = nextGeneration(lastResults, GA_DEFAULTS, gaRng);
+    } else {
+      const rng = makeRng(trackSeed ^ 0xdeadbeef);
+      genomes = [];
+      for (let i = 0; i < CAR_COUNT; i++) genomes.push(randomGenome(rng));
+    }
+
     session = await startSession({
-      seed,
+      trackSeed,
       generation,
+      genomes,
       scene,
       hud,
-      onGenerationEnd: () => {
+      onGenerationEnd: (results) => {
+        lastResults = results;
         generation += 1;
-        // Brief pause so the player sees the final state before we wipe.
         setTimeout(() => void restart(), GENERATION_PAUSE_MS);
       },
     });
@@ -112,34 +150,58 @@ async function bootstrap(): Promise<void> {
 
 type Session = {
   world: WorldHandle;
-  track: Track;
-  genomes: Genome[];
   stop(): void;
 };
 
 type StartOptions = {
-  seed: number;
+  trackSeed: number;
   generation: number;
+  genomes: Genome[];
   scene: SceneHandle;
   hud: Hud;
-  onGenerationEnd: () => void;
+  onGenerationEnd: (results: Scored[]) => void;
 };
 
 async function startSession(opts: StartOptions): Promise<Session> {
-  const { seed, generation, scene, hud, onGenerationEnd } = opts;
+  const { trackSeed, generation, genomes, scene, hud, onGenerationEnd } = opts;
 
-  const track = generateTrack(seed);
+  const track = generateTrack(trackSeed);
   scene.setTrack(track.points);
-
-  const rng = makeRng(seed ^ 0xdeadbeef);
-  const genomes: Genome[] = [];
-  for (let i = 0; i < CAR_COUNT; i++) genomes.push(randomGenome(rng));
 
   const world = await createWorld({ track, genomes, spawnX: 6 });
 
-  hud.total.textContent = String(CAR_COUNT);
-  hud.seed.textContent = seed.toString(16).padStart(8, '0');
+  hud.total.textContent = String(genomes.length);
+  hud.seed.textContent = trackSeed.toString(16).padStart(8, '0');
   hud.generation.textContent = String(generation);
+
+  // Click on a car → bundle (seed, gen, genome, current snapshot) goes
+  // to the clipboard as JSON.  The bundle has everything needed for
+  // somebody else (me) to recreate the exact situation locally.
+  scene.onCarClick((carIndex) => {
+    const genome = genomes[carIndex];
+    const snap = world.snapshot();
+    const carSnap = snap.cars.find((c) => c.index === carIndex);
+    if (!genome || !carSnap) return;
+    const bundle = {
+      version: __APP_VERSION__,
+      trackSeed: trackSeed.toString(16).padStart(8, '0'),
+      generation,
+      carIndex,
+      genome,
+      snapshot: {
+        position: carSnap.position,
+        angle: carSnap.angle,
+        speed: carSnap.speed,
+        travel: carSnap.travel,
+        finished: carSnap.finished,
+      },
+    };
+    const json = JSON.stringify(bundle, null, 2);
+    void navigator.clipboard
+      .writeText(json)
+      .catch((err) => console.warn('clipboard write failed', err));
+    console.info('[debug bundle]', bundle);
+  });
 
   let running = true;
   let endNotified = false;
@@ -171,7 +233,13 @@ async function startSession(opts: StartOptions): Promise<Session> {
     if (!endNotified && world.allFinished()) {
       endNotified = true;
       running = false;
-      onGenerationEnd();
+      // Pair every genome with the fitness it ended up with — travel
+      // distance from spawn — so the GA can pick parents next round.
+      const results: Scored[] = genomes.map((genome, i) => ({
+        genome,
+        fitness: snap.cars[i]?.travel ?? 0,
+      }));
+      onGenerationEnd(results);
       return;
     }
     requestAnimationFrame(tick);
@@ -180,8 +248,6 @@ async function startSession(opts: StartOptions): Promise<Session> {
 
   return {
     world,
-    track,
-    genomes,
     stop(): void {
       running = false;
     },

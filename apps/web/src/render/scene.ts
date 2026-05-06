@@ -27,11 +27,18 @@ const COLORS = {
   body: 0xe6e6e9,
   wheel: 0x8b8b94,
   wheelGround: 0xa8ff60,
+  highlight: 0xffd166,
 } as const;
+
+const HIGHLIGHT_MS = 1500;
+
+export type CarClickHandler = (carIndex: number) => void;
 
 export type SceneHandle = {
   setTrack(points: { x: number; y: number }[]): void;
   setSnapshot(s: WorldSnapshot): void;
+  /** Register (or clear) the callback fired when the user clicks a car. */
+  onCarClick(handler: CarClickHandler | null): void;
   destroy(): void;
 };
 
@@ -57,6 +64,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
 
   let trackPoints: { x: number; y: number }[] | null = null;
   const carViews = new Map<number, CarView>();
+  let onCarClickHandler: CarClickHandler | null = null;
 
   const camera = { x: 0, y: 0 };
   let cameraTarget = { x: 0, y: 0 };
@@ -112,7 +120,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       seen.add(car.index);
       let view = carViews.get(car.index);
       if (!view) {
-        view = makeCarView(car);
+        view = makeCarView(car, (idx) => onCarClickHandler?.(idx));
         carsLayer.addChild(view.container);
         carViews.set(car.index, view);
       }
@@ -156,6 +164,9 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       cameraTarget = { ...camera };
     },
     setSnapshot,
+    onCarClick(handler): void {
+      onCarClickHandler = handler;
+    },
     destroy(): void {
       ro.disconnect();
       app.destroy(true, { children: true });
@@ -169,9 +180,11 @@ type CarView = {
   container: Container;
   body: Graphics;
   wheels: Graphics[];
+  /** When > performance.now(), the chassis tints highlight-yellow (post-click). */
+  highlightUntil: number;
 };
 
-function makeCarView(car: CarSnapshot): CarView {
+function makeCarView(car: CarSnapshot, onClick: ((idx: number) => void) | null): CarView {
   const container = new Container();
   const body = new Graphics();
   body.poly(car.vertices.map((v) => ({ x: v.x, y: v.y })));
@@ -197,7 +210,21 @@ function makeCarView(car: CarSnapshot): CarView {
     wheels.push(g);
     container.addChild(g);
   }
-  return { container, body, wheels };
+
+  const view: CarView = { container, body, wheels, highlightUntil: 0 };
+
+  // Click on a car: flash chassis yellow for 1.5 s and fire the
+  // external handler so the host can dump a debug bundle to the
+  // clipboard.  The flash is the player's confirmation that *this*
+  // is the car they meant.
+  container.eventMode = 'static';
+  container.cursor = 'pointer';
+  container.on('pointerdown', () => {
+    view.highlightUntil = performance.now() + HIGHLIGHT_MS;
+    onClick?.(car.index);
+  });
+
+  return view;
 }
 
 function updateCarView(view: CarView, car: CarSnapshot): void {
@@ -206,6 +233,10 @@ function updateCarView(view: CarView, car: CarSnapshot): void {
   // Finished cars dim out so the eye is drawn to whoever is still
   // running.  Their position is frozen in world.ts anyway.
   view.container.alpha = car.finished ? 0.3 : 1;
+
+  // Brief post-click highlight: chassis tint goes yellow until the timer
+  // expires, then snaps back to the default body colour.
+  view.body.tint = performance.now() < view.highlightUntil ? COLORS.highlight : COLORS.body;
 
   const cos = Math.cos(-car.angle);
   const sin = Math.sin(-car.angle);

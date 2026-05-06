@@ -18,34 +18,23 @@ import { decodeGenome, PHYSICS, type DecodedCar } from './genome';
 export const SIM_DT = 1 / 60;
 
 /**
- * Health rules.  A car dies if any of these hold:
+ * Health rules — only one principle: a car dies if it stops moving
+ * forward.  No rolls, no contact checks, no orientation rules.  The
+ * heavy, high-friction chassis makes "driving on the body" physically
+ * pointless on its own.
+ *
  *   (a) full stop      — speed near zero for `initialSeconds` of stall.
  *   (b) no progress    — less than `progressWindowMin` over a sliding
- *                        `progressWindowSec` window (catches creeping cars).
- *   (c) rolled over    — |chassis.angle| > 110° for `rolledLimitSec` seconds.
- *
- * "Body dragging" no longer needs its own rule: the chassis is now
- * frictionless, so a car on its roof simply slides until it stalls and
- * dies via (a) or (b).
+ *                        `progressWindowSec` window.
  */
 export const HEALTH = {
-  initialSeconds: 5,
+  initialSeconds: 8,
   progressEpsilon: 0.02,
   stallSpeed: 0.2,
-  stallDrainPerSecond: 8,
-  progressWindowSec: 4,
-  progressWindowMin: 1.5,
-  graceSec: 2.5,
-  /** |angle| above this counts as rolled-over (rad). 100° = 1.745rad. */
-  rolledAngleRad: (100 * Math.PI) / 180,
-  /** Allowed time rolled over before death. */
-  rolledLimitSec: 0.5,
-  /**
-   * If no wheel has touched the ground for this long, the car dies.
-   * Catches "drives without wheels on the road" cases that the slippery
-   * chassis still allowed (e.g. coasting on a slope after a flip).
-   */
-  noWheelContactLimitSec: 2.5,
+  stallDrainPerSecond: 4,
+  progressWindowSec: 6,
+  progressWindowMin: 1.0,
+  graceSec: 4,
 } as const;
 
 /** Collision group bitmasks (membership / filter). */
@@ -141,10 +130,6 @@ type CarRuntime = {
   windowStartTime: number;
   /** maxX recorded at the start of the current window. */
   windowStartX: number;
-  /** Seconds spent rolled over (|angle| > 110°). */
-  rolledSec: number;
-  /** Sim time when at least one wheel last touched the ground. */
-  lastWheelContactSec: number;
   vertices: { x: number; y: number }[];
   /** Frozen snapshot taken at the moment of death — read forever after. */
   finalSnapshot: CarSnapshot | null;
@@ -305,12 +290,14 @@ function buildCar(
     RAPIER.ColliderDesc.convexHull(flatVerts) ??
     RAPIER.ColliderDesc.ball(0.5); /* hull may be null on degenerate input */
 
-  // Friction = 0 on purpose: only wheels are allowed to push the car
-  // forward.  A perfectly slippery body cannot grip the track, so a
-  // toppled car simply slides instead of "scrubbing" itself along.
+  // High body friction (0.8) so a toppled car drags hard against the
+  // track and decelerates to a stall — but not infinite friction, so a
+  // body that briefly grazes the track on a hard landing isn't pinned.
+  // The motor never engages from the body anyway (it only fires for
+  // wheels in ground contact), so this is purely a brake.
   chassisColliderDesc
     .setDensity(decoded.chassis.density)
-    .setFriction(0)
+    .setFriction(0.8)
     .setRestitution(0)
     .setCollisionGroups(packGroups(GROUP.CAR_BODY, GROUP.TRACK));
 
@@ -382,8 +369,6 @@ function buildCar(
     ageSec: 0,
     windowStartTime: 0,
     windowStartX: spawnX,
-    rolledSec: 0,
-    lastWheelContactSec: 0,
     vertices: decoded.chassis.vertices,
     finalSnapshot: null,
   };
@@ -405,17 +390,12 @@ function buildCar(
 function applyMotor(car: CarRuntime, gravity: number, track: Track): void {
   const targetOmega = -car.decoded.motor.baseSpeed;
   const totalMass = totalMassOf(car);
-  let anyOnGround = false;
 
   for (let i = 0; i < car.wheels.length; i++) {
     const w = car.wheels[i]!;
     const wheelGene = car.decoded.wheels[i]!;
-
-    const onGround = isWheelOnGround(w.body, w.radius, track);
-    if (onGround) anyOnGround = true;
-
     if (wheelGene.motorTorqueFraction <= 0) continue;
-    if (!onGround) continue;
+    if (!isWheelOnGround(w.body, w.radius, track)) continue;
 
     const currentOmega = w.body.angvel();
     const error = targetOmega - currentOmega;
@@ -427,10 +407,6 @@ function applyMotor(car: CarRuntime, gravity: number, track: Track): void {
       PHYSICS.motor.torqueHeadroom;
     const torque = clamp(error * 8, -maxTorque, maxTorque);
     w.body.addTorque(torque, true);
-  }
-
-  if (anyOnGround) {
-    car.lastWheelContactSec = car.ageSec;
   }
 }
 
@@ -453,7 +429,11 @@ function isWheelOnGround(
   if (t.x < 0 || t.x > track.options.length) return false;
   const trackY = sampleTrackY(track, t.x);
   const wheelBottom = t.y - radius;
-  return Math.abs(wheelBottom - trackY) <= 0.06;
+  // 12 cm two-sided tolerance: the wheel must actually be sitting at the
+  // surface — not many centimetres below it (joint glitch) and not in
+  // the air above.  A bit of slack above the surface lets gentle slopes
+  // register a contact even when the wheel rolls along a chord.
+  return Math.abs(wheelBottom - trackY) <= 0.12;
 }
 
 function clamp(x: number, lo: number, hi: number): number {
@@ -470,7 +450,6 @@ function updateLifecycle(car: CarRuntime): { alive: boolean } {
   const pos = car.chassis.translation();
   const vel = car.chassis.linvel();
   const speed = Math.hypot(vel.x, vel.y);
-  const angle = normalizeAngle(car.chassis.rotation());
   car.ageSec += SIM_DT;
 
   // (a) Stall-based health: refill on real progress, drain otherwise.
@@ -494,36 +473,11 @@ function updateLifecycle(car: CarRuntime): { alive: boolean } {
     }
   }
 
-  // (c) Roll-over: chassis tipped past 100° → tick the rolled-over timer.
-  if (Math.abs(angle) > HEALTH.rolledAngleRad) {
-    car.rolledSec += SIM_DT;
-    if (car.rolledSec >= HEALTH.rolledLimitSec) car.health = 0;
-  } else {
-    car.rolledSec = Math.max(0, car.rolledSec - SIM_DT * 2);
-  }
-
-  // (d) No wheel contact for too long → death.  After grace, if the car
-  // hasn't had a single wheel touch the track in `noWheelContactLimitSec`
-  // seconds, it isn't really driving — kill it.
-  if (
-    car.ageSec > HEALTH.graceSec &&
-    car.ageSec - car.lastWheelContactSec >= HEALTH.noWheelContactLimitSec
-  ) {
-    car.health = 0;
-  }
-
   if (car.health <= 0) {
     car.alive = false;
     car.score = Math.max(0, car.maxX - car.spawnX);
   }
   return { alive: car.alive };
-}
-
-function normalizeAngle(a: number): number {
-  let x = a % (Math.PI * 2);
-  if (x > Math.PI) x -= Math.PI * 2;
-  if (x < -Math.PI) x += Math.PI * 2;
-  return x;
 }
 
 function destroyCar(world: RAPIER.World, car: CarRuntime): void {

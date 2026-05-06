@@ -29,8 +29,8 @@ export const PHYSICS = {
      * and gives flips a real physical cause (steep slopes, jumps),
      * not random body-on-tire spins.
      */
-    minDensity: 180,
-    maxDensity: 320,
+    minDensity: 250,
+    maxDensity: 450,
   },
   wheel: {
     minCount: 1,

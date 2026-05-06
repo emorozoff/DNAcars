@@ -6,21 +6,20 @@
  * shapes simply fail to drive.  The physics rules that filter "good"
  * shapes from "bad" ones are:
  *
- *   1. Slippery chassis (friction ≈ 0).  A body resting on its hull
- *      can't generate traction, so wheels in the air can't propel it.
+ *   1. High-friction chassis (0.8) brakes a toppled body hard against
+ *      the track, so a car that's fallen on its hull stops moving
+ *      instead of sliding along.
  *   2. The motor only fires for wheels actually touching the polyline
  *      (sampled directly from the track curve).
- *   3. The motor requires *two* grounded wheels.  With a single
- *      contact point, the wheel motor's reaction torque on the
- *      chassis (Newton 3 via the joint) cancels gravity at some tilt
- *      and the car drives forever on one wheel — exactly what we
- *      don't want.  Two contact points kill that degree of freedom.
+ *   3. The motor requires *two* grounded wheels, with a real wheelbase
+ *      (≥0.4 m) between them.  A single contact point lets the wheel
+ *      motor's reaction torque on the chassis (Newton 3 via the joint)
+ *      cancel gravity at some tilt — the car drives on one wheel
+ *      forever.  Two contact points constrain that DOF away, but only
+ *      if they're far enough apart to actually act as a wheelbase.
  *   4. Heavy chassis (250–450 kg/m²) vs light wheels (30–80) keeps
  *      the centre of gravity low.  Balanced shapes are stable;
  *      narrow-base shapes flip naturally on slopes.
- *
- * Solver: 8 iterations per step (default 4) for cleaner contact
- * resolution between the polygonal chassis and the trapezoid ground.
  */
 
 import RAPIER from '@dimforge/rapier2d-compat';
@@ -38,7 +37,13 @@ export const TUNING = {
     maxRadius: 1.0,
     minDensity: 250,
     maxDensity: 450,
-    friction: 0.05,
+    /**
+     * High body friction so a toppled car drags against the track and
+     * stops moving instead of sliding indefinitely down a slope.  The
+     * motor never engages from the body anyway (only grounded wheels
+     * apply torque), so this is purely a brake.
+     */
+    friction: 0.8,
     restitution: 0.0,
     linearDamping: 0.4,
     angularDamping: 0.2,
@@ -76,10 +81,6 @@ export const TUNING = {
   contact: {
     /** Max distance from track surface to count a wheel as "on ground". */
     wheelTolerance: 0.06,
-  },
-  solver: {
-    /** Constraint solver iterations per step (Rapier default is 4). */
-    numIterations: 8,
   },
 } as const;
 
@@ -287,19 +288,17 @@ export type CreateWorldOptions = {
   track: Track;
   genomes: Genome[];
   spawnX?: number;
-  spawnYOffset?: number;
 };
 
 export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle> {
   await ensureRapier();
   const world = new RAPIER.World({ x: 0, y: -GRAVITY });
   world.timestep = SIM_DT;
-  world.integrationParameters.numSolverIterations = TUNING.solver.numIterations;
 
   buildTrackColliders(world, opts.track);
 
   const sx = opts.spawnX ?? 8;
-  const sy = sampleTrackY(opts.track, sx) + 1.6 + (opts.spawnYOffset ?? 0);
+  const sy = sampleTrackY(opts.track, sx) + 1.6;
 
   const cars: CarRuntime[] = opts.genomes.map((g, i) => buildCar(world, g, i, sx, sy));
 
@@ -333,23 +332,22 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
 function buildTrackColliders(world: RAPIER.World, track: Track): void {
   const ground = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
 
-  // Thick "earth" — each track segment becomes a trapezoid extending
-  // 100 m down to a virtual floor.  Adjacent trapezoids share an edge
-  // so the surface is gap-free; bodies cannot tunnel through a thin
-  // line at speed and end up underneath.
-  const floorY = -100;
-  for (let i = 0; i < track.points.length - 1; i++) {
-    const a = track.points[i]!;
-    const b = track.points[i + 1]!;
-    const verts = new Float32Array([a.x, a.y, b.x, b.y, b.x, floorY, a.x, floorY]);
-    const desc = RAPIER.ColliderDesc.convexHull(verts);
-    if (!desc) continue;
-    desc
+  // Track surface is a thin polyline.  CCD on the chassis and wheels
+  // is enough to prevent tunneling at our speeds and step size — no
+  // need for a thicker ground volume.
+  const flat = new Float32Array(track.points.length * 2);
+  for (let i = 0; i < track.points.length; i++) {
+    const p = track.points[i]!;
+    flat[i * 2] = p.x;
+    flat[i * 2 + 1] = p.y;
+  }
+  world.createCollider(
+    RAPIER.ColliderDesc.polyline(flat)
       .setFriction(1.0)
       .setRestitution(0.05)
-      .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL));
-    world.createCollider(desc, ground);
-  }
+      .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL)),
+    ground,
+  );
 
   // Back wall at x=0 so a car bumped backwards can't roll off the world.
   world.createCollider(

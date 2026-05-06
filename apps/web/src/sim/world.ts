@@ -82,6 +82,21 @@ export const TUNING = {
     /** Max distance from track surface to count a wheel as "on ground". */
     wheelTolerance: 0.06,
   },
+  lifecycle: {
+    /** Speed below which a car counts as "not moving" (m/s). */
+    stallSpeed: 0.15,
+    /** Continuous stall time after which a car's run is finished (s). */
+    stallSeconds: 5,
+    /**
+     * Hard cap on a single generation's wall time (s).  If for any
+     * reason cars keep moving for this long without anyone finishing,
+     * we force-finish all of them and move on so evolution doesn't
+     * grind to a halt on a degenerate seed.
+     */
+    maxGenerationSec: 60,
+    /** Grace period at the start of each car's run before stall logic kicks in (s). */
+    graceSeconds: 1.5,
+  },
 } as const;
 
 const GROUP = {
@@ -254,6 +269,12 @@ type CarRuntime = {
   wheels: WheelRuntime[];
   spawnX: number;
   maxX: number;
+  /** Total simulated time the car has been in the world (s). */
+  ageSec: number;
+  /** Continuous stall time (s) — reset when the car makes progress. */
+  stallTimer: number;
+  /** Once true, motor is off and bodies are pinned in place forever. */
+  finished: boolean;
 };
 
 export type CarSnapshot = {
@@ -261,7 +282,9 @@ export type CarSnapshot = {
   position: { x: number; y: number };
   angle: number;
   speed: number;
+  /** Distance from spawn, in metres.  Frozen at the moment the car finished. */
   travel: number;
+  finished: boolean;
   vertices: { x: number; y: number }[];
   wheels: {
     position: { x: number; y: number };
@@ -281,6 +304,8 @@ export type WorldSnapshot = {
 export type WorldHandle = {
   step(): void;
   snapshot(): WorldSnapshot;
+  allFinished(): boolean;
+  forceFinishAll(): void;
   destroy(): void;
 };
 
@@ -307,19 +332,45 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
   return {
     step(): void {
       for (const car of cars) {
+        if (car.finished) {
+          // Pinned: zero out velocities so the wreckage doesn't drift.
+          freezeCar(car);
+          continue;
+        }
         updateWheelContacts(car, opts.track);
         applyMotor(car);
       }
       world.step();
       time += SIM_DT;
-      // Track furthest position so the leaderboard / camera stays meaningful.
       for (const car of cars) {
+        if (car.finished) continue;
+        car.ageSec += SIM_DT;
         const x = car.chassis.translation().x;
         if (x > car.maxX) car.maxX = x;
+        updateLifecycle(car);
       }
     },
     snapshot(): WorldSnapshot {
       return { time, cars: cars.map(snapshotCar) };
+    },
+    /**
+     * True when no car can still earn distance — every one has either
+     * stalled out or rolled past the finish line.  The caller uses this
+     * to know it's safe to start the next generation.
+     */
+    allFinished(): boolean {
+      for (const car of cars) if (!car.finished) return false;
+      return true;
+    },
+    /**
+     * Force every still-running car to finish *now*.  Used by the host
+     * tick loop as a hard cap on generation length, so a degenerate
+     * seed where everyone keeps drifting can't stall evolution.
+     */
+    forceFinishAll(): void {
+      for (const car of cars) {
+        if (!car.finished) car.finished = true;
+      }
     },
     destroy(): void {
       world.free();
@@ -452,6 +503,9 @@ function buildCar(
     wheels,
     spawnX,
     maxX: spawnX,
+    ageSec: 0,
+    stallTimer: 0,
+    finished: false,
   };
 }
 
@@ -527,6 +581,44 @@ function totalMassOf(car: CarRuntime): number {
   return m;
 }
 
+/**
+ * Per-tick lifecycle: track how long the car has been "not moving" and
+ * mark it finished once that exceeds the stall threshold.  Travel
+ * distance (`maxX`) was already updated for this tick by the caller —
+ * we just need to decide whether the car has stopped earning new
+ * travel.  A short grace period at the start means a car that has just
+ * spawned and is settling under gravity isn't immediately killed.
+ */
+function updateLifecycle(car: CarRuntime): void {
+  if (car.ageSec < TUNING.lifecycle.graceSeconds) return;
+  const v = car.chassis.linvel();
+  const speed = Math.hypot(v.x, v.y);
+  if (speed < TUNING.lifecycle.stallSpeed) {
+    car.stallTimer += SIM_DT;
+  } else {
+    car.stallTimer = 0;
+  }
+  if (car.stallTimer >= TUNING.lifecycle.stallSeconds) {
+    car.finished = true;
+  }
+}
+
+/**
+ * Pin a finished car in place so its bodies don't drift on slopes.
+ * We zero linear+angular velocity every tick instead of converting
+ * the bodies to kinematic so neighbouring still-running cars can
+ * still bump into them.
+ */
+function freezeCar(car: CarRuntime): void {
+  const z = { x: 0, y: 0 };
+  car.chassis.setLinvel(z, true);
+  car.chassis.setAngvel(0, true);
+  for (const w of car.wheels) {
+    w.body.setLinvel(z, true);
+    w.body.setAngvel(0, true);
+  }
+}
+
 function normalizeAngle(a: number): number {
   let x = a;
   while (x > Math.PI) x -= Math.PI * 2;
@@ -549,6 +641,7 @@ function snapshotCar(car: CarRuntime): CarSnapshot {
     angle: car.chassis.rotation(),
     speed: Math.hypot(vel.x, vel.y),
     travel: Math.max(0, car.maxX - car.spawnX),
+    finished: car.finished,
     vertices: car.vertices,
     wheels: car.wheels.map((w) => {
       const wp = w.body.translation();

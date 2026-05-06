@@ -99,7 +99,12 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
 
   function setSnapshot(snap: WorldSnapshot): void {
     const seen = new Set<number>();
-    let leader: CarSnapshot | null = null;
+    // Camera prefers the furthest *still-running* car so it doesn't park
+    // on a finished leader while the rest of the population is still
+    // moving along behind it.  Falls back to the furthest finished car
+    // if no one is still running (end of generation).
+    let runningLead: CarSnapshot | null = null;
+    let anyLead: CarSnapshot | null = null;
 
     for (const car of snap.cars) {
       seen.add(car.index);
@@ -110,7 +115,10 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         carViews.set(car.index, view);
       }
       updateCarView(view, car);
-      if (!leader || car.position.x > leader.position.x) leader = car;
+      if (!anyLead || car.position.x > anyLead.position.x) anyLead = car;
+      if (!car.finished && (!runningLead || car.position.x > runningLead.position.x)) {
+        runningLead = car;
+      }
     }
 
     for (const [k, v] of carViews) {
@@ -121,7 +129,8 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       }
     }
 
-    if (leader) cameraTarget = { x: leader.position.x, y: leader.position.y };
+    const followed = runningLead ?? anyLead;
+    if (followed) cameraTarget = { x: followed.position.x, y: followed.position.y };
   }
 
   return {
@@ -186,6 +195,9 @@ function makeCarView(car: CarSnapshot): CarView {
 function updateCarView(view: CarView, car: CarSnapshot): void {
   view.container.position.set(car.position.x, car.position.y);
   view.container.rotation = car.angle;
+  // Finished cars dim out so the eye is drawn to whoever is still
+  // running.  Their position is frozen in world.ts anyway.
+  view.container.alpha = car.finished ? 0.3 : 1;
 
   const cos = Math.cos(-car.angle);
   const sin = Math.sin(-car.angle);
@@ -197,7 +209,7 @@ function updateCarView(view: CarView, car: CarSnapshot): void {
     const dy = ws.position.y - car.position.y;
     wg.position.set(dx * cos - dy * sin, dx * sin + dy * cos);
     wg.rotation = ws.angle - car.angle;
-    wg.tint = ws.onGround ? COLORS.wheelGround : COLORS.wheel;
+    wg.tint = ws.onGround && !car.finished ? COLORS.wheelGround : COLORS.wheel;
   }
 }
 

@@ -1,11 +1,12 @@
 const enRaw = {
   'panel.run': 'Run',
+  'panel.generation': 'Gen',
   'panel.cars': 'Cars',
   'panel.lead': 'Lead',
   'panel.seed': 'Seed',
-  'panel.restart': '↻ New shapes',
+  'panel.restart': '↻ New population',
   'panel.hint':
-    'Press space (or the button) to reseed the track and respawn a new batch of random shapes.',
+    'Each generation runs until every car has stalled.  Press space to start a new run from scratch.',
   'footer.tagline': 'Evolution, in your browser.',
 } as const;
 

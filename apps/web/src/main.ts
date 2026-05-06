@@ -1,12 +1,18 @@
 /**
  * App bootstrap.
  *
- * For now this is the same physics-demo loop we built in Phase 0:
- * spawns N random-shape cars on a procedural hilly track, every car
- * holds full throttle, the visible signal is which shapes can actually
- * drive forward.  The genetic algorithm and per-generation lifecycle
- * are added in following commits — this one only relocates the demo
- * files to the proper main-app paths.
+ * Spawns N random-shape cars on a procedural hilly track and runs
+ * the simulation in a fixed-timestep accumulator.  Each car drives
+ * forward at full throttle until it stalls (no progress for several
+ * seconds) — at which point it freezes in place with its travel
+ * distance frozen as its fitness.  When every car has stalled (or a
+ * hard cap on generation length is hit), the next generation kicks
+ * off automatically with a fresh random track and a fresh batch of
+ * random shapes.
+ *
+ * Real evolution (selection, crossover, mutation) lands in 0.9.3 —
+ * for now the next generation is just another random batch, so we
+ * can verify the per-generation lifecycle works end-to-end.
  */
 
 import './styles/global.css';
@@ -18,6 +24,7 @@ import {
   makeRng,
   randomGenome,
   SIM_DT,
+  TUNING,
   type Genome,
   type Track,
   type WorldHandle,
@@ -26,11 +33,14 @@ import {
 import { mountScene, type SceneHandle } from './render/scene';
 
 const CAR_COUNT = 24;
+/** Short visual pause between generations so the eye registers the new batch. */
+const GENERATION_PAUSE_MS = 600;
 
 type Hud = {
   total: HTMLElement;
   lead: HTMLElement;
   seed: HTMLElement;
+  generation: HTMLElement;
   version: HTMLElement;
 };
 
@@ -51,19 +61,27 @@ async function bootstrap(): Promise<void> {
     total: requireEl('stat-total'),
     lead: requireEl('stat-lead'),
     seed: requireEl('stat-seed'),
+    generation: requireEl('stat-generation'),
     version: requireEl('app-version'),
   };
   hud.version.textContent = `v${__APP_VERSION__}`;
 
+  // Generation index survives across restarts so the user sees the
+  // counter advance.  A manual restart (Space / button) resets it
+  // to zero, since "new shapes from scratch" is a new run.
+  let generation = 0;
+
   const restartBtn = document.getElementById('btn-restart');
   if (restartBtn instanceof HTMLButtonElement) {
     restartBtn.addEventListener('click', () => {
+      generation = 0;
       void restart();
     });
   }
   window.addEventListener('keydown', (ev) => {
     if (ev.code === 'Space') {
       ev.preventDefault();
+      generation = 0;
       void restart();
     }
   });
@@ -76,7 +94,17 @@ async function bootstrap(): Promise<void> {
       session.world.destroy();
     }
     const seed = (Math.random() * 0xffffffff) >>> 0;
-    session = await startSession(seed, scene, hud);
+    session = await startSession({
+      seed,
+      generation,
+      scene,
+      hud,
+      onGenerationEnd: () => {
+        generation += 1;
+        // Brief pause so the player sees the final state before we wipe.
+        setTimeout(() => void restart(), GENERATION_PAUSE_MS);
+      },
+    });
   }
 
   await restart();
@@ -89,7 +117,17 @@ type Session = {
   stop(): void;
 };
 
-async function startSession(seed: number, scene: SceneHandle, hud: Hud): Promise<Session> {
+type StartOptions = {
+  seed: number;
+  generation: number;
+  scene: SceneHandle;
+  hud: Hud;
+  onGenerationEnd: () => void;
+};
+
+async function startSession(opts: StartOptions): Promise<Session> {
+  const { seed, generation, scene, hud, onGenerationEnd } = opts;
+
   const track = generateTrack(seed);
   scene.setTrack(track.points);
 
@@ -101,10 +139,13 @@ async function startSession(seed: number, scene: SceneHandle, hud: Hud): Promise
 
   hud.total.textContent = String(CAR_COUNT);
   hud.seed.textContent = seed.toString(16).padStart(8, '0');
+  hud.generation.textContent = String(generation);
 
   let running = true;
+  let endNotified = false;
   let lastTime = performance.now();
   let acc = 0;
+  let elapsed = 0;
 
   function tick(): void {
     if (!running) return;
@@ -115,10 +156,24 @@ async function startSession(seed: number, scene: SceneHandle, hud: Hud): Promise
     while (acc >= SIM_DT) {
       world.step();
       acc -= SIM_DT;
+      elapsed += SIM_DT;
+    }
+    // Hard cap so a degenerate seed where everyone keeps drifting can't
+    // pin evolution forever.  After the cap, force-finish remaining
+    // cars and let the all-finished branch trigger the next generation.
+    if (elapsed >= TUNING.lifecycle.maxGenerationSec) {
+      world.forceFinishAll();
     }
     const snap = world.snapshot();
     scene.setSnapshot(snap);
     updateHud(hud, snap);
+
+    if (!endNotified && world.allFinished()) {
+      endNotified = true;
+      running = false;
+      onGenerationEnd();
+      return;
+    }
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);

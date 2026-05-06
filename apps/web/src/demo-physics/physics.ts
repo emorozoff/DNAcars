@@ -96,6 +96,24 @@ export const TUNING = {
      * over and dragging on its hull.
      */
     bodyContactThreshold: 0.4,
+    /**
+     * Instant-crash threshold: if any chassis vertex is found this far
+     * below the track surface (m), it means the solver let the body
+     * penetrate the ground — kill the car immediately, no EMA.  This is
+     * the safety net for "chassis through the track but car keeps
+     * driving" scenarios.
+     */
+    penetrationDepth: 0.05,
+  },
+  solver: {
+    /**
+     * Rapier's constraint solver iterations per step.  The default is 4;
+     * with a polygonal chassis joined to a wheel that's pinned to the
+     * ground, four iterations sometimes leave residual penetration.
+     * Bumping to 8 doubles the time the solver has to resolve all
+     * constraints to convergence.
+     */
+    numIterations: 8,
   },
 } as const;
 
@@ -325,6 +343,9 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
   await ensureRapier();
   const world = new RAPIER.World({ x: 0, y: -GRAVITY });
   world.timestep = SIM_DT;
+  // More solver iterations ⇒ less residual penetration when a heavy
+  // chassis is held down by both gravity and a joint to a grounded wheel.
+  world.integrationParameters.numSolverIterations = TUNING.solver.numIterations;
 
   buildTrackColliders(world, opts.track);
 
@@ -508,6 +529,14 @@ function updateContacts(car: CarRuntime, track: Track): void {
   for (const w of car.wheels) {
     w.onGround = wheelOnGround(w.body, w.radius, track);
   }
+  // Hard penetration check.  Even with CCD and 8 solver iterations,
+  // a polygonal chassis joined to a grounded wheel can momentarily end
+  // up below the track surface — and "below the surface" means the car
+  // can keep driving forward looking buried.  If we ever see a vertex
+  // visibly below the polyline, kill the car immediately.
+  if (!car.crashed && chassisDeeplyEmbedded(car, track)) {
+    markCrashed(car, 'body-down');
+  }
   // Body-on-ground via an exponential moving average of touch frames.
   // The previous timer-with-decay scheme was too forgiving: a chassis
   // bouncing on/off the ground at 50 % duty never reached the crash
@@ -630,6 +659,28 @@ function chassisTouchesGround(car: CarRuntime, track: Track): boolean {
     if (wx < 0 || wx > track.options.length) return false;
     return wy - sampleTrackY(track, wx) < tol;
   }
+}
+
+/**
+ * Strict variant of chassisTouchesGround: returns true only when at least
+ * one vertex is visibly *below* the track surface by `penetrationDepth`
+ * meters.  Used as the trigger for an instant body-down crash, separate
+ * from the gentle EMA in chassisTouchesGround.
+ */
+function chassisDeeplyEmbedded(car: CarRuntime, track: Track): boolean {
+  const pos = car.chassis.translation();
+  const ang = car.chassis.rotation();
+  const cos = Math.cos(ang);
+  const sin = Math.sin(ang);
+  const limit = -TUNING.crash.penetrationDepth;
+  const verts = car.vertices;
+  for (const v of verts) {
+    const wx = pos.x + v.x * cos - v.y * sin;
+    const wy = pos.y + v.x * sin + v.y * cos;
+    if (wx < 0 || wx > track.options.length) continue;
+    if (wy - sampleTrackY(track, wx) < limit) return true;
+  }
+  return false;
 }
 
 function totalMassOf(car: CarRuntime): number {

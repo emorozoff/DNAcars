@@ -147,6 +147,13 @@ button {
   color: var(--color-fg-dim);
 }
 
+.panel__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: var(--sp-4) 0 var(--sp-2);
+}
+
 .panel__hint {
   margin: 0;
   color: var(--color-fg-dim);

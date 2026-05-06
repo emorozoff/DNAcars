@@ -73,16 +73,27 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   function drawTrack(): void {
     if (!trackPoints || trackPoints.length < 2) return;
     trackGfx.clear();
+
+    // Distance markers every 25m — soft accent dots aligned to the track.
+    const last = trackPoints[trackPoints.length - 1]!;
+    for (let x = 0; x <= last.x; x += 25) {
+      const y = sampleTrackY(trackPoints, x);
+      trackGfx.circle(x, y, 0.08).fill({ color: colors.fg, alpha: 0.25 });
+    }
+
+    // Main track polyline — thicker and lighter for visibility.
     trackGfx.moveTo(trackPoints[0]!.x, trackPoints[0]!.y);
     for (let i = 1; i < trackPoints.length; i++) {
       const p = trackPoints[i]!;
       trackGfx.lineTo(p.x, p.y);
     }
-    trackGfx.stroke({ color: colors.track, width: 0.05, alpha: 1 });
+    trackGfx.stroke({ color: colors.track, width: 0.08, alpha: 1 });
 
-    // A subtle horizon line below the track to give a hint of depth.
-    trackGfx.moveTo(trackPoints[0]!.x, trackPoints[0]!.y - 100);
-    trackGfx.lineTo(trackPoints[trackPoints.length - 1]!.x, 0);
+    // Finish line at the last point.
+    trackGfx
+      .moveTo(last.x, last.y)
+      .lineTo(last.x, last.y + 4)
+      .stroke({ color: colors.accent, width: 0.06, alpha: 0.8 });
   }
 
   return {
@@ -206,16 +217,33 @@ function readColors(): {
   wheel: number;
   accent: number;
   dim: number;
+  fg: number;
 } {
   const css = (name: string, fallback: number): number => parseColor(getCssVar(name)) ?? fallback;
   return {
     bg: css('--color-bg', 0x0e0e10),
-    track: css('--color-track', 0x2a2a31),
+    track: css('--color-track', 0x4a4a55),
     body: css('--color-car-body', 0xe6e6e9),
     wheel: css('--color-car-wheel', 0x8b8b94),
     accent: css('--color-accent', 0xa8ff60),
     dim: css('--color-fg-dim', 0x5a5a63),
+    fg: css('--color-fg', 0xe6e6e9),
   };
+}
+
+function sampleTrackY(points: { x: number; y: number }[], x: number): number {
+  if (x <= 0) return 0;
+  // Points are uniformly spaced; find the bucket then lerp.
+  const last = points[points.length - 1]!;
+  if (x >= last.x) return last.y;
+  const step = points.length > 1 ? points[1]!.x - points[0]!.x : 1;
+  const i = Math.floor(x / step);
+  const a = points[i];
+  const b = points[i + 1];
+  if (!a) return 0;
+  if (!b) return a.y;
+  const t = (x - a.x) / (b.x - a.x);
+  return a.y + (b.y - a.y) * t;
 }
 
 function getCssVar(name: string): string {

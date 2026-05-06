@@ -33,8 +33,10 @@ let currentGenomes: Genome[] = [];
 
 const SNAPSHOT_HZ = 60;
 const SNAPSHOT_INTERVAL = 1 / SNAPSHOT_HZ;
+const ROUND_TIMEOUT_SEC = 30;
 let simTime = 0;
 let lastSnapshotTime = 0;
+let roundEnding = false;
 
 post({ type: 'ready' });
 
@@ -76,6 +78,7 @@ async function handleStart(p: Extract<MainToWorker, { type: 'start' }>['payload'
     world = await createWorld({ track, genomes: currentGenomes, gravity });
     simTime = 0;
     lastSnapshotTime = 0;
+    roundEnding = false;
 
     post({
       type: 'started',
@@ -122,10 +125,14 @@ function tick(): void {
     post({ type: 'snapshot', payload: world.snapshot() });
   }
 
-  // End of generation: every car has died.
-  const snapshot = world.snapshot();
-  if (snapshot.cars.length > 0 && snapshot.cars.every((c) => !c.alive)) {
-    advanceGeneration(snapshot);
+  if (!roundEnding) {
+    const snapshot = world.snapshot();
+    const allDead = snapshot.cars.length > 0 && snapshot.cars.every((c) => !c.alive);
+    const timedOut = simTime >= ROUND_TIMEOUT_SEC;
+    if (allDead || timedOut) {
+      roundEnding = true;
+      advanceGeneration(snapshot);
+    }
   }
   scheduleTick();
 }
@@ -186,6 +193,7 @@ async function rebuildWorld(): Promise<void> {
     world = await createWorld({ track, genomes: currentGenomes, gravity });
     simTime = 0;
     lastSnapshotTime = 0;
+    roundEnding = false;
   } catch (err) {
     post({ type: 'error', payload: { message: errorMessage(err) } });
     running = false;

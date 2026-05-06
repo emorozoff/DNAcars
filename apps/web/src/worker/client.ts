@@ -14,6 +14,7 @@ export type SimClient = {
     track?: Partial<TrackOptions>;
     evo?: Partial<EvoConfig>;
   }): void;
+  startArena(opts: { seed: string; gravity?: number; track?: Partial<TrackOptions> }): void;
   pause(): void;
   resume(): void;
   stop(): void;
@@ -61,6 +62,9 @@ export function createSimClient(): SimClient {
   return {
     start(opts) {
       send({ type: 'start', payload: opts });
+    },
+    startArena(opts) {
+      send({ type: 'start-arena', payload: opts });
     },
     pause() {
       send({ type: 'pause' });

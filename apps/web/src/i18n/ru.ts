@@ -13,6 +13,8 @@ export const ru: Dictionary = {
   'panel.fastforward': 'Ускорить ×8',
   'panel.fastforward.on': 'Обычная скорость',
   'panel.restart': 'Новая популяция',
+  'panel.arena': 'Полигон',
+  'panel.arena.on': 'К эволюции',
   'panel.bestEver': 'Абс. рекорд',
   'panel.bestGen': 'Лучшее пок.',
   'panel.lastBest': 'Прошлое лучшее',

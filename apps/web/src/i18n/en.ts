@@ -11,6 +11,8 @@ const enRaw = {
   'panel.fastforward': 'Fast Forward ×8',
   'panel.fastforward.on': 'Normal speed',
   'panel.restart': 'New Population',
+  'panel.arena': 'Test Arena',
+  'panel.arena.on': 'Back to Evolution',
   'panel.bestEver': 'Best ever',
   'panel.bestGen': 'Best gen',
   'panel.lastBest': 'Last best',

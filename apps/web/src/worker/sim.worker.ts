@@ -18,6 +18,7 @@ import { DEFAULT_FITNESS, carFitness } from '../ga/fitness';
 import { DEFAULT_MUTATION, crossoverGenomes, mutateGenome } from '../ga/genome-ops';
 import { nextGeneration, summarizeGeneration } from '../ga/population';
 import type { Scored } from '../ga/types';
+import { arenaGenomes } from '../sim/arena';
 import { randomGenome } from '../sim/genome';
 import { makeRng, type Rng } from '../sim/prng';
 import { generateTrack, type Track } from '../sim/track';
@@ -36,6 +37,8 @@ let evo: EvoConfig = DEFAULT_EVO;
 let evoRng: Rng = makeRng('init');
 let generationIndex = 0;
 let currentGenomes: Genome[] = [];
+/** When true, finishing a round simply resets the same genomes — no GA. */
+let arenaMode = false;
 
 /** Real-time interval between snapshots posted to the main thread. */
 const SNAPSHOT_INTERVAL_MS = 1000 / 30;
@@ -60,6 +63,9 @@ self.addEventListener('message', (ev: MessageEvent<MainToWorker>) => {
     case 'start':
       void handleStart(msg.payload);
       break;
+    case 'start-arena':
+      void handleStartArena(msg.payload);
+      break;
     case 'pause':
       stopTick();
       break;
@@ -78,6 +84,7 @@ self.addEventListener('message', (ev: MessageEvent<MainToWorker>) => {
 async function handleStart(p: Extract<MainToWorker, { type: 'start' }>['payload']): Promise<void> {
   try {
     handleStop();
+    arenaMode = false;
     track = generateTrack(p.seed, p.track);
     gravity = p.gravity ?? 9.81;
     evo = { ...DEFAULT_EVO, ...(p.evo ?? {}) };
@@ -101,6 +108,35 @@ async function handleStart(p: Extract<MainToWorker, { type: 'start' }>['payload'
         finishX: track.finishX,
         evo,
       },
+    });
+    startTick();
+  } catch (err) {
+    post({ type: 'error', payload: { message: errorMessage(err) } });
+  }
+}
+
+async function handleStartArena(
+  p: Extract<MainToWorker, { type: 'start-arena' }>['payload'],
+): Promise<void> {
+  try {
+    handleStop();
+    arenaMode = true;
+    track = generateTrack(p.seed, p.track);
+    gravity = p.gravity ?? 9.81;
+    generationIndex = 0;
+    currentGenomes = arenaGenomes();
+    evo = { ...DEFAULT_EVO, populationSize: currentGenomes.length };
+
+    world = await createWorld({ track, genomes: currentGenomes, gravity });
+    simTime = 0;
+    realTimeAccumMs = 0;
+    lastTickRealMs = 0;
+    lastSnapshotRealMs = 0;
+    roundEnding = false;
+
+    post({
+      type: 'started',
+      payload: { seed: p.seed, trackPoints: track.points, finishX: track.finishX, evo },
     });
     startTick();
   } catch (err) {
@@ -198,24 +234,28 @@ function advanceGeneration(snapshot: ReturnType<NonNullable<typeof world>['snaps
     },
   });
 
-  // Build next generation
   generationIndex++;
-  currentGenomes = nextGeneration(scored, {
-    populationSize: evo.populationSize,
-    eliteCount: evo.eliteCount,
-    tournamentSize: evo.tournamentSize,
-    crossover: (a, b, rng) => crossoverGenomes(a, b, rng),
-    mutate: (g, rng) =>
-      mutateGenome(g, rng, {
-        ...DEFAULT_MUTATION,
-        rate: evo.mutationRate,
-        sigma: evo.mutationSigma,
-        structuralRate: evo.structuralRate,
-      }),
-    rng: evoRng,
-  });
+  if (arenaMode) {
+    // In the arena, evolution is off — we keep replaying the same fixed
+    // set of test cases so the user can compare runs side by side.
+    // currentGenomes stays as-is.
+  } else {
+    currentGenomes = nextGeneration(scored, {
+      populationSize: evo.populationSize,
+      eliteCount: evo.eliteCount,
+      tournamentSize: evo.tournamentSize,
+      crossover: (a, b, rng) => crossoverGenomes(a, b, rng),
+      mutate: (g, rng) =>
+        mutateGenome(g, rng, {
+          ...DEFAULT_MUTATION,
+          rate: evo.mutationRate,
+          sigma: evo.mutationSigma,
+          structuralRate: evo.structuralRate,
+        }),
+      rng: evoRng,
+    });
+  }
 
-  // Recreate world with the new genomes on the same track.
   try {
     if (world) world.destroy();
   } catch {

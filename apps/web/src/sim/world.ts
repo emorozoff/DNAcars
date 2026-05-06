@@ -163,18 +163,15 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
   // ground checks — sampleTrackY is the source of truth.
   buildTrack(world, opts.track);
 
-  // Stagger cars horizontally so they don't pile up at spawn.  Each car gets
-  // its own slot ~1.5m wide.  All cars race on the same track but start
-  // their counter from their own spawnX.
-  const baseSpawnX = opts.spawnX ?? 0;
-  const baseSpawnY = (opts.spawnY ?? 0) + 1.6;
-  const SLOT = 1.5;
+  // All cars share the same spawn coordinate — collision groups already
+  // prevent them from interacting, so visual overlap on frame 1 is
+  // expected and harmless.  Same starting line keeps comparisons honest.
+  const sx = opts.spawnX ?? 0;
+  const sy = (opts.spawnY ?? 0) + sampleTrackY(opts.track, sx) + 1.6;
 
-  const cars: CarRuntime[] = opts.genomes.map((genome, index) => {
-    const sx = baseSpawnX + index * SLOT;
-    const sy = baseSpawnY + sampleTrackY(opts.track, sx);
-    return buildCar(world, genome, index, sx, sy);
-  });
+  const cars: CarRuntime[] = opts.genomes.map((genome, index) =>
+    buildCar(world, genome, index, sx, sy),
+  );
 
   let time = 0;
 

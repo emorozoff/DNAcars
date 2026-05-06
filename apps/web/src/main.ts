@@ -37,19 +37,40 @@ async function bootstrap(): Promise<void> {
     lastBest: stat('stat-last-best'),
     btnFastForward: document.getElementById('btn-fastforward') as HTMLButtonElement | null,
     btnRestart: document.getElementById('btn-restart') as HTMLButtonElement | null,
+    btnArena: document.getElementById('btn-arena') as HTMLButtonElement | null,
   };
 
   let bestEver = 0;
+  let arenaOn = false;
 
   const sim = createSimClient();
 
   function startSeed(seed: string): void {
+    arenaOn = false;
+    syncArenaButton();
     sim.start({ seed });
     bestEver = 0;
     if (ui.bestEver) ui.bestEver.textContent = '—';
     if (ui.bestGen) ui.bestGen.textContent = '—';
     if (ui.lastBest) ui.lastBest.textContent = '—';
     if (ui.generation) ui.generation.textContent = '0';
+  }
+
+  function startArena(): void {
+    arenaOn = true;
+    syncArenaButton();
+    sim.startArena({ seed: 'arena' });
+    bestEver = 0;
+    if (ui.bestEver) ui.bestEver.textContent = '—';
+    if (ui.bestGen) ui.bestGen.textContent = '—';
+    if (ui.lastBest) ui.lastBest.textContent = '—';
+    if (ui.generation) ui.generation.textContent = 'arena';
+  }
+
+  function syncArenaButton(): void {
+    if (!ui.btnArena) return;
+    ui.btnArena.textContent = arenaOn ? t('panel.arena.on') : t('panel.arena');
+    ui.btnArena.classList.toggle('btn--primary', arenaOn);
   }
 
   sim.on('ready', () => {
@@ -106,6 +127,13 @@ async function bootstrap(): Promise<void> {
   ui.btnRestart?.addEventListener('click', () => {
     startSeed(`dev-${Date.now().toString(36)}`);
   });
+
+  ui.btnArena?.addEventListener('click', () => {
+    if (arenaOn) startSeed(`dev-${Date.now().toString(36)}`);
+    else startArena();
+  });
+
+  syncArenaButton();
 }
 
 if (document.readyState === 'loading') {

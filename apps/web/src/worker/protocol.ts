@@ -29,6 +29,14 @@ export type MainToWorker =
         evo?: Partial<EvoConfig>;
       };
     }
+  | {
+      type: 'start-arena';
+      payload: {
+        seed: string;
+        gravity?: number;
+        track?: Partial<TrackOptions>;
+      };
+    }
   | { type: 'pause' }
   | { type: 'resume' }
   | { type: 'stop' }

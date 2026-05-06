@@ -92,11 +92,7 @@ type Session = {
   stop(): void;
 };
 
-async function startSession(
-  seed: number,
-  scene: SceneHandle,
-  hud: Hud,
-): Promise<Session> {
+async function startSession(seed: number, scene: SceneHandle, hud: Hud): Promise<Session> {
   const track = generateTrack(seed);
   scene.setTrack(track.points);
 

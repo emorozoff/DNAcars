@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - claude/research-genetic-cars-OipDI
+      - claude/fix-car-physics-OoJYe
   workflow_dispatch:
 
 permissions:

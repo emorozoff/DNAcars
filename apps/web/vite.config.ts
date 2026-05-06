@@ -5,9 +5,9 @@ import { readFileSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const pkg = JSON.parse(
-  readFileSync(resolve(__dirname, 'package.json'), 'utf-8'),
-) as { version: string };
+const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8')) as {
+  version: string;
+};
 
 export default defineConfig(({ mode }) => ({
   // GitHub Pages serves the site under /DNAcars/.  In dev we keep '/' so

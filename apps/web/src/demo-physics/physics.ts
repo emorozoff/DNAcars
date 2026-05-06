@@ -197,9 +197,7 @@ export function randomGenome(rng: Rng): Genome {
   const n = randInt(rng, TUNING.chassis.minVertices, TUNING.chassis.maxVertices);
   const radii: number[] = [];
   for (let i = 0; i < n; i++) {
-    radii.push(
-      lerp(TUNING.chassis.minRadius, TUNING.chassis.maxRadius, rng()),
-    );
+    radii.push(lerp(TUNING.chassis.minRadius, TUNING.chassis.maxRadius, rng()));
   }
   const wheelCount = randInt(rng, TUNING.wheel.minCount, TUNING.wheel.maxCount);
   const wheels: WheelGene[] = [];
@@ -272,7 +270,12 @@ export type CarSnapshot = {
   speed: number;
   travel: number;
   vertices: { x: number; y: number }[];
-  wheels: { position: { x: number; y: number }; angle: number; radius: number; onGround: boolean }[];
+  wheels: {
+    position: { x: number; y: number };
+    angle: number;
+    radius: number;
+    onGround: boolean;
+  }[];
 };
 
 export type WorldSnapshot = {
@@ -391,8 +394,7 @@ function buildCar(
     flatVerts[i * 2] = verts[i]!.x;
     flatVerts[i * 2 + 1] = verts[i]!.y;
   }
-  const hullDesc =
-    RAPIER.ColliderDesc.convexHull(flatVerts) ?? RAPIER.ColliderDesc.ball(0.5);
+  const hullDesc = RAPIER.ColliderDesc.convexHull(flatVerts) ?? RAPIER.ColliderDesc.ball(0.5);
   hullDesc
     .setDensity(genome.chassisDensity)
     .setFriction(TUNING.chassis.friction)
@@ -512,11 +514,7 @@ function applyMotor(car: CarRuntime): void {
     const cur = w.body.angvel();
     const err = targetOmega - cur;
     const maxTorque =
-      w.motorTorque *
-      totalMass *
-      GRAVITY *
-      Math.max(0.15, w.radius) *
-      TUNING.motor.torqueHeadroom;
+      w.motorTorque * totalMass * GRAVITY * Math.max(0.15, w.radius) * TUNING.motor.torqueHeadroom;
     const torque = clamp(err * TUNING.motor.feedbackGain, -maxTorque, maxTorque);
     w.body.addTorque(torque, true);
   }

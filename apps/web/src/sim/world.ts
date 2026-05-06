@@ -104,7 +104,12 @@ type CarRuntime = {
   index: number;
   decoded: DecodedCar;
   chassis: RAPIER.RigidBody;
-  wheels: { body: RAPIER.RigidBody; joint: RAPIER.ImpulseJoint; radius: number }[];
+  wheels: {
+    body: RAPIER.RigidBody;
+    collider: RAPIER.Collider;
+    joint: RAPIER.ImpulseJoint;
+    radius: number;
+  }[];
   health: number;
   alive: boolean;
   /** Once true, never read from chassis/wheel bodies again. */
@@ -126,7 +131,7 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
   // across versions.
   world.timestep = SIM_DT;
 
-  buildTrack(world, opts.track);
+  const groundCollider = buildTrack(world, opts.track);
 
   // Stagger cars horizontally so they don't pile up at spawn.  Each car gets
   // its own slot ~1.5m wide.  All cars race on the same track but start
@@ -149,7 +154,7 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
     step(): void {
       for (const car of cars) {
         if (!car.alive) continue;
-        applyMotor(car, gravityMag);
+        applyMotor(car, gravityMag, world, groundCollider);
       }
       world.step();
       time += SIM_DT;
@@ -194,7 +199,7 @@ function sampleTrackY(track: Track, x: number): number {
   return a.y + (b.y - a.y) * t;
 }
 
-function buildTrack(world: RAPIER.World, track: Track): void {
+function buildTrack(world: RAPIER.World, track: Track): RAPIER.Collider {
   const groundDesc = RAPIER.RigidBodyDesc.fixed();
   const ground = world.createRigidBody(groundDesc);
 
@@ -206,11 +211,12 @@ function buildTrack(world: RAPIER.World, track: Track): void {
   }
 
   const colliderDesc = RAPIER.ColliderDesc.polyline(flat)
-    .setFriction(0.85)
+    .setFriction(1.0)
     .setRestitution(0.05)
-    .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CAR_BODY | GROUP.CAR_WHEEL));
+    .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CAR_BODY | GROUP.CAR_WHEEL))
+    .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
 
-  world.createCollider(colliderDesc, ground);
+  return world.createCollider(colliderDesc, ground);
 }
 
 /* ─── Car construction ──────────────────────────────────────────────────── */
@@ -227,8 +233,8 @@ function buildCar(
   // Chassis ────────────────────────────────────────────────────────────
   const chassisBodyDesc = RAPIER.RigidBodyDesc.dynamic()
     .setTranslation(spawnX, spawnY)
-    .setLinearDamping(0.0)
-    .setAngularDamping(0.0)
+    .setLinearDamping(0.05)
+    .setAngularDamping(0.4)
     .setCcdEnabled(true);
   const chassis = world.createRigidBody(chassisBodyDesc);
 
@@ -243,9 +249,12 @@ function buildCar(
     RAPIER.ColliderDesc.convexHull(flatVerts) ??
     RAPIER.ColliderDesc.ball(0.5); /* hull may be null on degenerate input */
 
+  // Friction is tiny on purpose: when a car lands on its back it should
+  // slide, not crawl forward by scrubbing the track with its body.  All
+  // grip should come from the wheels.
   chassisColliderDesc
     .setDensity(decoded.chassis.density)
-    .setFriction(0.9)
+    .setFriction(0.05)
     .setRestitution(0.05)
     .setCollisionGroups(packGroups(GROUP.CAR_BODY, GROUP.TRACK));
 
@@ -267,14 +276,16 @@ function buildCar(
       .setDensity(wheelGene.density)
       .setFriction(wheelGene.friction)
       .setRestitution(0.05)
-      .setCollisionGroups(packGroups(GROUP.CAR_WHEEL, GROUP.TRACK));
+      .setCollisionGroups(packGroups(GROUP.CAR_WHEEL, GROUP.TRACK))
+      // Active events so the world keeps a contact list we can query.
+      .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
 
-    world.createCollider(wheelColliderDesc, wheelBody);
+    const wheelCollider = world.createCollider(wheelColliderDesc, wheelBody);
 
     const jointParams = RAPIER.JointData.revolute({ x: anchor.x, y: anchor.y }, { x: 0, y: 0 });
     const joint = world.createImpulseJoint(jointParams, chassis, wheelBody, true);
 
-    wheels.push({ body: wheelBody, joint, radius: wheelGene.radius });
+    wheels.push({ body: wheelBody, collider: wheelCollider, joint, radius: wheelGene.radius });
   }
 
   return {
@@ -298,7 +309,12 @@ function buildCar(
  * directly through `applyTorqueImpulse`.  This is more portable across
  * Rapier versions than relying on the joint motor.
  */
-function applyMotor(car: CarRuntime, gravity: number): void {
+function applyMotor(
+  car: CarRuntime,
+  gravity: number,
+  world: RAPIER.World,
+  groundCollider: RAPIER.Collider,
+): void {
   const m = car.decoded.motor;
   const targetOmega = -m.baseSpeed * m.gearRatio;
   const totalMass = totalMassOf(car);
@@ -308,6 +324,12 @@ function applyMotor(car: CarRuntime, gravity: number): void {
     const wheelGene = car.decoded.wheels[i]!;
     if (wheelGene.motorTorqueFraction <= 0) continue;
 
+    // Engine only engages when the wheel is touching the track — otherwise a
+    // free-spinning wheel produces no useful work and should not generate
+    // any reaction on the chassis either.
+    const onGround = isWheelTouchingTrack(world, w.collider, groundCollider);
+    if (!onGround) continue;
+
     const currentOmega = w.body.angvel();
     const error = targetOmega - currentOmega;
     // Max torque sized to be able to lift the whole car on a slope.
@@ -316,9 +338,37 @@ function applyMotor(car: CarRuntime, gravity: number): void {
     // Aggressive P-gain so the wheel reaches target speed within ~0.3s.
     const torque = clamp(error * 8, -maxTorque, maxTorque);
     w.body.addTorque(torque, true);
-    // Reaction on the chassis — slight body roll on acceleration.
-    car.chassis.addTorque(-torque * 0.15, true);
   }
+}
+
+/**
+ * Returns true if the wheel collider has any contact pair with the track.
+ * Falls back to a small AABB probe if the contact API is unavailable in
+ * this Rapier build.
+ */
+function isWheelTouchingTrack(
+  world: RAPIER.World,
+  wheel: RAPIER.Collider,
+  track: RAPIER.Collider,
+): boolean {
+  const w = world as unknown as {
+    contactPair?: (
+      a: RAPIER.Collider,
+      b: RAPIER.Collider,
+      cb: (m: unknown, flipped: boolean) => void,
+    ) => void;
+  };
+  if (typeof w.contactPair === 'function') {
+    let touching = false;
+    w.contactPair(wheel, track, () => {
+      touching = true;
+    });
+    return touching;
+  }
+  // Fallback: assume touching when the wheel's vertical velocity is near 0.
+  // Only used if the contact API is missing — should never trigger in
+  // practice on @dimforge/rapier2d-compat 0.19+.
+  return Math.abs(wheel.parent()?.linvel().y ?? 0) < 0.5;
 }
 
 function clamp(x: number, lo: number, hi: number): number {

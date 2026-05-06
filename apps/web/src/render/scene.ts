@@ -2,6 +2,13 @@
  * Scene controller — owns the Pixi application, world container, track and
  * cars graphics.  Consumes `WorldSnapshot`s from the simulation worker and
  * keeps the visual state in sync.
+ *
+ * Movement is *interpolated*: physics snapshots arrive at ~60 Hz but their
+ * timing jitters (worker queues, GC, OS timers).  Naively snapping the
+ * sprites to each snapshot causes a stuttery feel.  Instead we keep the
+ * previous and current snapshot for each car and lerp between them on the
+ * Pixi ticker, which gives perfectly smooth motion regardless of how
+ * messages arrive.
  */
 
 import { Application, Container, Graphics } from 'pixi.js';
@@ -9,6 +16,8 @@ import type { CarSnapshot, WorldSnapshot } from '../sim/world';
 
 const DEFAULT_ZOOM = 60;
 const CAMERA_LERP = 0.08;
+/** Expected interval between snapshots in ms. Worker posts at 60Hz. */
+const SNAPSHOT_INTERVAL_MS = 1000 / 60;
 
 export type SceneHandle = {
   setTrack(points: { x: number; y: number }[]): void;
@@ -46,6 +55,11 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   const carViews = new Map<number, CarView>();
   let trackPoints: { x: number; y: number }[] | null = null;
 
+  // Two most recent snapshots — used for interpolation.
+  let prevSnapshot: WorldSnapshot | null = null;
+  let currSnapshot: WorldSnapshot | null = null;
+  let snapshotPostedAt = 0;
+
   applyTransform();
 
   const onResize = (): void => {
@@ -55,8 +69,14 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   const ro = new ResizeObserver(onResize);
   ro.observe(host);
 
-  // Smooth camera & re-apply transform every frame.
   app.ticker.add(() => {
+    if (currSnapshot) {
+      const ageMs = performance.now() - snapshotPostedAt;
+      // Allow mild extrapolation up to one extra frame so motion stays
+      // smooth even if a snapshot is briefly late.
+      const alpha = clamp(ageMs / SNAPSHOT_INTERVAL_MS, 0, 1.25);
+      renderInterpolated(prevSnapshot, currSnapshot, alpha);
+    }
     camera.x += (cameraTarget.x - camera.x) * CAMERA_LERP;
     camera.y += (cameraTarget.y - camera.y) * CAMERA_LERP;
     applyTransform();
@@ -65,7 +85,6 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   function applyTransform(): void {
     const w = app.renderer.width / (window.devicePixelRatio || 1);
     const h = app.renderer.height / (window.devicePixelRatio || 1);
-    // Center the camera horizontally, place it ~60% down the screen.
     world.position.set(w / 2 - camera.x * zoom, h * 0.6 + camera.y * zoom);
     world.scale.set(zoom, -zoom);
   }
@@ -74,14 +93,12 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     if (!trackPoints || trackPoints.length < 2) return;
     trackGfx.clear();
 
-    // Distance markers every 25m — soft accent dots aligned to the track.
     const last = trackPoints[trackPoints.length - 1]!;
     for (let x = 0; x <= last.x; x += 25) {
       const y = sampleTrackY(trackPoints, x);
       trackGfx.circle(x, y, 0.08).fill({ color: colors.fg, alpha: 0.25 });
     }
 
-    // Main track polyline — thicker and lighter for visibility.
     trackGfx.moveTo(trackPoints[0]!.x, trackPoints[0]!.y);
     for (let i = 1; i < trackPoints.length; i++) {
       const p = trackPoints[i]!;
@@ -89,11 +106,62 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     }
     trackGfx.stroke({ color: colors.track, width: 0.08, alpha: 1 });
 
-    // Finish line at the last point.
     trackGfx
       .moveTo(last.x, last.y)
       .lineTo(last.x, last.y + 4)
       .stroke({ color: colors.accent, width: 0.06, alpha: 0.8 });
+  }
+
+  function renderInterpolated(
+    prev: WorldSnapshot | null,
+    curr: WorldSnapshot,
+    alpha: number,
+  ): void {
+    const seen = new Set<number>();
+    const prevByIndex = new Map<number, CarSnapshot>();
+    if (prev) for (const c of prev.cars) prevByIndex.set(c.index, c);
+
+    let leadX = -Infinity;
+    let leadY = 0;
+    let leadTravel = -Infinity;
+
+    for (const car of curr.cars) {
+      seen.add(car.index);
+      let view = carViews.get(car.index);
+      if (!view) {
+        view = makeCarView(car, colors);
+        carsLayer.addChild(view.container);
+        carViews.set(car.index, view);
+      }
+      const prevCar = prevByIndex.get(car.index);
+      // No interpolation for dead cars — they're frozen anyway.
+      const a = car.alive && prevCar ? alpha : 1;
+      const px = prevCar ? prevCar.position.x : car.position.x;
+      const py = prevCar ? prevCar.position.y : car.position.y;
+      const pAng = prevCar ? prevCar.angle : car.angle;
+      const ix = lerp(px, car.position.x, a);
+      const iy = lerp(py, car.position.y, a);
+      const iAng = lerpAngle(pAng, car.angle, a);
+      updateCarView(view, car, prevCar, a, ix, iy, iAng, colors);
+
+      if (car.alive && car.travel > leadTravel) {
+        leadTravel = car.travel;
+        leadX = ix;
+        leadY = iy;
+      }
+    }
+
+    for (const [k, view] of carViews) {
+      if (!seen.has(k)) {
+        carsLayer.removeChild(view.container);
+        view.container.destroy({ children: true });
+        carViews.delete(k);
+      }
+    }
+
+    if (leadTravel > -Infinity) {
+      cameraTarget = { x: leadX, y: leadY };
+    }
   }
 
   return {
@@ -105,31 +173,9 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       cameraTarget = { ...camera };
     },
     setSnapshot(snapshot): void {
-      // Add / update views for each car.
-      const seen = new Set<number>();
-      for (const car of snapshot.cars) {
-        seen.add(car.index);
-        let view = carViews.get(car.index);
-        if (!view) {
-          view = makeCarView(car, colors);
-          carsLayer.addChild(view.container);
-          carViews.set(car.index, view);
-        }
-        updateCarView(view, car, colors);
-      }
-      // Drop views for cars that disappeared (e.g. world reset).
-      for (const [k, view] of carViews) {
-        if (!seen.has(k)) {
-          carsLayer.removeChild(view.container);
-          view.container.destroy({ children: true });
-          carViews.delete(k);
-        }
-      }
-      // Camera follows the leader (max x among alive cars).
-      const leader = pickLeader(snapshot.cars);
-      if (leader) {
-        cameraTarget = { x: leader.position.x, y: leader.position.y };
-      }
+      prevSnapshot = currSnapshot;
+      currSnapshot = snapshot;
+      snapshotPostedAt = performance.now();
     },
     destroy(): void {
       ro.disconnect();
@@ -144,13 +190,14 @@ type CarView = {
   container: Container;
   body: Graphics;
   wheels: Graphics[];
+  recolored: boolean;
 };
 
 function makeCarView(car: CarSnapshot, colors: ReturnType<typeof readColors>): CarView {
   const container = new Container();
   const body = new Graphics();
   body.poly(car.vertices.map((v) => ({ x: v.x, y: v.y })));
-  body.fill({ color: colors.bg, alpha: 0.0 }); // transparent fill, outlined body
+  body.fill({ color: colors.bg, alpha: 0.0 });
   body.stroke({ color: colors.body, width: 0.05 });
   container.addChild(body);
 
@@ -159,53 +206,68 @@ function makeCarView(car: CarSnapshot, colors: ReturnType<typeof readColors>): C
     const g = new Graphics();
     g.circle(0, 0, w.radius);
     g.stroke({ color: colors.wheel, width: 0.045 });
-    // Spoke for visible rotation.
     g.moveTo(0, 0).lineTo(w.radius, 0);
     g.stroke({ color: colors.wheel, width: 0.04 });
     wheels.push(g);
     container.addChild(g);
   }
-  return { container, body, wheels };
+  return { container, body, wheels, recolored: false };
 }
 
 function updateCarView(
   view: CarView,
   car: CarSnapshot,
+  prevCar: CarSnapshot | undefined,
+  alpha: number,
+  ix: number,
+  iy: number,
+  iAng: number,
   colors: ReturnType<typeof readColors>,
 ): void {
-  view.container.position.set(car.position.x, car.position.y);
-  view.container.rotation = car.angle;
+  view.container.position.set(ix, iy);
+  view.container.rotation = iAng;
   view.container.alpha = car.alive ? 1 : 0.25;
 
   for (let i = 0; i < view.wheels.length; i++) {
     const wg = view.wheels[i]!;
     const ws = car.wheels[i];
     if (!ws) continue;
-    // Wheels live in world space, not in the chassis frame, so undo the
-    // chassis transform: position relative to chassis, then rotate by
-    // -car.angle to express the wheel's world position in the chassis's
-    // local frame (since the chassis container itself rotates by car.angle).
-    const dx = ws.position.x - car.position.x;
-    const dy = ws.position.y - car.position.y;
-    const cos = Math.cos(-car.angle);
-    const sin = Math.sin(-car.angle);
+    const wp = prevCar?.wheels[i];
+    // Interpolate wheel world position, then express it in the chassis frame.
+    const wx = wp ? lerp(wp.position.x, ws.position.x, alpha) : ws.position.x;
+    const wy = wp ? lerp(wp.position.y, ws.position.y, alpha) : ws.position.y;
+    const dx = wx - ix;
+    const dy = wy - iy;
+    const cos = Math.cos(-iAng);
+    const sin = Math.sin(-iAng);
     wg.position.set(dx * cos - dy * sin, dx * sin + dy * cos);
-    wg.rotation = ws.angle - car.angle;
+    const wAng = wp ? lerpAngle(wp.angle, ws.angle, alpha) : ws.angle;
+    wg.rotation = wAng - iAng;
   }
-  // Recolor on death just for clarity (one pass).
-  if (!car.alive && view.body.tint !== colors.dim) {
+
+  if (!car.alive && !view.recolored) {
     view.body.tint = colors.dim;
     for (const w of view.wheels) w.tint = colors.dim;
+    view.recolored = true;
   }
 }
 
-function pickLeader(cars: CarSnapshot[]): CarSnapshot | null {
-  let best: CarSnapshot | null = null;
-  for (const c of cars) {
-    if (!c.alive) continue;
-    if (!best || c.travel > best.travel) best = c;
-  }
-  return best ?? cars[0] ?? null;
+/* ─── Math helpers ──────────────────────────────────────────────────────── */
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+/** Lerp through the shortest arc. */
+function lerpAngle(a: number, b: number, t: number): number {
+  let delta = b - a;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  return a + delta * t;
+}
+
+function clamp(x: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, x));
 }
 
 /* ─── Colors ────────────────────────────────────────────────────────────── */
@@ -233,7 +295,6 @@ function readColors(): {
 
 function sampleTrackY(points: { x: number; y: number }[], x: number): number {
   if (x <= 0) return 0;
-  // Points are uniformly spaced; find the bucket then lerp.
   const last = points[points.length - 1]!;
   if (x >= last.x) return last.y;
   const step = points.length > 1 ? points[1]!.x - points[0]!.x : 1;

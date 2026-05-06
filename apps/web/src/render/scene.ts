@@ -13,7 +13,9 @@
  */
 
 import { Application, Container, Graphics } from 'pixi.js';
-import type { CarSnapshot, WorldSnapshot } from '../sim/world';
+import { TUNING, type CarSnapshot, type WorldSnapshot } from '../sim/world';
+
+const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
 const ZOOM = 50;
 const CAMERA_LERP = 0.08;
@@ -179,12 +181,18 @@ function makeCarView(car: CarSnapshot): CarView {
   const wheels: Graphics[] = [];
   for (const w of car.wheels) {
     const g = new Graphics();
+    // Stroke thickness is the *visible* signal of a wheel's `power` gene
+    // — thin = weak/light, thick = strong/heavy.  Player can read a
+    // wheel's power off its line weight without any extra UI.
+    const stroke = lerp(TUNING.wheel.minStroke, TUNING.wheel.maxStroke, w.power);
     g.circle(0, 0, w.radius);
     // White stroke so the per-frame tint (grey / green) renders at full
     // saturation.  A grey stroke would multiply colours down to mud.
-    g.stroke({ color: 0xffffff, width: 0.05 });
+    g.stroke({ color: 0xffffff, width: stroke });
+    // Spoke from hub to rim — a touch thinner than the rim so the orientation
+    // reads at a glance.
     g.moveTo(0, 0).lineTo(w.radius, 0);
-    g.stroke({ color: 0xffffff, width: 0.04 });
+    g.stroke({ color: 0xffffff, width: stroke * 0.7 });
     g.tint = COLORS.wheel;
     wheels.push(g);
     container.addChild(g);

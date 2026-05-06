@@ -53,8 +53,20 @@ export const TUNING = {
     maxCount: 4,
     minRadius: 0.18,
     maxRadius: 0.7,
-    minDensity: 30,
-    maxDensity: 80,
+    /**
+     * Per-wheel "power" gene (0..1) drives mass, motor strength and
+     * visual stroke width together — the trio of {light, weak, thin}
+     * vs {heavy, strong, thick}.  A car can't pick "powerful but
+     * light" or "heavy but weak"; the three traits are bound so the
+     * player can read a wheel's power off its line thickness alone.
+     */
+    minDensity: 50,
+    maxDensity: 400,
+    minMotorFrac: 0.2,
+    maxMotorFrac: 1.0,
+    /** Visual stroke width range (world metres, multiplied by render zoom). */
+    minStroke: 0.03,
+    maxStroke: 0.12,
     friction: 1.6,
     restitution: 0.0,
     linearDamping: 0.05,
@@ -199,9 +211,15 @@ export function sampleTrackY(track: Track, x: number): number {
 
 export type WheelGene = {
   attachVertex: number;
+  /** Wheel radius in metres — independent gene. */
   radius: number;
-  density: number;
-  motorTorque: number;
+  /**
+   * Single power scalar in [0,1] that decides mass, motor strength
+   * and visual line thickness all at once.  0 = thin/weak/light,
+   * 1 = thick/strong/heavy.  See TUNING.wheel for the absolute ranges
+   * each axis is mapped to.
+   */
+  power: number;
 };
 
 export type Genome = {
@@ -224,8 +242,7 @@ export function randomGenome(rng: Rng): Genome {
     wheels.push({
       attachVertex: randInt(rng, 0, n - 1),
       radius: lerp(TUNING.wheel.minRadius, TUNING.wheel.maxRadius, rng()),
-      density: lerp(TUNING.wheel.minDensity, TUNING.wheel.maxDensity, rng()),
-      motorTorque: lerp(0.4, 1.0, rng()),
+      power: rng(),
     });
   }
   return {
@@ -257,6 +274,9 @@ type WheelRuntime = {
   body: RAPIER.RigidBody;
   joint: RAPIER.ImpulseJoint;
   radius: number;
+  /** Cached genome power scalar 0..1, surfaced on snapshot for the renderer. */
+  power: number;
+  /** Pre-computed motor-torque fraction (mapped from power at build time). */
   motorTorque: number;
   onGround: boolean;
 };
@@ -290,6 +310,8 @@ export type CarSnapshot = {
     position: { x: number; y: number };
     angle: number;
     radius: number;
+    /** 0..1 power scalar — drives wheel-stroke thickness in the renderer. */
+    power: number;
     onGround: boolean;
   }[];
 };
@@ -465,6 +487,10 @@ function buildCar(
 
   const wheels: WheelRuntime[] = accepted.map((wg) => {
     const anchor = verts[wg.attachVertex]!;
+    // Map the single 0..1 power gene onto the three concrete physical
+    // axes — mass, motor strength, visual stroke width.
+    const density = lerp(TUNING.wheel.minDensity, TUNING.wheel.maxDensity, wg.power);
+    const motorTorque = lerp(TUNING.wheel.minMotorFrac, TUNING.wheel.maxMotorFrac, wg.power);
     const wb = world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
         .setTranslation(spawnX + anchor.x, spawnY + anchor.y)
@@ -474,7 +500,7 @@ function buildCar(
     );
     world.createCollider(
       RAPIER.ColliderDesc.ball(wg.radius)
-        .setDensity(wg.density)
+        .setDensity(density)
         .setFriction(TUNING.wheel.friction)
         .setRestitution(TUNING.wheel.restitution)
         .setCollisionGroups(packGroups(GROUP.WHEEL, GROUP.TRACK)),
@@ -490,7 +516,8 @@ function buildCar(
       body: wb,
       joint,
       radius: wg.radius,
-      motorTorque: wg.motorTorque,
+      power: wg.power,
+      motorTorque,
       onGround: false,
     };
   });
@@ -649,6 +676,7 @@ function snapshotCar(car: CarRuntime): CarSnapshot {
         position: { x: wp.x, y: wp.y },
         angle: w.body.rotation(),
         radius: w.radius,
+        power: w.power,
         onGround: w.onGround,
       };
     }),

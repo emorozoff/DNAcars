@@ -60,20 +60,42 @@ export const TUNING = {
     torqueHeadroom: 1.8,
     /** Strength of the angular-velocity error term (higher = stiffer feel). */
     feedbackGain: 7,
+    /**
+     * Beyond this chassis tilt the motor is gated off.  Without this, the
+     * motor's reaction torque on the chassis (Newton's 3rd, via the joint)
+     * cancels gravity at some equilibrium angle and the car "balances"
+     * indefinitely on a single wheel.  Cutting the motor at 45° lets
+     * gravity always win once the body leans hard.
+     */
+    maxChassisTilt: (45 * Math.PI) / 180,
   },
   contact: {
     /** Max distance from track surface to count a wheel as "on ground" (m). */
     wheelTolerance: 0.06,
-    /** Max distance from track surface to count a chassis vertex as touching (m). */
-    chassisTolerance: 0.05,
+    /** Max distance from track surface to count a chassis sample as touching (m). */
+    chassisTolerance: 0.06,
   },
   crash: {
-    /** Body angle (rad) past which we start counting toward a rollover crash. */
-    rolloverAngle: Math.PI / 2,
+    /**
+     * Body angle (rad) past which we start counting toward a rollover crash.
+     * Tighter than the visual "upside-down" of 90° — at 70° the car is so
+     * tilted that any further tip is one-way, so we kill it preemptively.
+     */
+    rolloverAngle: (70 * Math.PI) / 180,
     /** Time (s) the angle must stay past the threshold to crash. */
-    rolloverGrace: 0.4,
-    /** Time (s) the chassis must touch ground continuously to crash. */
-    bodyContactGrace: 0.7,
+    rolloverGrace: 0.35,
+    /**
+     * Smoothing factor for the body-contact EMA: each tick we blend in a
+     * 1 (touching) or 0 (clear).  ALPHA = 0.07 ⇒ ~half-life 10 ticks.
+     */
+    bodyContactAlpha: 0.07,
+    /**
+     * EMA threshold above which we crash the car as "body-down".  0.4 means
+     * "the chassis has been touching the ground at least ~40% of recent
+     * ticks" — survives an occasional bump but kills a car that's flopped
+     * over and dragging on its hull.
+     */
+    bodyContactThreshold: 0.4,
   },
 } as const;
 
@@ -255,7 +277,8 @@ type CarRuntime = {
   crashed: boolean;
   crashReason: 'rollover' | 'body-down' | 'stalled' | null;
   rolloverTimer: number;
-  bodyContactTimer: number;
+  /** EMA of recent body-on-ground frames; 0=never, 1=always. */
+  bodyContactRatio: number;
   stallTimer: number;
   ageSec: number;
 };
@@ -472,7 +495,7 @@ function buildCar(
     crashed: false,
     crashReason: null,
     rolloverTimer: 0,
-    bodyContactTimer: 0,
+    bodyContactRatio: 0,
     stallTimer: 0,
     ageSec: 0,
   };
@@ -485,15 +508,16 @@ function updateContacts(car: CarRuntime, track: Track): void {
   for (const w of car.wheels) {
     w.onGround = wheelOnGround(w.body, w.radius, track);
   }
-  // Chassis vertex closest to the surface — anything within tolerance
-  // counts as "the body is touching".
-  if (chassisTouchesGround(car, track)) {
-    car.bodyContactTimer += SIM_DT;
-    if (car.bodyContactTimer >= TUNING.crash.bodyContactGrace && !car.crashed) {
-      markCrashed(car, 'body-down');
-    }
-  } else {
-    car.bodyContactTimer = Math.max(0, car.bodyContactTimer - SIM_DT * 2);
+  // Body-on-ground via an exponential moving average of touch frames.
+  // The previous timer-with-decay scheme was too forgiving: a chassis
+  // bouncing on/off the ground at 50 % duty never reached the crash
+  // threshold because the decay was twice as fast as the gain.  An EMA
+  // converges to the actual contact ratio regardless of pattern.
+  const touching = chassisTouchesGround(car, track) ? 1 : 0;
+  const a = TUNING.crash.bodyContactAlpha;
+  car.bodyContactRatio = car.bodyContactRatio * (1 - a) + touching * a;
+  if (car.bodyContactRatio > TUNING.crash.bodyContactThreshold && !car.crashed) {
+    markCrashed(car, 'body-down');
   }
 
   // Rollover.
@@ -525,6 +549,13 @@ function markCrashed(car: CarRuntime, reason: 'rollover' | 'body-down' | 'stalle
 }
 
 function applyMotor(car: CarRuntime): void {
+  // Gate the motor on chassis tilt.  Without this, the reaction torque on
+  // the chassis (the joint partner of the wheel torque) cancels gravity
+  // and the car balances forever on a single wheel — exactly what we
+  // don't want.  With the gate, gravity always wins past 45° tilt.
+  const tilt = Math.abs(normalizeAngle(car.chassis.rotation()));
+  if (tilt > TUNING.motor.maxChassisTilt) return;
+
   const targetOmega = -car.genome.motorSpeed; // negative ⇒ clockwise ⇒ forward
   const totalMass = totalMassOf(car);
   for (const w of car.wheels) {
@@ -572,19 +603,33 @@ function wheelOnGround(body: RAPIER.RigidBody, radius: number, track: Track): bo
 }
 
 function chassisTouchesGround(car: CarRuntime, track: Track): boolean {
+  // Sample at every vertex AND at every edge midpoint.  A polygon resting
+  // on an edge (rather than a corner) has its lowest point in the middle
+  // of that edge — without midpoint sampling, the vertex check missed
+  // those cases and the body-down detector never fired.
   const pos = car.chassis.translation();
   const ang = car.chassis.rotation();
   const cos = Math.cos(ang);
   const sin = Math.sin(ang);
   const tol = TUNING.contact.chassisTolerance;
-  for (const v of car.vertices) {
-    const wx = pos.x + v.x * cos - v.y * sin;
-    const wy = pos.y + v.x * sin + v.y * cos;
-    if (wx < 0 || wx > track.options.length) continue;
-    const gy = sampleTrackY(track, wx);
-    if (wy - gy < tol) return true;
+  const verts = car.vertices;
+  const n = verts.length;
+  for (let i = 0; i < n; i++) {
+    const v = verts[i]!;
+    const next = verts[(i + 1) % n]!;
+    // Vertex.
+    if (sampleBelow(pos.x + v.x * cos - v.y * sin, pos.y + v.x * sin + v.y * cos)) return true;
+    // Edge midpoint.
+    const mx = (v.x + next.x) * 0.5;
+    const my = (v.y + next.y) * 0.5;
+    if (sampleBelow(pos.x + mx * cos - my * sin, pos.y + mx * sin + my * cos)) return true;
   }
   return false;
+
+  function sampleBelow(wx: number, wy: number): boolean {
+    if (wx < 0 || wx > track.options.length) return false;
+    return wy - sampleTrackY(track, wx) < tol;
+  }
 }
 
 function totalMassOf(car: CarRuntime): number {

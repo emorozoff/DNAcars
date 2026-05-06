@@ -169,9 +169,13 @@ function makeCarView(car: CarSnapshot): CarView {
   for (const w of car.wheels) {
     const g = new Graphics();
     g.circle(0, 0, w.radius);
-    g.stroke({ color: COLORS.wheel, width: 0.05 });
+    // Stroke pure white so the per-frame tint (grey / green / red) shows
+    // up at full saturation.  A grey base would multiply tint colours
+    // down and "green" would render as a muddy olive.
+    g.stroke({ color: 0xffffff, width: 0.05 });
     g.moveTo(0, 0).lineTo(w.radius, 0);
-    g.stroke({ color: COLORS.wheel, width: 0.04 });
+    g.stroke({ color: 0xffffff, width: 0.04 });
+    g.tint = COLORS.wheel; // grey by default until updateCarView runs.
     wheels.push(g);
     container.addChild(g);
   }

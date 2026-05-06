@@ -1,10 +1,21 @@
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-export default defineConfig({
+const pkg = JSON.parse(
+  readFileSync(resolve(__dirname, 'package.json'), 'utf-8'),
+) as { version: string };
+
+export default defineConfig(({ mode }) => ({
+  // GitHub Pages serves the site under /DNAcars/.  In dev we keep '/' so
+  // localhost:5173 still works.
+  base: mode === 'production' ? (process.env['BASE_PATH'] ?? '/') : '/',
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
@@ -22,4 +33,4 @@ export default defineConfig({
     target: 'es2022',
     sourcemap: true,
   },
-});
+}));

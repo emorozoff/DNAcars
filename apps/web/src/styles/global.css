@@ -59,6 +59,18 @@ button {
   font-size: var(--fs-md);
 }
 
+.brand__version {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--color-fg-dim);
+  letter-spacing: 0.04em;
+  margin-left: var(--sp-2);
+  padding: 2px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  font-variant-numeric: tabular-nums;
+}
+
 .topbar__nav {
   display: flex;
   gap: var(--sp-2);

@@ -6,6 +6,9 @@ import { createSimClient } from './worker/client';
 async function bootstrap(): Promise<void> {
   applyTranslations();
 
+  const versionEl = document.getElementById('app-version');
+  if (versionEl) versionEl.textContent = `v${__APP_VERSION__}`;
+
   const langBtn = document.getElementById('lang-toggle');
   if (langBtn instanceof HTMLButtonElement) {
     bindLanguageToggle(langBtn);

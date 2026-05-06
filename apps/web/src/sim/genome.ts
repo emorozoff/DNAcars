@@ -16,9 +16,9 @@ export const PHYSICS = {
     minVertices: 6,
     maxVertices: 12,
     minRadius: 0.35,
-    maxRadius: 1.6,
-    minDensity: 80,
-    maxDensity: 320,
+    maxRadius: 1.0,
+    minDensity: 60,
+    maxDensity: 200,
     /** Maximum angular jitter as a fraction of the slot. ±0.4 keeps the polygon convex-ish. */
     angleJitterRange: 0.4,
   },

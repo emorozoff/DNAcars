@@ -121,22 +121,33 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
 
   buildTrack(world, opts.track);
 
-  const spawnX = opts.spawnX ?? 0;
-  const spawnY = (opts.spawnY ?? 0) + 2.5;
+  // Stagger cars horizontally so they don't pile up at spawn.  Each car gets
+  // its own slot ~1.5m wide.  All cars race on the same track but start
+  // their counter from their own spawnX.
+  const baseSpawnX = opts.spawnX ?? 0;
+  const baseSpawnY = (opts.spawnY ?? 0) + 1.6;
+  const SLOT = 1.5;
 
-  const cars: CarRuntime[] = opts.genomes.map((genome, index) =>
-    buildCar(world, genome, index, spawnX, spawnY),
-  );
+  const cars: CarRuntime[] = opts.genomes.map((genome, index) => {
+    const sx = baseSpawnX + index * SLOT;
+    const sy = baseSpawnY + sampleTrackY(opts.track, sx);
+    return buildCar(world, genome, index, sx, sy);
+  });
 
   let time = 0;
 
+  const gravityMag = Math.abs(gravity.y);
+
   return {
     step(): void {
+      for (const car of cars) {
+        if (!car.alive) continue;
+        applyMotor(car, gravityMag);
+      }
       world.step();
       time += SIM_DT;
       for (const car of cars) {
         if (!car.alive) continue;
-        applyMotor(car);
         const updated = updateLifecycle(car);
         if (!updated.alive) destroyCar(world, car);
       }
@@ -156,6 +167,19 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
 }
 
 /* ─── Track construction ────────────────────────────────────────────────── */
+
+/** Linear sample of track height at world x. */
+function sampleTrackY(track: Track, x: number): number {
+  const { step } = track.options;
+  if (x <= 0) return 0;
+  const i = Math.floor(x / step);
+  const a = track.points[i];
+  const b = track.points[i + 1];
+  if (!a) return 0;
+  if (!b) return a.y;
+  const t = (x - a.x) / (b.x - a.x);
+  return a.y + (b.y - a.y) * t;
+}
 
 function buildTrack(world: RAPIER.World, track: Track): void {
   const groundDesc = RAPIER.RigidBodyDesc.fixed();
@@ -191,7 +215,8 @@ function buildCar(
   const chassisBodyDesc = RAPIER.RigidBodyDesc.dynamic()
     .setTranslation(spawnX, spawnY)
     .setLinearDamping(0.0)
-    .setAngularDamping(0.0);
+    .setAngularDamping(0.0)
+    .setCcdEnabled(true);
   const chassis = world.createRigidBody(chassisBodyDesc);
 
   const flatVerts = new Float32Array(decoded.chassis.vertices.length * 2);
@@ -221,7 +246,8 @@ function buildCar(
     const wheelBodyDesc = RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(spawnX + anchor.x, spawnY + anchor.y)
       .setLinearDamping(0.0)
-      .setAngularDamping(0.05);
+      .setAngularDamping(0.05)
+      .setCcdEnabled(true);
     const wheelBody = world.createRigidBody(wheelBodyDesc);
 
     const wheelColliderDesc = RAPIER.ColliderDesc.ball(wheelGene.radius)
@@ -251,26 +277,36 @@ function buildCar(
   };
 }
 
-function applyMotor(car: CarRuntime): void {
+/**
+ * Drive each wheel via a P-controller on its angular velocity, applied
+ * directly through `applyTorqueImpulse`.  This is more portable across
+ * Rapier versions than relying on the joint motor.
+ */
+function applyMotor(car: CarRuntime, gravity: number): void {
   const m = car.decoded.motor;
-  // Motor target speed in rad/s. Negative because we drive to the right (+x),
-  // and a wheel rotating clockwise (negative ω in math convention) moves the
-  // car forward when the road is below.
-  const target = -m.baseSpeed * m.gearRatio;
-
+  const targetOmega = -m.baseSpeed * m.gearRatio;
   const totalMass = totalMassOf(car);
+
   for (let i = 0; i < car.wheels.length; i++) {
     const w = car.wheels[i]!;
     const wheelGene = car.decoded.wheels[i]!;
     if (wheelGene.motorTorqueFraction <= 0) continue;
-    // factor: max torque the motor can apply.  We size it relative to total
-    // mass so wheels can lift heavy bodies on slopes.
-    const factor = (wheelGene.motorTorqueFraction * totalMass * 9.81) / Math.max(0.05, w.radius);
-    const j = w.joint as unknown as { configureMotorVelocity?: (v: number, f: number) => void };
-    if (typeof j.configureMotorVelocity === 'function') {
-      j.configureMotorVelocity(target, factor);
-    }
+
+    const currentOmega = w.body.angvel();
+    const error = targetOmega - currentOmega;
+    // Max torque sized to be able to lift the whole car on a slope.
+    const maxTorque =
+      wheelGene.motorTorqueFraction * totalMass * gravity * Math.max(0.15, w.radius) * 2.5;
+    // Aggressive P-gain so the wheel reaches target speed within ~0.3s.
+    const torque = clamp(error * 8, -maxTorque, maxTorque);
+    w.body.addTorque(torque, true);
+    // Reaction on the chassis — slight body roll on acceleration.
+    car.chassis.addTorque(-torque * 0.15, true);
   }
+}
+
+function clamp(x: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, x));
 }
 
 function totalMassOf(car: CarRuntime): number {

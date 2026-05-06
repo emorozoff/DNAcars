@@ -29,9 +29,9 @@ export type TrackOptions = {
 
 export const DEFAULT_TRACK: TrackOptions = {
   length: 500,
-  step: 0.6,
-  maxAmplitude: 4.0,
-  warmup: 30,
+  step: 0.8,
+  maxAmplitude: 3.5,
+  warmup: 50,
 };
 
 export type Track = {

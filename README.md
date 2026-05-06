@@ -44,17 +44,8 @@ npm run build
 
 ## Roadmap
 
-| Week | Goal                                               |
-| ---- | -------------------------------------------------- |
-| 0    | Foundation — done                                  |
-| 1    | Physics in a worker, deterministic car & track     |
-| 2    | Genetic algorithm core                             |
-| 3    | Pixi rendering, camera, minimap, particles         |
-| 4    | UI panels, charts, genome inspector, mobile layout |
-| 5    | Daily Challenge + leaderboard backend              |
-| 6    | Polish: glow, ambient sound, onboarding            |
-| 7    | QA, profiling, beta                                |
-| 8    | Public release                                     |
+See [`ROADMAP.md`](./ROADMAP.md) — the living plan with current status,
+done items, and what's next.  Updated on every meaningful release.
 
 ## License
 

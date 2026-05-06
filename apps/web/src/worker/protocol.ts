@@ -10,14 +10,23 @@ import type { WorldSnapshot } from '../sim/world';
 
 /* ─── Main → Worker ─────────────────────────────────────────────────────── */
 
+export type EvoConfig = {
+  populationSize: number;
+  eliteCount: number;
+  tournamentSize: number;
+  mutationRate: number;
+  mutationSigma: number;
+  structuralRate: number;
+};
+
 export type MainToWorker =
   | {
       type: 'start';
       payload: {
         seed: string;
-        genomes: Genome[];
         gravity?: number;
         track?: Partial<TrackOptions>;
+        evo?: Partial<EvoConfig>;
       };
     }
   | { type: 'pause' }
@@ -27,6 +36,14 @@ export type MainToWorker =
 
 /* ─── Worker → Main ─────────────────────────────────────────────────────── */
 
+export type GenerationStats = {
+  generation: number;
+  best: number;
+  mean: number;
+  median: number;
+  worst: number;
+};
+
 export type WorkerToMain =
   | { type: 'ready' }
   | {
@@ -35,13 +52,15 @@ export type WorkerToMain =
         seed: string;
         trackPoints: { x: number; y: number }[];
         finishX: number;
+        evo: EvoConfig;
       };
     }
   | { type: 'snapshot'; payload: WorldSnapshot }
   | {
-      type: 'done';
+      type: 'generation';
       payload: {
-        scores: { index: number; score: number }[];
+        stats: GenerationStats;
+        topGenome: Genome;
       };
     }
   | { type: 'error'; payload: { message: string } };
@@ -50,6 +69,15 @@ export type WorkerEvents = {
   ready(): void;
   started(payload: Extract<WorkerToMain, { type: 'started' }>['payload']): void;
   snapshot(payload: WorldSnapshot): void;
-  done(payload: Extract<WorkerToMain, { type: 'done' }>['payload']): void;
+  generation(payload: Extract<WorkerToMain, { type: 'generation' }>['payload']): void;
   error(message: string): void;
+};
+
+export const DEFAULT_EVO: EvoConfig = {
+  populationSize: 30,
+  eliteCount: 2,
+  tournamentSize: 4,
+  mutationRate: 0.08,
+  mutationSigma: 0.18,
+  structuralRate: 0.04,
 };

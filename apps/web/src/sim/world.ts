@@ -57,7 +57,9 @@ export type WorldSnapshot = {
 export type CarSnapshot = {
   index: number;
   alive: boolean;
-  /** Final score in meters.  Equal to maxX when alive, frozen on death. */
+  /** Distance traveled from this car's spawn point, in meters. */
+  travel: number;
+  /** Same as travel but frozen at death. */
   score: number;
   health: number;
   position: { x: number; y: number };
@@ -108,6 +110,7 @@ type CarRuntime = {
   /** Once true, never read from chassis/wheel bodies again. */
   bodiesReleased: boolean;
   score: number;
+  spawnX: number;
   maxX: number;
   vertices: { x: number; y: number }[];
   /** Frozen snapshot taken at the moment of death — read forever after. */
@@ -164,7 +167,9 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
     snapshot(): WorldSnapshot {
       return {
         time,
-        cars: cars.map((c) => (c.bodiesReleased ? c.finalSnapshot ?? deadStub(c) : snapshotLiveCar(c))),
+        cars: cars.map((c) =>
+          c.bodiesReleased ? (c.finalSnapshot ?? deadStub(c)) : snapshotLiveCar(c),
+        ),
       };
     },
 
@@ -281,6 +286,7 @@ function buildCar(
     alive: true,
     bodiesReleased: false,
     score: 0,
+    spawnX,
     maxX: spawnX,
     vertices: decoded.chassis.vertices,
     finalSnapshot: null,
@@ -343,7 +349,7 @@ function updateLifecycle(car: CarRuntime): { alive: boolean } {
 
   if (car.health <= 0) {
     car.alive = false;
-    car.score = car.maxX;
+    car.score = Math.max(0, car.maxX - car.spawnX);
   }
   return { alive: car.alive };
 }
@@ -361,10 +367,12 @@ function destroyCar(world: RAPIER.World, car: CarRuntime): void {
 /** Snapshot from live Rapier bodies — only safe before destruction. */
 function snapshotLiveCar(car: CarRuntime): CarSnapshot {
   const pos = car.chassis.translation();
+  const travel = Math.max(0, car.maxX - car.spawnX);
   return {
     index: car.index,
     alive: car.alive,
-    score: car.alive ? car.maxX : car.score,
+    travel,
+    score: car.alive ? travel : car.score,
     health: car.health,
     position: { x: pos.x, y: pos.y },
     angle: car.chassis.rotation(),
@@ -385,6 +393,7 @@ function deadStub(car: CarRuntime): CarSnapshot {
   return {
     index: car.index,
     alive: false,
+    travel: car.score,
     score: car.score,
     health: 0,
     position: { x: car.maxX, y: 0 },

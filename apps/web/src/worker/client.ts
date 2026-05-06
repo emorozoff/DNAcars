@@ -3,17 +3,16 @@
  * behind a tiny event emitter.
  */
 
-import type { Genome } from '@dnacars/shared';
 import type { TrackOptions } from '../sim/track';
 import type { WorldSnapshot } from '../sim/world';
-import type { MainToWorker, WorkerEvents, WorkerToMain } from './protocol';
+import type { EvoConfig, MainToWorker, WorkerEvents, WorkerToMain } from './protocol';
 
 export type SimClient = {
   start(opts: {
     seed: string;
-    genomes: Genome[];
     gravity?: number;
     track?: Partial<TrackOptions>;
+    evo?: Partial<EvoConfig>;
   }): void;
   pause(): void;
   resume(): void;
@@ -30,7 +29,7 @@ export function createSimClient(): SimClient {
     ready: new Set(),
     started: new Set(),
     snapshot: new Set(),
-    done: new Set(),
+    generation: new Set(),
     error: new Set(),
   };
 
@@ -46,8 +45,8 @@ export function createSimClient(): SimClient {
       case 'snapshot':
         handlers.snapshot.forEach((h) => h(msg.payload as WorldSnapshot));
         break;
-      case 'done':
-        handlers.done.forEach((h) => h(msg.payload));
+      case 'generation':
+        handlers.generation.forEach((h) => h(msg.payload));
         break;
       case 'error':
         handlers.error.forEach((h) => h(msg.payload.message));

@@ -31,8 +31,33 @@
       <main class="stage">
         <div id="pixi-root" class="stage__canvas"></div>
         <aside class="panel">
-          <h2 class="panel__title" data-i18n="panel.title">Generation</h2>
-          <p class="panel__hint" data-i18n="panel.hint">Setup in progress…</p>
+          <h2 class="panel__title" data-i18n="panel.generation">Generation</h2>
+          <div class="stat">
+            <span class="stat__label" data-i18n="panel.gen">Gen</span>
+            <span class="stat__value" id="stat-generation">—</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label" data-i18n="panel.alive">Alive</span>
+            <span class="stat__value" id="stat-alive">—</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label" data-i18n="panel.lead">Lead</span>
+            <span class="stat__value" id="stat-lead">—</span>
+          </div>
+
+          <h3 class="panel__title panel__title--minor" data-i18n="panel.records">Records</h3>
+          <div class="stat">
+            <span class="stat__label" data-i18n="panel.bestEver">Best ever</span>
+            <span class="stat__value" id="stat-best-ever">—</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label" data-i18n="panel.bestGen">Best gen</span>
+            <span class="stat__value" id="stat-best-gen">—</span>
+          </div>
+          <div class="stat">
+            <span class="stat__label" data-i18n="panel.lastBest">Last best</span>
+            <span class="stat__value" id="stat-last-best">—</span>
+          </div>
         </aside>
       </main>
 

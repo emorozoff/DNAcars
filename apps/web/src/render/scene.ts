@@ -192,7 +192,7 @@ function pickLeader(cars: CarSnapshot[]): CarSnapshot | null {
   let best: CarSnapshot | null = null;
   for (const c of cars) {
     if (!c.alive) continue;
-    if (!best || c.position.x > best.position.x) best = c;
+    if (!best || c.travel > best.travel) best = c;
   }
   return best ?? cars[0] ?? null;
 }

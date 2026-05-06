@@ -23,8 +23,10 @@ export const SIM_DT = 1 / 60;
  *   (b) no progress    — less than `progressWindowMin` over a sliding
  *                        `progressWindowSec` window (catches creeping cars).
  *   (c) rolled over    — |chassis.angle| > 110° for `rolledLimitSec` seconds.
- *   (d) body dragging  — chassis collider in contact with track for
- *                        `bodyTouchLimitSec` seconds.
+ *
+ * "Body dragging" no longer needs its own rule: the chassis is now
+ * frictionless, so a car on its roof simply slides until it stalls and
+ * dies via (a) or (b).
  */
 export const HEALTH = {
   initialSeconds: 5,
@@ -38,8 +40,6 @@ export const HEALTH = {
   rolledAngleRad: (110 * Math.PI) / 180,
   /** Allowed time rolled over before death. */
   rolledLimitSec: 1,
-  /** Allowed time chassis-on-track before death. */
-  bodyTouchLimitSec: 1.5,
 } as const;
 
 /** Collision group bitmasks (membership / filter). */
@@ -137,8 +137,6 @@ type CarRuntime = {
   windowStartX: number;
   /** Seconds spent rolled over (|angle| > 110°). */
   rolledSec: number;
-  /** Seconds spent with the chassis body touching the track. */
-  bodyTouchSec: number;
   vertices: { x: number; y: number }[];
   /** Frozen snapshot taken at the moment of death — read forever after. */
   finalSnapshot: CarSnapshot | null;
@@ -182,7 +180,7 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
       time += SIM_DT;
       for (const car of cars) {
         if (!car.alive) continue;
-        const updated = updateLifecycle(car, world, groundCollider);
+        const updated = updateLifecycle(car);
         if (!updated.alive) {
           // Freeze the last visible state, then release Rapier resources.
           car.finalSnapshot = snapshotLiveCar(car);
@@ -290,12 +288,12 @@ function buildCar(
     RAPIER.ColliderDesc.convexHull(flatVerts) ??
     RAPIER.ColliderDesc.ball(0.5); /* hull may be null on degenerate input */
 
-  // Friction is tiny on purpose: when a car lands on its back it should
-  // slide, not crawl forward by scrubbing the track with its body.  All
-  // grip should come from the wheels.  Restitution = 0 to kill bounces.
+  // Friction = 0 on purpose: only wheels are allowed to push the car
+  // forward.  A perfectly slippery body cannot grip the track, so a
+  // toppled car simply slides instead of "scrubbing" itself along.
   chassisColliderDesc
     .setDensity(decoded.chassis.density)
-    .setFriction(0.05)
+    .setFriction(0)
     .setRestitution(0)
     .setCollisionGroups(packGroups(GROUP.CAR_BODY, GROUP.TRACK));
 
@@ -368,16 +366,22 @@ function buildCar(
     windowStartTime: 0,
     windowStartX: spawnX,
     rolledSec: 0,
-    bodyTouchSec: 0,
     vertices: decoded.chassis.vertices,
     finalSnapshot: null,
   };
 }
 
 /**
- * Drive each wheel via a P-controller on its angular velocity, applied
- * directly through `applyTorqueImpulse`.  This is more portable across
- * Rapier versions than relying on the joint motor.
+ * Forward-only motor.  For each wheel:
+ *   1. Raycast straight down from the wheel centre by `radius * 1.1`.
+ *   2. If the ray hits the track collider → wheel is on the ground.
+ *      Apply torque toward the target angular velocity.
+ *   3. If the wheel is airborne → no torque, full stop on the engine.
+ *
+ * The raycast is the most reliable contact test in Rapier-WASM and gives
+ * us a deterministic, consistent answer.  The previous `contactPair` path
+ * silently fell back to "always touching" in compat builds, which was
+ * the root cause of cars driving on their roof.
  */
 function applyMotor(
   car: CarRuntime,
@@ -385,8 +389,6 @@ function applyMotor(
   world: RAPIER.World,
   groundCollider: RAPIER.Collider,
 ): void {
-  // Always-on forward gas: wheels target a constant clockwise spin so the
-  // car drives to the right.  No reverse, no gearbox.
   const targetOmega = -car.decoded.motor.baseSpeed;
   const totalMass = totalMassOf(car);
 
@@ -395,11 +397,7 @@ function applyMotor(
     const wheelGene = car.decoded.wheels[i]!;
     if (wheelGene.motorTorqueFraction <= 0) continue;
 
-    // Engine only engages when the wheel is touching the track — otherwise a
-    // free-spinning wheel produces no useful work and should not generate
-    // any reaction on the chassis either.
-    const onGround = isWheelTouchingTrack(world, w.collider, groundCollider);
-    if (!onGround) continue;
+    if (!isWheelOnGround(world, w.body, w.radius, groundCollider)) continue;
 
     const currentOmega = w.body.angvel();
     const error = targetOmega - currentOmega;
@@ -415,33 +413,25 @@ function applyMotor(
 }
 
 /**
- * Returns true if the wheel collider has any contact pair with the track.
- * Falls back to a small AABB probe if the contact API is unavailable in
- * this Rapier build.
+ * True iff a downward ray from the wheel's centre hits the ground collider
+ * within `radius * 1.1`.  We reuse a single Ray instance to avoid GC churn.
  */
-function isWheelTouchingTrack(
+const _GROUND_RAY = new RAPIER.Ray({ x: 0, y: 0 }, { x: 0, y: -1 });
+function isWheelOnGround(
   world: RAPIER.World,
-  wheel: RAPIER.Collider,
-  track: RAPIER.Collider,
+  wheelBody: RAPIER.RigidBody,
+  radius: number,
+  groundCollider: RAPIER.Collider,
 ): boolean {
-  const w = world as unknown as {
-    contactPair?: (
-      a: RAPIER.Collider,
-      b: RAPIER.Collider,
-      cb: (m: unknown, flipped: boolean) => void,
-    ) => void;
-  };
-  if (typeof w.contactPair === 'function') {
-    let touching = false;
-    w.contactPair(wheel, track, () => {
-      touching = true;
-    });
-    return touching;
-  }
-  // Fallback: assume touching when the wheel's vertical velocity is near 0.
-  // Only used if the contact API is missing — should never trigger in
-  // practice on @dimforge/rapier2d-compat 0.19+.
-  return Math.abs(wheel.parent()?.linvel().y ?? 0) < 0.5;
+  const t = wheelBody.translation();
+  _GROUND_RAY.origin.x = t.x;
+  _GROUND_RAY.origin.y = t.y;
+  const maxToi = radius * 1.1;
+  const hit = world.castRay(_GROUND_RAY, maxToi, true);
+  if (!hit) return false;
+  // Compare collider handles — works whether castRay returns the collider
+  // object directly or via its handle.
+  return hit.collider.handle === groundCollider.handle;
 }
 
 function clamp(x: number, lo: number, hi: number): number {
@@ -454,11 +444,7 @@ function totalMassOf(car: CarRuntime): number {
   return m;
 }
 
-function updateLifecycle(
-  car: CarRuntime,
-  world: RAPIER.World,
-  groundCollider: RAPIER.Collider,
-): { alive: boolean } {
+function updateLifecycle(car: CarRuntime): { alive: boolean } {
   const pos = car.chassis.translation();
   const vel = car.chassis.linvel();
   const speed = Math.hypot(vel.x, vel.y);
@@ -495,18 +481,6 @@ function updateLifecycle(
     car.rolledSec = Math.max(0, car.rolledSec - SIM_DT * 2);
   }
 
-  // (d) Chassis touching the track — only count after grace so a hard
-  // landing on spawn doesn't kill anyone.
-  if (car.ageSec > HEALTH.graceSec) {
-    const dragging = isChassisTouchingTrack(world, car.chassisCollider, groundCollider);
-    if (dragging) {
-      car.bodyTouchSec += SIM_DT;
-      if (car.bodyTouchSec >= HEALTH.bodyTouchLimitSec) car.health = 0;
-    } else {
-      car.bodyTouchSec = Math.max(0, car.bodyTouchSec - SIM_DT * 2);
-    }
-  }
-
   if (car.health <= 0) {
     car.alive = false;
     car.score = Math.max(0, car.maxX - car.spawnX);
@@ -519,26 +493,6 @@ function normalizeAngle(a: number): number {
   if (x > Math.PI) x -= Math.PI * 2;
   if (x < -Math.PI) x += Math.PI * 2;
   return x;
-}
-
-function isChassisTouchingTrack(
-  world: RAPIER.World,
-  chassis: RAPIER.Collider,
-  track: RAPIER.Collider,
-): boolean {
-  const w = world as unknown as {
-    contactPair?: (
-      a: RAPIER.Collider,
-      b: RAPIER.Collider,
-      cb: (m: unknown, flipped: boolean) => void,
-    ) => void;
-  };
-  if (typeof w.contactPair !== 'function') return false;
-  let touching = false;
-  w.contactPair(chassis, track, () => {
-    touching = true;
-  });
-  return touching;
 }
 
 function destroyCar(world: RAPIER.World, car: CarRuntime): void {

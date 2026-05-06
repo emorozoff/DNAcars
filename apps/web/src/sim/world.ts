@@ -105,9 +105,13 @@ type CarRuntime = {
   wheels: { body: RAPIER.RigidBody; joint: RAPIER.ImpulseJoint; radius: number }[];
   health: number;
   alive: boolean;
+  /** Once true, never read from chassis/wheel bodies again. */
+  bodiesReleased: boolean;
   score: number;
   maxX: number;
   vertices: { x: number; y: number }[];
+  /** Frozen snapshot taken at the moment of death — read forever after. */
+  finalSnapshot: CarSnapshot | null;
 };
 
 export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle> {
@@ -149,14 +153,18 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
       for (const car of cars) {
         if (!car.alive) continue;
         const updated = updateLifecycle(car);
-        if (!updated.alive) destroyCar(world, car);
+        if (!updated.alive) {
+          // Freeze the last visible state, then release Rapier resources.
+          car.finalSnapshot = snapshotLiveCar(car);
+          destroyCar(world, car);
+        }
       }
     },
 
     snapshot(): WorldSnapshot {
       return {
         time,
-        cars: cars.map((c) => snapshotCar(c)),
+        cars: cars.map((c) => (c.bodiesReleased ? c.finalSnapshot ?? deadStub(c) : snapshotLiveCar(c))),
       };
     },
 
@@ -271,9 +279,11 @@ function buildCar(
     wheels,
     health: HEALTH.initialSeconds,
     alive: true,
+    bodiesReleased: false,
     score: 0,
     maxX: spawnX,
     vertices: decoded.chassis.vertices,
+    finalSnapshot: null,
   };
 }
 
@@ -339,14 +349,17 @@ function updateLifecycle(car: CarRuntime): { alive: boolean } {
 }
 
 function destroyCar(world: RAPIER.World, car: CarRuntime): void {
+  if (car.bodiesReleased) return;
   for (const w of car.wheels) {
     world.removeImpulseJoint(w.joint, true);
     world.removeRigidBody(w.body);
   }
   world.removeRigidBody(car.chassis);
+  car.bodiesReleased = true;
 }
 
-function snapshotCar(car: CarRuntime): CarSnapshot {
+/** Snapshot from live Rapier bodies — only safe before destruction. */
+function snapshotLiveCar(car: CarRuntime): CarSnapshot {
   const pos = car.chassis.translation();
   return {
     index: car.index,
@@ -364,6 +377,24 @@ function snapshotCar(car: CarRuntime): CarSnapshot {
         radius: w.radius,
       };
     }),
+  };
+}
+
+/** Fallback used if a car somehow gets released before we cached its snapshot. */
+function deadStub(car: CarRuntime): CarSnapshot {
+  return {
+    index: car.index,
+    alive: false,
+    score: car.score,
+    health: 0,
+    position: { x: car.maxX, y: 0 },
+    angle: 0,
+    vertices: car.vertices,
+    wheels: car.wheels.map((w) => ({
+      position: { x: car.maxX, y: 0 },
+      angle: 0,
+      radius: w.radius,
+    })),
   };
 }
 

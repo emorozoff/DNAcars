@@ -1,15 +1,10 @@
 /**
  * Physics demo bootstrap.
  *
- * Spawns N random-shape cars on a long, hilly track and lets you watch them
- * try to drive forward.  No genetics — every "Restart" button click reseeds
- * everything so you can sample a fresh batch of shapes.
- *
- * Loop:
- *   - Physics ticks at SIM_DT (1/60 s) inside a fixed-timestep accumulator
- *     driven by requestAnimationFrame.  This keeps the simulation
- *     deterministic regardless of frame jitter.
- *   - Snapshots are pushed to the renderer once per frame.
+ * Spawns N random-shape cars on a long, hilly track.  All cars push
+ * full throttle forever — bad shapes simply fail to make progress.
+ * No deaths, no scoring, no genetics.  Press Space (or the button) to
+ * reseed the track and respawn a fresh batch of shapes.
  */
 
 import {
@@ -29,13 +24,10 @@ import { mountScene, type SceneHandle } from './render';
 const CAR_COUNT = 24;
 
 type Hud = {
-  alive: HTMLElement;
   total: HTMLElement;
   lead: HTMLElement;
-  rolled: HTMLElement;
-  bodied: HTMLElement;
-  stalled: HTMLElement;
   seed: HTMLElement;
+  version: HTMLElement;
 };
 
 async function bootstrap(): Promise<void> {
@@ -48,14 +40,12 @@ async function bootstrap(): Promise<void> {
   const scene = await mountScene(host);
 
   const hud: Hud = {
-    alive: requireEl('hud-alive'),
     total: requireEl('hud-total'),
     lead: requireEl('hud-lead'),
-    rolled: requireEl('hud-rolled'),
-    bodied: requireEl('hud-bodied'),
-    stalled: requireEl('hud-stalled'),
     seed: requireEl('hud-seed'),
+    version: requireEl('hud-version'),
   };
+  hud.version.textContent = `v${__APP_VERSION__}`;
 
   const restartBtn = document.getElementById('btn-restart');
   if (restartBtn instanceof HTMLButtonElement) {
@@ -63,7 +53,6 @@ async function bootstrap(): Promise<void> {
       void restart();
     });
   }
-  // Spacebar = restart for fast iteration.
   window.addEventListener('keydown', (ev) => {
     if (ev.code === 'Space') {
       ev.preventDefault();
@@ -112,11 +101,9 @@ async function startSession(seed: number, scene: SceneHandle, hud: Hud): Promise
   function tick(): void {
     if (!running) return;
     const now = performance.now();
-    const dt = Math.min((now - lastTime) / 1000, 0.25); // clamp on tab-switch
+    const dt = Math.min((now - lastTime) / 1000, 0.25);
     lastTime = now;
     acc += dt;
-    // Fixed-timestep physics — no matter the frame rate, the world advances
-    // by integer multiples of SIM_DT.
     while (acc >= SIM_DT) {
       world.step();
       acc -= SIM_DT;
@@ -139,23 +126,11 @@ async function startSession(seed: number, scene: SceneHandle, hud: Hud): Promise
 }
 
 function updateHud(hud: Hud, snap: WorldSnapshot): void {
-  let alive = 0;
   let lead = 0;
-  let rolled = 0;
-  let bodied = 0;
-  let stalled = 0;
   for (const c of snap.cars) {
-    if (!c.crashed) alive++;
-    else if (c.crashReason === 'rollover') rolled++;
-    else if (c.crashReason === 'body-down') bodied++;
-    else if (c.crashReason === 'stalled') stalled++;
     if (c.travel > lead) lead = c.travel;
   }
-  hud.alive.textContent = String(alive);
   hud.lead.textContent = `${lead.toFixed(1)} m`;
-  hud.rolled.textContent = String(rolled);
-  hud.bodied.textContent = String(bodied);
-  hud.stalled.textContent = String(stalled);
 }
 
 function requireEl(id: string): HTMLElement {

@@ -1,14 +1,15 @@
 /**
  * Pixi rendering for the physics demo.
  *
- * Visual rules — chosen to make the physics legible:
+ * Visual rules:
  *   - Track is a thin grey polyline.
  *   - Each car is drawn as its real chassis polygon + wheel circles.
- *   - A wheel that's currently in ground contact lights up green.  This is
- *     the single most useful debug signal: it shows at a glance whether the
- *     motor is doing anything.
- *   - A crashed car turns dim red and stops being highlighted.
- *   - The camera follows whichever uncrashed car is furthest along.
+ *   - A wheel currently in ground contact tints green.  This is the
+ *     single most useful debug signal: it tells you at a glance which
+ *     cars are actually getting traction.
+ *   - There is no "crashed" colour — bad shapes simply don't move,
+ *     which is the visible signal we care about.
+ *   - The camera follows the furthest-along car.
  */
 
 import { Application, Container, Graphics } from 'pixi.js';
@@ -22,11 +23,8 @@ const COLORS = {
   track: 0x4a4a55,
   trackTick: 0x2a2a32,
   body: 0xe6e6e9,
-  bodyDim: 0x55555c,
   wheel: 0x8b8b94,
   wheelGround: 0xa8ff60,
-  crashed: 0xff5d5d,
-  accent: 0xa8ff60,
 } as const;
 
 export type SceneHandle = {
@@ -85,7 +83,6 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     if (!trackPoints || trackPoints.length < 2) return;
     trackGfx.clear();
 
-    // Distance ticks every 25 m for scale.
     const last = trackPoints[trackPoints.length - 1]!;
     for (let x = 0; x <= last.x; x += 25) {
       const y = sampleTrackY(trackPoints, x);
@@ -103,7 +100,6 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   function setSnapshot(snap: WorldSnapshot): void {
     const seen = new Set<number>();
     let leader: CarSnapshot | null = null;
-    let leaderAny: CarSnapshot | null = null;
 
     for (const car of snap.cars) {
       seen.add(car.index);
@@ -114,11 +110,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         carViews.set(car.index, view);
       }
       updateCarView(view, car);
-
-      if (!leaderAny || car.position.x > leaderAny.position.x) leaderAny = car;
-      if (!car.crashed) {
-        if (!leader || car.position.x > leader.position.x) leader = car;
-      }
+      if (!leader || car.position.x > leader.position.x) leader = car;
     }
 
     for (const [k, v] of carViews) {
@@ -129,8 +121,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       }
     }
 
-    const followed = leader ?? leaderAny;
-    if (followed) cameraTarget = { x: followed.position.x, y: followed.position.y };
+    if (leader) cameraTarget = { x: leader.position.x, y: leader.position.y };
   }
 
   return {
@@ -155,7 +146,6 @@ type CarView = {
   container: Container;
   body: Graphics;
   wheels: Graphics[];
-  lastCrashed: boolean;
 };
 
 function makeCarView(car: CarSnapshot): CarView {
@@ -169,32 +159,22 @@ function makeCarView(car: CarSnapshot): CarView {
   for (const w of car.wheels) {
     const g = new Graphics();
     g.circle(0, 0, w.radius);
-    // Stroke pure white so the per-frame tint (grey / green / red) shows
-    // up at full saturation.  A grey base would multiply tint colours
-    // down and "green" would render as a muddy olive.
+    // White stroke so the per-frame tint (grey / green) renders at full
+    // saturation.  A grey stroke would multiply colours down to mud.
     g.stroke({ color: 0xffffff, width: 0.05 });
     g.moveTo(0, 0).lineTo(w.radius, 0);
     g.stroke({ color: 0xffffff, width: 0.04 });
-    g.tint = COLORS.wheel; // grey by default until updateCarView runs.
+    g.tint = COLORS.wheel;
     wheels.push(g);
     container.addChild(g);
   }
-  return { container, body, wheels, lastCrashed: false };
+  return { container, body, wheels };
 }
 
 function updateCarView(view: CarView, car: CarSnapshot): void {
   view.container.position.set(car.position.x, car.position.y);
   view.container.rotation = car.angle;
-  view.container.alpha = car.crashed ? 0.45 : 1;
 
-  // Re-tint chassis on crash transition.
-  if (car.crashed !== view.lastCrashed) {
-    view.body.tint = car.crashed ? COLORS.crashed : COLORS.body;
-    view.lastCrashed = car.crashed;
-  }
-
-  // Wheels: position in chassis-local frame so rotation handles itself,
-  // and tint by ground-contact / crash state.
   const cos = Math.cos(-car.angle);
   const sin = Math.sin(-car.angle);
   for (let i = 0; i < view.wheels.length; i++) {
@@ -205,9 +185,7 @@ function updateCarView(view: CarView, car: CarSnapshot): void {
     const dy = ws.position.y - car.position.y;
     wg.position.set(dx * cos - dy * sin, dx * sin + dy * cos);
     wg.rotation = ws.angle - car.angle;
-    if (car.crashed) wg.tint = COLORS.bodyDim;
-    else if (ws.onGround) wg.tint = COLORS.wheelGround;
-    else wg.tint = COLORS.wheel;
+    wg.tint = ws.onGround ? COLORS.wheelGround : COLORS.wheel;
   }
 }
 

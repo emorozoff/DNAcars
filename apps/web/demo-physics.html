@@ -56,6 +56,16 @@
         color: var(--accent);
         margin-right: 6px;
       }
+      header h1 .version {
+        margin-left: 10px;
+        padding: 2px 8px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--accent);
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.05em;
+      }
       header .hint {
         color: var(--fg-dim);
         font-size: 11px;
@@ -148,24 +158,19 @@
   <body>
     <div id="app">
       <header>
-        <h1><span class="dot">●</span>physics demo · random shapes vs hilly track</h1>
+        <h1>
+          <span class="dot">●</span>physics demo · random shapes vs hilly track
+          <span class="version" id="hud-version">v—</span>
+        </h1>
         <span class="hint">space or button → new shapes</span>
       </header>
       <div class="stage">
         <div id="canvas-host"></div>
         <div class="hud">
-          <span class="label">alive</span>
-          <span class="value accent" id="hud-alive">—</span>
-          <span class="label">/ total</span>
+          <span class="label">cars</span>
           <span class="value" id="hud-total">—</span>
           <span class="label">lead</span>
-          <span class="value" id="hud-lead">—</span>
-          <span class="label">rolled over</span>
-          <span class="value warn" id="hud-rolled">0</span>
-          <span class="label">body down</span>
-          <span class="value warn" id="hud-bodied">0</span>
-          <span class="label">stalled</span>
-          <span class="value warn" id="hud-stalled">0</span>
+          <span class="value accent" id="hud-lead">—</span>
           <span class="label">seed</span>
           <span class="value" id="hud-seed">—</span>
         </div>
@@ -175,7 +180,6 @@
         <div class="legend">
           <span><span class="swatch grey"></span>wheel in air</span>
           <span><span class="swatch green"></span>wheel on ground</span>
-          <span><span class="swatch red"></span>crashed</span>
         </div>
       </div>
     </div>

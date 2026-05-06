@@ -1,22 +1,26 @@
 /**
  * Stand-alone 2D car-physics demo.
  *
- * Goal: stress-test the rules that decide which random shapes are *physically
- * able* to drive forward.  No genetics, no scoring, no worker — just Rapier
- * and a deterministic world that you can stop, restart, and observe.
+ * Random polygonal cars on a long, hilly track.  Every car always
+ * holds full throttle.  There is *no* death, no crash detection — bad
+ * shapes simply fail to drive.  The physics rules that filter "good"
+ * shapes from "bad" ones are:
  *
- * The three rules that make a "bad" shape unable to drive:
+ *   1. Slippery chassis (friction ≈ 0).  A body resting on its hull
+ *      can't generate traction, so wheels in the air can't propel it.
+ *   2. The motor only fires for wheels actually touching the polyline
+ *      (sampled directly from the track curve).
+ *   3. The motor requires *two* grounded wheels.  With a single
+ *      contact point, the wheel motor's reaction torque on the
+ *      chassis (Newton 3 via the joint) cancels gravity at some tilt
+ *      and the car drives forever on one wheel — exactly what we
+ *      don't want.  Two contact points kill that degree of freedom.
+ *   4. Heavy chassis (250–450 kg/m²) vs light wheels (30–80) keeps
+ *      the centre of gravity low.  Balanced shapes are stable;
+ *      narrow-base shapes flip naturally on slopes.
  *
- *   1. Chassis is *slippery* (friction ≈ 0) — a car resting on its body has
- *      no traction, so the wheels (in the air) can't pull it forward.
- *   2. The motor only fires for wheels that are *actually touching* the
- *      track surface, sampled directly from the polyline.
- *   3. Rollover and prolonged body-on-ground contact disable the motor
- *      permanently — a flipped car drifts to a stop and stays there.
- *
- * Heavy chassis vs light wheels keeps the centre of gravity low so a
- * "good" shape (wheels at the bottom, wide base) is stable, while a "bad"
- * shape (wheels on top, narrow base, near-circular hull) is not.
+ * Solver: 8 iterations per step (default 4) for cleaner contact
+ * resolution between the polygonal chassis and the trapezoid ground.
  */
 
 import RAPIER from '@dimforge/rapier2d-compat';
@@ -26,7 +30,6 @@ import RAPIER from '@dimforge/rapier2d-compat';
 export const SIM_DT = 1 / 60;
 export const GRAVITY = 9.81;
 
-/** Tunable knobs — change here to retune the whole demo. */
 export const TUNING = {
   chassis: {
     minVertices: 5,
@@ -35,7 +38,6 @@ export const TUNING = {
     maxRadius: 1.0,
     minDensity: 250,
     maxDensity: 450,
-    /** Slippery body: wheels are the only way to generate horizontal force. */
     friction: 0.05,
     restitution: 0.0,
     linearDamping: 0.4,
@@ -56,63 +58,17 @@ export const TUNING = {
   motor: {
     minSpeed: 10,
     maxSpeed: 24,
-    /** Multiplier on (mass × g × radius) — head-room above what's needed to climb. */
     torqueHeadroom: 1.8,
-    /** Strength of the angular-velocity error term (higher = stiffer feel). */
     feedbackGain: 7,
-    /**
-     * Beyond this chassis tilt the motor is gated off.  Without this, the
-     * motor's reaction torque on the chassis (Newton's 3rd, via the joint)
-     * cancels gravity at some equilibrium angle and the car "balances"
-     * indefinitely on a single wheel.  Cutting the motor at 45° lets
-     * gravity always win once the body leans hard.
-     */
+    /** Beyond this chassis tilt the motor is gated off. */
     maxChassisTilt: (45 * Math.PI) / 180,
   },
   contact: {
-    /** Max distance from track surface to count a wheel as "on ground" (m). */
+    /** Max distance from track surface to count a wheel as "on ground". */
     wheelTolerance: 0.06,
-    /** Max distance from track surface to count a chassis sample as touching (m). */
-    chassisTolerance: 0.06,
-  },
-  crash: {
-    /**
-     * Body angle (rad) past which we start counting toward a rollover crash.
-     * Tighter than the visual "upside-down" of 90° — at 70° the car is so
-     * tilted that any further tip is one-way, so we kill it preemptively.
-     */
-    rolloverAngle: (70 * Math.PI) / 180,
-    /** Time (s) the angle must stay past the threshold to crash. */
-    rolloverGrace: 0.35,
-    /**
-     * Smoothing factor for the body-contact EMA: each tick we blend in a
-     * 1 (touching) or 0 (clear).  ALPHA = 0.07 ⇒ ~half-life 10 ticks.
-     */
-    bodyContactAlpha: 0.07,
-    /**
-     * EMA threshold above which we crash the car as "body-down".  0.4 means
-     * "the chassis has been touching the ground at least ~40% of recent
-     * ticks" — survives an occasional bump but kills a car that's flopped
-     * over and dragging on its hull.
-     */
-    bodyContactThreshold: 0.4,
-    /**
-     * Instant-crash threshold: if any chassis vertex is found this far
-     * below the track surface (m), it means the solver let the body
-     * penetrate the ground — kill the car immediately, no EMA.  This is
-     * the safety net for "chassis through the track but car keeps
-     * driving" scenarios.
-     */
-    penetrationDepth: 0.05,
   },
   solver: {
-    /**
-     * Rapier's constraint solver iterations per step.  The default is 4;
-     * with a polygonal chassis joined to a wheel that's pinned to the
-     * ground, four iterations sometimes leave residual penetration.
-     * Bumping to 8 doubles the time the solver has to resolve all
-     * constraints to convergence.
-     */
+    /** Constraint solver iterations per step (Rapier default is 4). */
     numIterations: 8,
   },
 } as const;
@@ -173,7 +129,6 @@ const DEFAULT_TRACK: TrackOptions = {
 export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): Track {
   const o: TrackOptions = { ...DEFAULT_TRACK, ...opts };
   const rng = makeRng(seed);
-  // Layered sines: gives a wavy hill profile that's not too repetitive.
   const layers = [
     { freq: 0.16, phase: rng() * Math.PI * 2, weight: 0.55 },
     { freq: 0.16 * 1.618, phase: rng() * Math.PI * 2, weight: 0.3 },
@@ -225,11 +180,9 @@ export type WheelGene = {
 
 export type Genome = {
   chassisVertexCount: number;
-  /** Per-vertex radii on evenly-spaced rays around the centre, [0..1]. */
   chassisRadii: number[];
   chassisDensity: number;
   wheels: WheelGene[];
-  /** Target angular speed of driven wheels, rad/s. */
   motorSpeed: number;
 };
 
@@ -262,7 +215,6 @@ function randInt(rng: Rng, lo: number, hi: number): number {
   return lo + Math.floor(rng() * (hi - lo + 1));
 }
 
-/** Build the chassis vertices in body-local coords from a genome. */
 function chassisVertices(g: Genome): { x: number; y: number }[] {
   const verts: { x: number; y: number }[] = [];
   for (let i = 0; i < g.chassisVertexCount; i++) {
@@ -291,21 +243,10 @@ type CarRuntime = {
   wheels: WheelRuntime[];
   spawnX: number;
   maxX: number;
-  alive: boolean;
-  crashed: boolean;
-  crashReason: 'rollover' | 'body-down' | 'stalled' | null;
-  rolloverTimer: number;
-  /** EMA of recent body-on-ground frames; 0=never, 1=always. */
-  bodyContactRatio: number;
-  stallTimer: number;
-  ageSec: number;
 };
 
 export type CarSnapshot = {
   index: number;
-  alive: boolean;
-  crashed: boolean;
-  crashReason: 'rollover' | 'body-down' | 'stalled' | null;
   position: { x: number; y: number };
   angle: number;
   speed: number;
@@ -343,14 +284,11 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
   await ensureRapier();
   const world = new RAPIER.World({ x: 0, y: -GRAVITY });
   world.timestep = SIM_DT;
-  // More solver iterations ⇒ less residual penetration when a heavy
-  // chassis is held down by both gravity and a joint to a grounded wheel.
   world.integrationParameters.numSolverIterations = TUNING.solver.numIterations;
 
   buildTrackColliders(world, opts.track);
 
   const sx = opts.spawnX ?? 8;
-  // Spawn slightly above the track so wheels settle naturally.
   const sy = sampleTrackY(opts.track, sx) + 1.6 + (opts.spawnYOffset ?? 0);
 
   const cars: CarRuntime[] = opts.genomes.map((g, i) => buildCar(world, g, i, sx, sy));
@@ -359,25 +297,20 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
 
   return {
     step(): void {
-      // Apply motors before stepping so torques are integrated this tick.
       for (const car of cars) {
-        if (!car.alive) continue;
-        updateContacts(car, opts.track);
-        if (car.crashed) continue;
+        updateWheelContacts(car, opts.track);
         applyMotor(car);
       }
       world.step();
       time += SIM_DT;
+      // Track furthest position so the leaderboard / camera stays meaningful.
       for (const car of cars) {
-        if (!car.alive) continue;
-        updateLifecycle(car);
+        const x = car.chassis.translation().x;
+        if (x > car.maxX) car.maxX = x;
       }
     },
     snapshot(): WorldSnapshot {
-      return {
-        time,
-        cars: cars.map(snapshotCar),
-      };
+      return { time, cars: cars.map(snapshotCar) };
     },
     destroy(): void {
       world.free();
@@ -390,15 +323,14 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
 function buildTrackColliders(world: RAPIER.World, track: Track): void {
   const ground = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
 
-  // Thick "earth" instead of a thin polyline.  Each track segment becomes a
-  // trapezoid extending from the polyline down to a far-below floor, so a
-  // body cannot tunnel through a thin line at speed and end up *under* the
-  // track.  Adjacent trapezoids share an edge — there are no gaps.
+  // Thick "earth" — each track segment becomes a trapezoid extending
+  // 100 m down to a virtual floor.  Adjacent trapezoids share an edge
+  // so the surface is gap-free; bodies cannot tunnel through a thin
+  // line at speed and end up underneath.
   const floorY = -100;
   for (let i = 0; i < track.points.length - 1; i++) {
     const a = track.points[i]!;
     const b = track.points[i + 1]!;
-    // Order matters for convex-hull validity; clockwise from the top-left.
     const verts = new Float32Array([a.x, a.y, b.x, b.y, b.x, floorY, a.x, floorY]);
     const desc = RAPIER.ColliderDesc.convexHull(verts);
     if (!desc) continue;
@@ -409,7 +341,7 @@ function buildTrackColliders(world: RAPIER.World, track: Track): void {
     world.createCollider(desc, ground);
   }
 
-  // Back wall so a car bumped backwards doesn't roll off the world.
+  // Back wall at x=0 so a car bumped backwards can't roll off the world.
   world.createCollider(
     RAPIER.ColliderDesc.cuboid(0.05, 8)
       .setTranslation(-0.05, 8)
@@ -452,8 +384,8 @@ function buildCar(
     .setCollisionGroups(packGroups(GROUP.CHASSIS, GROUP.TRACK));
   world.createCollider(hullDesc, chassis);
 
-  // Filter wheels that overlap or share an attachment vertex — emulates
-  // the main app's "no two wheels on the same point" rule.
+  // De-duplicate wheels: skip those sharing an attachment vertex with an
+  // already-accepted wheel, or those that overlap geometrically.
   const accepted: WheelGene[] = [];
   const usedAnchors: { x: number; y: number; r: number }[] = [];
   for (const wg of genome.wheels) {
@@ -512,97 +444,37 @@ function buildCar(
     wheels,
     spawnX,
     maxX: spawnX,
-    alive: true,
-    crashed: false,
-    crashReason: null,
-    rolloverTimer: 0,
-    bodyContactRatio: 0,
-    stallTimer: 0,
-    ageSec: 0,
   };
 }
 
 /* ─── Per-tick logic ───────────────────────────────────────────────────── */
 
-function updateContacts(car: CarRuntime, track: Track): void {
-  // Wheel ground contacts (one per wheel, used by motor + render).
+function updateWheelContacts(car: CarRuntime, track: Track): void {
   for (const w of car.wheels) {
     w.onGround = wheelOnGround(w.body, w.radius, track);
-  }
-  // Hard penetration check.  Even with CCD and 8 solver iterations,
-  // a polygonal chassis joined to a grounded wheel can momentarily end
-  // up below the track surface — and "below the surface" means the car
-  // can keep driving forward looking buried.  If we ever see a vertex
-  // visibly below the polyline, kill the car immediately.
-  if (!car.crashed && chassisDeeplyEmbedded(car, track)) {
-    markCrashed(car, 'body-down');
-  }
-  // Body-on-ground via an exponential moving average of touch frames.
-  // The previous timer-with-decay scheme was too forgiving: a chassis
-  // bouncing on/off the ground at 50 % duty never reached the crash
-  // threshold because the decay was twice as fast as the gain.  An EMA
-  // converges to the actual contact ratio regardless of pattern.
-  const touching = chassisTouchesGround(car, track) ? 1 : 0;
-  const a = TUNING.crash.bodyContactAlpha;
-  car.bodyContactRatio = car.bodyContactRatio * (1 - a) + touching * a;
-  if (car.bodyContactRatio > TUNING.crash.bodyContactThreshold && !car.crashed) {
-    markCrashed(car, 'body-down');
-  }
-
-  // Rollover.
-  const angle = normalizeAngle(car.chassis.rotation());
-  if (Math.abs(angle) > TUNING.crash.rolloverAngle) {
-    car.rolloverTimer += SIM_DT;
-    if (car.rolloverTimer >= TUNING.crash.rolloverGrace && !car.crashed) {
-      markCrashed(car, 'rollover');
-    }
-  } else {
-    car.rolloverTimer = Math.max(0, car.rolloverTimer - SIM_DT * 2);
-  }
-}
-
-/**
- * Transition into the "crashed" state.  Beyond the flag, we crank up the
- * chassis damping so a car that flipped at speed slides to a stop within
- * a second or two — instead of "confidently driving forward" on inertia.
- */
-function markCrashed(car: CarRuntime, reason: 'rollover' | 'body-down' | 'stalled'): void {
-  car.crashed = true;
-  car.crashReason = reason;
-  // Modest damping bump — enough to visibly stop the car within a second
-  // or two, but low enough that gravity can still pull it down at a
-  // sensible terminal velocity.  The previous 3.0 made crashed cars look
-  // like they were frozen in mid-air while the camera scrolled past.
-  car.chassis.setLinearDamping(1.5);
-  car.chassis.setAngularDamping(2.0);
-  for (const w of car.wheels) {
-    w.body.setLinearDamping(1.0);
-    w.body.setAngularDamping(2.0);
   }
 }
 
 function applyMotor(car: CarRuntime): void {
-  // Gate the motor on chassis tilt — at extreme angles even two grounded
-  // wheels can't make for a "driving" car.
+  // No throttle input: every car always pushes forward at full power.
+  // It's the physics rules below that decide whether that effort
+  // translates into motion.
+
+  // Tilt gate: at extreme angles the car has clearly fallen on its side.
   const tilt = Math.abs(normalizeAngle(car.chassis.rotation()));
   if (tilt > TUNING.motor.maxChassisTilt) return;
 
-  // Require at least two wheels in ground contact.  With a single
-  // grounded wheel, the motor's reaction torque on the chassis (Newton 3
-  // through the revolute joint) can perfectly cancel gravity at some
-  // tilt — and the car drives "stably on one wheel" forever, exactly
-  // the unphysical pattern the user keeps seeing.  Forcing two contact
-  // points removes the rotational degree of freedom that lets that
-  // equilibrium exist.  As a bonus, cars with all wheels stuck on top
-  // of the chassis (a "bad" shape) never satisfy this condition and
-  // simply stall out.
+  // Need ≥2 grounded wheels.  With a single contact point the wheel
+  // motor's reaction torque on the chassis (Newton 3 via the joint)
+  // can perfectly balance gravity at some tilt and the car drives
+  // forever on one wheel.  Two contact points constrain that DOF away.
   let groundedCount = 0;
   for (const w of car.wheels) {
     if (w.onGround) groundedCount++;
   }
   if (groundedCount < 2) return;
 
-  const targetOmega = -car.genome.motorSpeed; // negative ⇒ clockwise ⇒ forward
+  const targetOmega = -car.genome.motorSpeed; // negative ⇒ forward
   const totalMass = totalMassOf(car);
   for (const w of car.wheels) {
     if (!w.onGround) continue;
@@ -616,28 +488,6 @@ function applyMotor(car: CarRuntime): void {
   }
 }
 
-function updateLifecycle(car: CarRuntime): void {
-  car.ageSec += SIM_DT;
-  const pos = car.chassis.translation();
-  if (pos.x > car.maxX) car.maxX = pos.x;
-
-  // Stalled: no progress for 5 seconds after a 3-second grace period.
-  const vel = car.chassis.linvel();
-  const speed = Math.hypot(vel.x, vel.y);
-  if (speed < 0.15 && car.ageSec > 3) {
-    car.stallTimer += SIM_DT;
-  } else {
-    car.stallTimer = 0;
-  }
-  if (car.stallTimer > 5 && !car.crashed) {
-    markCrashed(car, 'stalled');
-  }
-
-  // "Alive" stays true even when crashed — we keep simulating the body so
-  // it visibly slides to a stop, but the motor is off.  The flag we use
-  // for stats is `crashed`.
-}
-
 /* ─── Geometry helpers ─────────────────────────────────────────────────── */
 
 function wheelOnGround(body: RAPIER.RigidBody, radius: number, track: Track): boolean {
@@ -646,58 +496,6 @@ function wheelOnGround(body: RAPIER.RigidBody, radius: number, track: Track): bo
   const groundY = sampleTrackY(track, t.x);
   const bottom = t.y - radius;
   return Math.abs(bottom - groundY) <= TUNING.contact.wheelTolerance;
-}
-
-function chassisTouchesGround(car: CarRuntime, track: Track): boolean {
-  // Sample at every vertex AND at every edge midpoint.  A polygon resting
-  // on an edge (rather than a corner) has its lowest point in the middle
-  // of that edge — without midpoint sampling, the vertex check missed
-  // those cases and the body-down detector never fired.
-  const pos = car.chassis.translation();
-  const ang = car.chassis.rotation();
-  const cos = Math.cos(ang);
-  const sin = Math.sin(ang);
-  const tol = TUNING.contact.chassisTolerance;
-  const verts = car.vertices;
-  const n = verts.length;
-  for (let i = 0; i < n; i++) {
-    const v = verts[i]!;
-    const next = verts[(i + 1) % n]!;
-    // Vertex.
-    if (sampleBelow(pos.x + v.x * cos - v.y * sin, pos.y + v.x * sin + v.y * cos)) return true;
-    // Edge midpoint.
-    const mx = (v.x + next.x) * 0.5;
-    const my = (v.y + next.y) * 0.5;
-    if (sampleBelow(pos.x + mx * cos - my * sin, pos.y + mx * sin + my * cos)) return true;
-  }
-  return false;
-
-  function sampleBelow(wx: number, wy: number): boolean {
-    if (wx < 0 || wx > track.options.length) return false;
-    return wy - sampleTrackY(track, wx) < tol;
-  }
-}
-
-/**
- * Strict variant of chassisTouchesGround: returns true only when at least
- * one vertex is visibly *below* the track surface by `penetrationDepth`
- * meters.  Used as the trigger for an instant body-down crash, separate
- * from the gentle EMA in chassisTouchesGround.
- */
-function chassisDeeplyEmbedded(car: CarRuntime, track: Track): boolean {
-  const pos = car.chassis.translation();
-  const ang = car.chassis.rotation();
-  const cos = Math.cos(ang);
-  const sin = Math.sin(ang);
-  const limit = -TUNING.crash.penetrationDepth;
-  const verts = car.vertices;
-  for (const v of verts) {
-    const wx = pos.x + v.x * cos - v.y * sin;
-    const wy = pos.y + v.x * sin + v.y * cos;
-    if (wx < 0 || wx > track.options.length) continue;
-    if (wy - sampleTrackY(track, wx) < limit) return true;
-  }
-  return false;
 }
 
 function totalMassOf(car: CarRuntime): number {
@@ -724,9 +522,6 @@ function snapshotCar(car: CarRuntime): CarSnapshot {
   const vel = car.chassis.linvel();
   return {
     index: car.index,
-    alive: car.alive,
-    crashed: car.crashed,
-    crashReason: car.crashReason,
     position: { x: pos.x, y: pos.y },
     angle: car.chassis.rotation(),
     speed: Math.hypot(vel.x, vel.y),

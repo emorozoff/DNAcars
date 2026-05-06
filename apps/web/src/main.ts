@@ -1,145 +1,154 @@
+/**
+ * App bootstrap.
+ *
+ * For now this is the same physics-demo loop we built in Phase 0:
+ * spawns N random-shape cars on a procedural hilly track, every car
+ * holds full throttle, the visible signal is which shapes can actually
+ * drive forward.  The genetic algorithm and per-generation lifecycle
+ * are added in following commits — this one only relocates the demo
+ * files to the proper main-app paths.
+ */
+
 import './styles/global.css';
-import { applyTranslations, bindLanguageToggle, t } from './i18n';
+import { applyTranslations, bindLanguageToggle } from './i18n';
+import {
+  createWorld,
+  ensureRapier,
+  generateTrack,
+  makeRng,
+  randomGenome,
+  SIM_DT,
+  type Genome,
+  type Track,
+  type WorldHandle,
+  type WorldSnapshot,
+} from './sim/world';
 import { mountScene, type SceneHandle } from './render/scene';
-import { createSimClient } from './worker/client';
+
+const CAR_COUNT = 24;
+
+type Hud = {
+  total: HTMLElement;
+  lead: HTMLElement;
+  seed: HTMLElement;
+  version: HTMLElement;
+};
 
 async function bootstrap(): Promise<void> {
   applyTranslations();
-
-  const versionEl = document.getElementById('app-version');
-  if (versionEl) versionEl.textContent = `v${__APP_VERSION__}`;
-
   const langBtn = document.getElementById('lang-toggle');
-  if (langBtn instanceof HTMLButtonElement) {
-    bindLanguageToggle(langBtn);
-  }
+  if (langBtn instanceof HTMLButtonElement) bindLanguageToggle(langBtn);
+
+  await ensureRapier();
 
   const host = document.getElementById('pixi-root');
-  if (!(host instanceof HTMLElement)) return;
-
-  let scene: SceneHandle | null = null;
-  try {
-    scene = await mountScene(host);
-  } catch (err) {
-    console.error('Failed to mount Pixi scene', err);
-    return;
+  if (!(host instanceof HTMLElement)) {
+    throw new Error('pixi-root element missing');
   }
+  const scene = await mountScene(host);
 
-  const stat = (id: string): HTMLElement | null => document.getElementById(id);
-  const fmtMeters = (m: number): string => `${m.toFixed(1)} m`;
-
-  const ui = {
-    generation: stat('stat-generation'),
-    alive: stat('stat-alive'),
-    lead: stat('stat-lead'),
-    bestEver: stat('stat-best-ever'),
-    bestGen: stat('stat-best-gen'),
-    lastBest: stat('stat-last-best'),
-    btnFastForward: document.getElementById('btn-fastforward') as HTMLButtonElement | null,
-    btnRestart: document.getElementById('btn-restart') as HTMLButtonElement | null,
-    btnArena: document.getElementById('btn-arena') as HTMLButtonElement | null,
+  const hud: Hud = {
+    total: requireEl('stat-total'),
+    lead: requireEl('stat-lead'),
+    seed: requireEl('stat-seed'),
+    version: requireEl('app-version'),
   };
+  hud.version.textContent = `v${__APP_VERSION__}`;
 
-  let bestEver = 0;
-  let arenaOn = false;
-
-  const sim = createSimClient();
-
-  function startSeed(seed: string): void {
-    arenaOn = false;
-    syncArenaButton();
-    sim.start({ seed });
-    bestEver = 0;
-    if (ui.bestEver) ui.bestEver.textContent = '—';
-    if (ui.bestGen) ui.bestGen.textContent = '—';
-    if (ui.lastBest) ui.lastBest.textContent = '—';
-    if (ui.generation) ui.generation.textContent = '0';
+  const restartBtn = document.getElementById('btn-restart');
+  if (restartBtn instanceof HTMLButtonElement) {
+    restartBtn.addEventListener('click', () => {
+      void restart();
+    });
   }
-
-  function startArena(): void {
-    arenaOn = true;
-    syncArenaButton();
-    sim.startArena({ seed: 'arena' });
-    bestEver = 0;
-    if (ui.bestEver) ui.bestEver.textContent = '—';
-    if (ui.bestGen) ui.bestGen.textContent = '—';
-    if (ui.lastBest) ui.lastBest.textContent = '—';
-    if (ui.generation) ui.generation.textContent = 'arena';
-  }
-
-  function syncArenaButton(): void {
-    if (!ui.btnArena) return;
-    ui.btnArena.textContent = arenaOn ? t('panel.arena.on') : t('panel.arena');
-    ui.btnArena.classList.toggle('btn--primary', arenaOn);
-  }
-
-  sim.on('ready', () => {
-    startSeed(`dev-${Date.now().toString(36)}`);
-  });
-
-  sim.on('started', ({ seed, trackPoints }) => {
-    console.info('sim started, seed:', seed);
-    scene?.setTrack(trackPoints);
-  });
-
-  sim.on('snapshot', (snap) => {
-    scene?.setSnapshot(snap);
-
-    let aliveCount = 0;
-    let leadTravel = 0;
-    for (const c of snap.cars) {
-      if (c.alive) aliveCount++;
-      if (c.travel > leadTravel) leadTravel = c.travel;
-    }
-
-    if (ui.alive) ui.alive.textContent = `${aliveCount} / ${snap.cars.length}`;
-    if (ui.lead) ui.lead.textContent = fmtMeters(leadTravel);
-  });
-
-  sim.on('generation', ({ stats }) => {
-    if (stats.best > bestEver) {
-      bestEver = stats.best;
-      if (ui.bestGen) ui.bestGen.textContent = String(stats.generation);
-    }
-    if (ui.bestEver) ui.bestEver.textContent = fmtMeters(bestEver);
-    if (ui.lastBest) ui.lastBest.textContent = fmtMeters(stats.best);
-    if (ui.generation) ui.generation.textContent = String(stats.generation + 1);
-    console.info(
-      `gen ${stats.generation} — best ${stats.best.toFixed(1)}m, mean ${stats.mean.toFixed(1)}m`,
-    );
-  });
-
-  sim.on('error', (msg) => {
-    console.error('sim error:', msg);
-  });
-
-  // ── Buttons ────────────────────────────────────────────────────────────
-  let fast = false;
-  ui.btnFastForward?.addEventListener('click', () => {
-    fast = !fast;
-    sim.setRate(fast ? 8 : 1);
-    if (ui.btnFastForward) {
-      ui.btnFastForward.textContent = fast ? t('panel.fastforward.on') : t('panel.fastforward');
-      ui.btnFastForward.classList.toggle('btn--primary', !fast);
+  window.addEventListener('keydown', (ev) => {
+    if (ev.code === 'Space') {
+      ev.preventDefault();
+      void restart();
     }
   });
 
-  ui.btnRestart?.addEventListener('click', () => {
-    startSeed(`dev-${Date.now().toString(36)}`);
-  });
+  let session: Session | null = null;
 
-  ui.btnArena?.addEventListener('click', () => {
-    if (arenaOn) startSeed(`dev-${Date.now().toString(36)}`);
-    else startArena();
-  });
+  async function restart(): Promise<void> {
+    if (session) {
+      session.stop();
+      session.world.destroy();
+    }
+    const seed = (Math.random() * 0xffffffff) >>> 0;
+    session = await startSession(seed, scene, hud);
+  }
 
-  syncArenaButton();
+  await restart();
+}
+
+type Session = {
+  world: WorldHandle;
+  track: Track;
+  genomes: Genome[];
+  stop(): void;
+};
+
+async function startSession(seed: number, scene: SceneHandle, hud: Hud): Promise<Session> {
+  const track = generateTrack(seed);
+  scene.setTrack(track.points);
+
+  const rng = makeRng(seed ^ 0xdeadbeef);
+  const genomes: Genome[] = [];
+  for (let i = 0; i < CAR_COUNT; i++) genomes.push(randomGenome(rng));
+
+  const world = await createWorld({ track, genomes, spawnX: 6 });
+
+  hud.total.textContent = String(CAR_COUNT);
+  hud.seed.textContent = seed.toString(16).padStart(8, '0');
+
+  let running = true;
+  let lastTime = performance.now();
+  let acc = 0;
+
+  function tick(): void {
+    if (!running) return;
+    const now = performance.now();
+    const dt = Math.min((now - lastTime) / 1000, 0.25);
+    lastTime = now;
+    acc += dt;
+    while (acc >= SIM_DT) {
+      world.step();
+      acc -= SIM_DT;
+    }
+    const snap = world.snapshot();
+    scene.setSnapshot(snap);
+    updateHud(hud, snap);
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  return {
+    world,
+    track,
+    genomes,
+    stop(): void {
+      running = false;
+    },
+  };
+}
+
+function updateHud(hud: Hud, snap: WorldSnapshot): void {
+  let lead = 0;
+  for (const c of snap.cars) {
+    if (c.travel > lead) lead = c.travel;
+  }
+  hud.lead.textContent = `${lead.toFixed(1)} m`;
+}
+
+function requireEl(id: string): HTMLElement {
+  const el = document.getElementById(id);
+  if (!(el instanceof HTMLElement)) throw new Error(`#${id} missing`);
+  return el;
 }
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    void bootstrap();
-  });
+  document.addEventListener('DOMContentLoaded', () => void bootstrap());
 } else {
   void bootstrap();
 }

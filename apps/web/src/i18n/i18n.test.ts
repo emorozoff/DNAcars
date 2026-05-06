@@ -17,14 +17,14 @@ describe('i18n', () => {
   });
 
   it('rewrites DOM nodes with data-i18n', () => {
-    document.body.innerHTML = `<span data-i18n="nav.daily"></span>`;
+    document.body.innerHTML = `<span data-i18n="panel.lead"></span>`;
     setLocale('en');
     applyTranslations();
-    const el = document.querySelector<HTMLElement>('[data-i18n="nav.daily"]');
-    expect(el?.textContent).toBe('Daily');
+    const el = document.querySelector<HTMLElement>('[data-i18n="panel.lead"]');
+    expect(el?.textContent).toBe('Lead');
 
     setLocale('ru');
     applyTranslations();
-    expect(el?.textContent).toBe('Дейли');
+    expect(el?.textContent).toBe('Лидер');
   });
 });

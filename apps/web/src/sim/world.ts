@@ -1,207 +1,176 @@
 /**
- * World wrapper around Rapier2D.
+ * Stand-alone 2D car-physics demo.
  *
- * The whole simulation (track + cars) lives inside one Rapier `World`.
- * This module is intentionally headless — no rendering, no DOM.  It can run
- * in the main thread or in a Web Worker and is fully deterministic given
- * the same seed and same genomes.
+ * Random polygonal cars on a long, hilly track.  Every car always
+ * holds full throttle.  There is *no* death, no crash detection — bad
+ * shapes simply fail to drive.  The physics rules that filter "good"
+ * shapes from "bad" ones are:
+ *
+ *   1. High-friction chassis (0.8) brakes a toppled body hard against
+ *      the track, so a car that's fallen on its hull stops moving
+ *      instead of sliding along.
+ *   2. The motor only fires for wheels actually touching the polyline
+ *      (sampled directly from the track curve).
+ *   3. The motor requires *two* grounded wheels, with a real wheelbase
+ *      (≥0.4 m) between them.  A single contact point lets the wheel
+ *      motor's reaction torque on the chassis (Newton 3 via the joint)
+ *      cancel gravity at some tilt — the car drives on one wheel
+ *      forever.  Two contact points constrain that DOF away, but only
+ *      if they're far enough apart to actually act as a wheelbase.
+ *   4. Heavy chassis (250–450 kg/m²) vs light wheels (30–80) keeps
+ *      the centre of gravity low.  Balanced shapes are stable;
+ *      narrow-base shapes flip naturally on slopes.
  */
 
 import RAPIER from '@dimforge/rapier2d-compat';
-import type { Genome } from '@dnacars/shared';
-import type { Track } from './track';
-import { decodeGenome, PHYSICS, type DecodedCar } from './genome';
 
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
-/** Fixed timestep matching the world's physics clock. */
 export const SIM_DT = 1 / 60;
+export const GRAVITY = 9.81;
 
-/**
- * Health rules — only one principle: a car dies if it stops moving
- * forward.  No rolls, no contact checks, no orientation rules.  The
- * heavy, high-friction chassis makes "driving on the body" physically
- * pointless on its own.
- *
- *   (a) full stop      — speed near zero for `initialSeconds` of stall.
- *   (b) no progress    — less than `progressWindowMin` over a sliding
- *                        `progressWindowSec` window.
- */
-export const HEALTH = {
-  initialSeconds: 8,
-  progressEpsilon: 0.02,
-  stallSpeed: 0.2,
-  stallDrainPerSecond: 4,
-  progressWindowSec: 6,
-  progressWindowMin: 1.0,
-  graceSec: 4,
+export const TUNING = {
+  chassis: {
+    minVertices: 5,
+    maxVertices: 10,
+    minRadius: 0.35,
+    maxRadius: 1.0,
+    minDensity: 250,
+    maxDensity: 450,
+    /**
+     * High body friction so a toppled car drags against the track and
+     * stops moving instead of sliding indefinitely down a slope.  The
+     * motor never engages from the body anyway (only grounded wheels
+     * apply torque), so this is purely a brake.
+     */
+    friction: 0.8,
+    restitution: 0.0,
+    linearDamping: 0.4,
+    angularDamping: 0.2,
+  },
+  wheel: {
+    minCount: 1,
+    maxCount: 4,
+    minRadius: 0.18,
+    maxRadius: 0.7,
+    minDensity: 30,
+    maxDensity: 80,
+    friction: 1.6,
+    restitution: 0.0,
+    linearDamping: 0.05,
+    angularDamping: 0.05,
+  },
+  motor: {
+    minSpeed: 10,
+    maxSpeed: 24,
+    torqueHeadroom: 1.8,
+    feedbackGain: 7,
+    /** Beyond this chassis tilt the motor is gated off. */
+    maxChassisTilt: (45 * Math.PI) / 180,
+    /**
+     * Minimum span between any two grounded wheels (m) for the motor to
+     * fire.  Two wheels attached to nearby chassis vertices both touch
+     * the ground at almost the same point and form a near-zero
+     * "wheelbase".  Geometrically the two contact points lock the
+     * chassis orientation perfectly — the car can't tip over no matter
+     * what — and the engine pushes it along forever.  Requiring a real
+     * wheelbase rejects this degenerate shape.
+     */
+    minGroundedSpan: 0.4,
+  },
+  contact: {
+    /** Max distance from track surface to count a wheel as "on ground". */
+    wheelTolerance: 0.06,
+  },
 } as const;
 
-/** Collision group bitmasks (membership / filter). */
 const GROUP = {
   TRACK: 0x0001,
-  CAR_BODY: 0x0002,
-  CAR_WHEEL: 0x0004,
+  CHASSIS: 0x0002,
+  WHEEL: 0x0004,
 } as const;
 
-/* ─── Public types ──────────────────────────────────────────────────────── */
-
-export type WorldHandle = {
-  /** Advances the world one fixed timestep. */
-  step(): void;
-  /** Per-car snapshot suitable for rendering or scoring. */
-  snapshot(): WorldSnapshot;
-  /** Disposes Rapier resources. Call once you no longer need the world. */
-  destroy(): void;
-};
-
-export type WorldSnapshot = {
-  time: number;
-  cars: CarSnapshot[];
-};
-
-export type CarSnapshot = {
-  index: number;
-  alive: boolean;
-  /** Distance traveled from this car's spawn point, in meters. */
-  travel: number;
-  /** Same as travel but frozen at death. */
-  score: number;
-  health: number;
-  position: { x: number; y: number };
-  angle: number;
-  wheels: WheelSnapshot[];
-  vertices: { x: number; y: number }[];
-};
-
-export type WheelSnapshot = {
-  position: { x: number; y: number };
-  angle: number;
-  radius: number;
-};
-
-export type CreateWorldOptions = {
-  track: Track;
-  genomes: Genome[];
-  gravity?: number;
-  /** Spawn x position in meters (negative = before start of track). */
-  spawnX?: number;
-  spawnY?: number;
-};
-
-/* ─── Module init ───────────────────────────────────────────────────────── */
+/* ─── Rapier init ──────────────────────────────────────────────────────── */
 
 let initPromise: Promise<void> | null = null;
-
-/**
- * Initialise Rapier WASM once per process.  Subsequent calls return the
- * same in-flight promise.
- */
 export function ensureRapier(): Promise<void> {
-  if (!initPromise) {
-    initPromise = RAPIER.init();
-  }
+  if (!initPromise) initPromise = RAPIER.init();
   return initPromise;
 }
 
-/* ─── Implementation ────────────────────────────────────────────────────── */
+/* ─── PRNG ─────────────────────────────────────────────────────────────── */
 
-type CarRuntime = {
-  index: number;
-  decoded: DecodedCar;
-  chassis: RAPIER.RigidBody;
-  chassisCollider: RAPIER.Collider;
-  wheels: {
-    body: RAPIER.RigidBody;
-    collider: RAPIER.Collider;
-    joint: RAPIER.ImpulseJoint;
-    radius: number;
-  }[];
-  health: number;
-  alive: boolean;
-  /** Once true, never read from chassis/wheel bodies again. */
-  bodiesReleased: boolean;
-  score: number;
-  spawnX: number;
-  maxX: number;
-  /** Total simulated time the car has been alive, seconds. */
-  ageSec: number;
-  /** Sim time at which the current sliding progress window started. */
-  windowStartTime: number;
-  /** maxX recorded at the start of the current window. */
-  windowStartX: number;
-  vertices: { x: number; y: number }[];
-  /** Frozen snapshot taken at the moment of death — read forever after. */
-  finalSnapshot: CarSnapshot | null;
-};
+export type Rng = () => number;
 
-export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle> {
-  await ensureRapier();
-
-  const gravity = { x: 0, y: -(opts.gravity ?? 9.81) };
-  const world = new RAPIER.World(gravity);
-  // Match SIM_DT.  Rapier's default is also 1/60 but be explicit for parity
-  // across versions.
-  world.timestep = SIM_DT;
-
-  // We keep the ground collider for collision but no longer query it for
-  // ground checks — sampleTrackY is the source of truth.
-  buildTrack(world, opts.track);
-
-  // All cars share the same spawn coordinate.  We start them well clear
-  // of the left edge of the track (12 m by default) so a car that gets
-  // bumped backwards has somewhere safe to fall instead of off the world.
-  const sx = opts.spawnX ?? 12;
-  const sy = (opts.spawnY ?? 0) + sampleTrackY(opts.track, sx) + 2;
-
-  const cars: CarRuntime[] = opts.genomes.map((genome, index) =>
-    buildCar(world, genome, index, sx, sy),
-  );
-
-  let time = 0;
-
-  const gravityMag = Math.abs(gravity.y);
-
-  return {
-    step(): void {
-      for (const car of cars) {
-        if (!car.alive) continue;
-        applyMotor(car, gravityMag, opts.track);
-      }
-      world.step();
-      time += SIM_DT;
-      for (const car of cars) {
-        if (!car.alive) continue;
-        const updated = updateLifecycle(car);
-        if (!updated.alive) {
-          // Freeze the last visible state, then release Rapier resources.
-          car.finalSnapshot = snapshotLiveCar(car);
-          destroyCar(world, car);
-        }
-      }
-    },
-
-    snapshot(): WorldSnapshot {
-      return {
-        time,
-        cars: cars.map((c) =>
-          c.bodiesReleased ? (c.finalSnapshot ?? deadStub(c)) : snapshotLiveCar(c),
-        ),
-      };
-    },
-
-    destroy(): void {
-      world.free();
-    },
+export function makeRng(seed: number): Rng {
+  let s = seed >>> 0 || 1;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
-/* ─── Track construction ────────────────────────────────────────────────── */
+const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+const clamp = (x: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, x));
 
-/** Linear sample of track height at world x. */
-function sampleTrackY(track: Track, x: number): number {
-  const { step } = track.options;
-  if (x <= 0) return 0;
+/* ─── Track ────────────────────────────────────────────────────────────── */
+
+export type TrackOptions = {
+  length: number;
+  step: number;
+  warmup: number;
+  amplitude: number;
+};
+
+export type Track = {
+  options: TrackOptions;
+  points: { x: number; y: number }[];
+};
+
+const DEFAULT_TRACK: TrackOptions = {
+  length: 1500,
+  step: 0.6,
+  warmup: 25,
+  amplitude: 5.0,
+};
+
+export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): Track {
+  const o: TrackOptions = { ...DEFAULT_TRACK, ...opts };
+  const rng = makeRng(seed);
+  const layers = [
+    { freq: 0.16, phase: rng() * Math.PI * 2, weight: 0.55 },
+    { freq: 0.16 * 1.618, phase: rng() * Math.PI * 2, weight: 0.3 },
+    { freq: 0.16 * 1.618 * 1.618, phase: rng() * Math.PI * 2, weight: 0.18 },
+  ];
+  const drift = { freq: 0.018, phase: rng() * Math.PI * 2, weight: 0.7 };
+
+  const points: { x: number; y: number }[] = [];
+  for (let x = 0; x <= o.length + 1e-4; x += o.step) {
+    const ramp = smoothstep(0, o.warmup, x);
+    let y = 0;
+    for (const l of layers) y += Math.sin(x * l.freq + l.phase) * l.weight;
+    y += Math.sin(x * drift.freq + drift.phase) * drift.weight;
+    y *= ramp * o.amplitude;
+    points.push({ x, y });
+  }
+  if (points[0]) points[0].y = 0;
+  return { options: o, points };
+}
+
+function smoothstep(a: number, b: number, x: number): number {
+  if (x <= a) return 0;
+  if (x >= b) return 1;
+  const t = (x - a) / (b - a);
+  return t * t * (3 - 2 * t);
+}
+
+export function sampleTrackY(track: Track, x: number): number {
+  const { step, length } = track.options;
+  if (x <= 0) return track.points[0]?.y ?? 0;
+  if (x >= length) return track.points[track.points.length - 1]?.y ?? 0;
   const i = Math.floor(x / step);
   const a = track.points[i];
   const b = track.points[i + 1];
@@ -211,52 +180,187 @@ function sampleTrackY(track: Track, x: number): number {
   return a.y + (b.y - a.y) * t;
 }
 
-function buildTrack(world: RAPIER.World, track: Track): void {
-  const groundDesc = RAPIER.RigidBodyDesc.fixed();
-  const ground = world.createRigidBody(groundDesc);
+/* ─── Genome (random car shape) ───────────────────────────────────────── */
 
+export type WheelGene = {
+  attachVertex: number;
+  radius: number;
+  density: number;
+  motorTorque: number;
+};
+
+export type Genome = {
+  chassisVertexCount: number;
+  chassisRadii: number[];
+  chassisDensity: number;
+  wheels: WheelGene[];
+  motorSpeed: number;
+};
+
+export function randomGenome(rng: Rng): Genome {
+  const n = randInt(rng, TUNING.chassis.minVertices, TUNING.chassis.maxVertices);
+  const radii: number[] = [];
+  for (let i = 0; i < n; i++) {
+    radii.push(lerp(TUNING.chassis.minRadius, TUNING.chassis.maxRadius, rng()));
+  }
+  const wheelCount = randInt(rng, TUNING.wheel.minCount, TUNING.wheel.maxCount);
+  const wheels: WheelGene[] = [];
+  for (let i = 0; i < wheelCount; i++) {
+    wheels.push({
+      attachVertex: randInt(rng, 0, n - 1),
+      radius: lerp(TUNING.wheel.minRadius, TUNING.wheel.maxRadius, rng()),
+      density: lerp(TUNING.wheel.minDensity, TUNING.wheel.maxDensity, rng()),
+      motorTorque: lerp(0.4, 1.0, rng()),
+    });
+  }
+  return {
+    chassisVertexCount: n,
+    chassisRadii: radii,
+    chassisDensity: lerp(TUNING.chassis.minDensity, TUNING.chassis.maxDensity, rng()),
+    wheels,
+    motorSpeed: lerp(TUNING.motor.minSpeed, TUNING.motor.maxSpeed, rng()),
+  };
+}
+
+function randInt(rng: Rng, lo: number, hi: number): number {
+  return lo + Math.floor(rng() * (hi - lo + 1));
+}
+
+function chassisVertices(g: Genome): { x: number; y: number }[] {
+  const verts: { x: number; y: number }[] = [];
+  for (let i = 0; i < g.chassisVertexCount; i++) {
+    const angle = ((i + 0.5) / g.chassisVertexCount) * Math.PI * 2;
+    const r = g.chassisRadii[i] ?? 0.5;
+    verts.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r });
+  }
+  return verts;
+}
+
+/* ─── Per-car runtime ──────────────────────────────────────────────────── */
+
+type WheelRuntime = {
+  body: RAPIER.RigidBody;
+  joint: RAPIER.ImpulseJoint;
+  radius: number;
+  motorTorque: number;
+  onGround: boolean;
+};
+
+type CarRuntime = {
+  index: number;
+  genome: Genome;
+  vertices: { x: number; y: number }[];
+  chassis: RAPIER.RigidBody;
+  wheels: WheelRuntime[];
+  spawnX: number;
+  maxX: number;
+};
+
+export type CarSnapshot = {
+  index: number;
+  position: { x: number; y: number };
+  angle: number;
+  speed: number;
+  travel: number;
+  vertices: { x: number; y: number }[];
+  wheels: {
+    position: { x: number; y: number };
+    angle: number;
+    radius: number;
+    onGround: boolean;
+  }[];
+};
+
+export type WorldSnapshot = {
+  time: number;
+  cars: CarSnapshot[];
+};
+
+/* ─── World ────────────────────────────────────────────────────────────── */
+
+export type WorldHandle = {
+  step(): void;
+  snapshot(): WorldSnapshot;
+  destroy(): void;
+};
+
+export type CreateWorldOptions = {
+  track: Track;
+  genomes: Genome[];
+  spawnX?: number;
+};
+
+export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle> {
+  await ensureRapier();
+  const world = new RAPIER.World({ x: 0, y: -GRAVITY });
+  world.timestep = SIM_DT;
+
+  buildTrackColliders(world, opts.track);
+
+  const sx = opts.spawnX ?? 8;
+  const sy = sampleTrackY(opts.track, sx) + 1.6;
+
+  const cars: CarRuntime[] = opts.genomes.map((g, i) => buildCar(world, g, i, sx, sy));
+
+  let time = 0;
+
+  return {
+    step(): void {
+      for (const car of cars) {
+        updateWheelContacts(car, opts.track);
+        applyMotor(car);
+      }
+      world.step();
+      time += SIM_DT;
+      // Track furthest position so the leaderboard / camera stays meaningful.
+      for (const car of cars) {
+        const x = car.chassis.translation().x;
+        if (x > car.maxX) car.maxX = x;
+      }
+    },
+    snapshot(): WorldSnapshot {
+      return { time, cars: cars.map(snapshotCar) };
+    },
+    destroy(): void {
+      world.free();
+    },
+  };
+}
+
+/* ─── Track colliders ──────────────────────────────────────────────────── */
+
+function buildTrackColliders(world: RAPIER.World, track: Track): void {
+  const ground = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+
+  // Track surface is a thin polyline.  CCD on the chassis and wheels
+  // is enough to prevent tunneling at our speeds and step size — no
+  // need for a thicker ground volume.
   const flat = new Float32Array(track.points.length * 2);
   for (let i = 0; i < track.points.length; i++) {
     const p = track.points[i]!;
     flat[i * 2] = p.x;
     flat[i * 2 + 1] = p.y;
   }
+  world.createCollider(
+    RAPIER.ColliderDesc.polyline(flat)
+      .setFriction(1.0)
+      .setRestitution(0.05)
+      .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL)),
+    ground,
+  );
 
-  const colliderDesc = RAPIER.ColliderDesc.polyline(flat)
-    .setFriction(1.0)
-    .setRestitution(0.05)
-    .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CAR_BODY | GROUP.CAR_WHEEL))
-    .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
-
-  world.createCollider(colliderDesc, ground);
-
-  // Back wall at x = 0 so cars that get bumped backwards can't roll off
-  // the start of the track and rack up "negative distance".
-  const startWallHalfHeight = 6;
-  const startWallHalfThickness = 0.05;
-  const startWallDesc = RAPIER.ColliderDesc.cuboid(startWallHalfThickness, startWallHalfHeight)
-    .setTranslation(-startWallHalfThickness, startWallHalfHeight)
-    .setFriction(0)
-    .setRestitution(0)
-    .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CAR_BODY | GROUP.CAR_WHEEL));
-  world.createCollider(startWallDesc, ground);
-
-  // Finish wall: a tall vertical cuboid right at the finish line, so cars
-  // can't run off the end of the world and "earn" infinite distance.  The
-  // wall is in the same TRACK collision group, so wheels and the chassis
-  // both bounce off it.
-  const last = track.points[track.points.length - 1]!;
-  const wallHalfHeight = 4;
-  const wallHalfThickness = 0.05;
-  const wallDesc = RAPIER.ColliderDesc.cuboid(wallHalfThickness, wallHalfHeight)
-    .setTranslation(last.x + wallHalfThickness, last.y + wallHalfHeight)
-    .setFriction(0.4)
-    .setRestitution(0)
-    .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CAR_BODY | GROUP.CAR_WHEEL));
-  world.createCollider(wallDesc, ground);
+  // Back wall at x=0 so a car bumped backwards can't roll off the world.
+  world.createCollider(
+    RAPIER.ColliderDesc.cuboid(0.05, 8)
+      .setTranslation(-0.05, 8)
+      .setFriction(0)
+      .setRestitution(0)
+      .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL)),
+    ground,
+  );
 }
 
-/* ─── Car construction ──────────────────────────────────────────────────── */
+/* ─── Car builder ──────────────────────────────────────────────────────── */
 
 function buildCar(
   world: RAPIER.World,
@@ -265,179 +369,156 @@ function buildCar(
   spawnX: number,
   spawnY: number,
 ): CarRuntime {
-  const decoded = decodeGenome(genome);
+  const verts = chassisVertices(genome);
 
-  // Chassis ────────────────────────────────────────────────────────────
-  // Linear damping is high so a car without traction loses momentum
-  // quickly — the user shouldn't see "inertial coast on the roof".
-  // Angular damping is moderate: enough to calm out random wobble, but
-  // not enough to magically keep the car upright.
-  const chassisBodyDesc = RAPIER.RigidBodyDesc.dynamic()
-    .setTranslation(spawnX, spawnY)
-    .setLinearDamping(0.5)
-    .setAngularDamping(0.3)
-    .setCcdEnabled(true);
-  const chassis = world.createRigidBody(chassisBodyDesc);
+  const chassis = world.createRigidBody(
+    RAPIER.RigidBodyDesc.dynamic()
+      .setTranslation(spawnX, spawnY)
+      .setLinearDamping(TUNING.chassis.linearDamping)
+      .setAngularDamping(TUNING.chassis.angularDamping)
+      .setCcdEnabled(true),
+  );
 
-  const flatVerts = new Float32Array(decoded.chassis.vertices.length * 2);
-  for (let i = 0; i < decoded.chassis.vertices.length; i++) {
-    const v = decoded.chassis.vertices[i]!;
-    flatVerts[i * 2] = v.x;
-    flatVerts[i * 2 + 1] = v.y;
+  const flatVerts = new Float32Array(verts.length * 2);
+  for (let i = 0; i < verts.length; i++) {
+    flatVerts[i * 2] = verts[i]!.x;
+    flatVerts[i * 2 + 1] = verts[i]!.y;
   }
+  const hullDesc = RAPIER.ColliderDesc.convexHull(flatVerts) ?? RAPIER.ColliderDesc.ball(0.5);
+  hullDesc
+    .setDensity(genome.chassisDensity)
+    .setFriction(TUNING.chassis.friction)
+    .setRestitution(TUNING.chassis.restitution)
+    .setCollisionGroups(packGroups(GROUP.CHASSIS, GROUP.TRACK));
+  world.createCollider(hullDesc, chassis);
 
-  const chassisColliderDesc =
-    RAPIER.ColliderDesc.convexHull(flatVerts) ??
-    RAPIER.ColliderDesc.ball(0.5); /* hull may be null on degenerate input */
-
-  // High body friction (0.8) so a toppled car drags hard against the
-  // track and decelerates to a stall — but not infinite friction, so a
-  // body that briefly grazes the track on a hard landing isn't pinned.
-  // The motor never engages from the body anyway (it only fires for
-  // wheels in ground contact), so this is purely a brake.
-  chassisColliderDesc
-    .setDensity(decoded.chassis.density)
-    .setFriction(0.8)
-    .setRestitution(0)
-    .setCollisionGroups(packGroups(GROUP.CAR_BODY, GROUP.TRACK));
-
-  const chassisCollider = world.createCollider(chassisColliderDesc, chassis);
-
-  // Wheels ─────────────────────────────────────────────────────────────
-  const wheels: CarRuntime['wheels'] = [];
-  // Filter wheel genes so that no two wheels share an attachment vertex
-  // and no two wheels overlap geometrically.  Caps total wheels at 4.
+  // De-duplicate wheels: skip those sharing an attachment vertex with an
+  // already-accepted wheel, or those that overlap geometrically.
+  const accepted: WheelGene[] = [];
   const usedAnchors: { x: number; y: number; r: number }[] = [];
-  const acceptedWheelGenes: typeof decoded.wheels = [];
-  for (const wheelGene of decoded.wheels) {
-    if (acceptedWheelGenes.length >= 4) break;
-    const anchor = decoded.chassis.vertices[wheelGene.attachVertex];
+  for (const wg of genome.wheels) {
+    const anchor = verts[wg.attachVertex];
     if (!anchor) continue;
     let conflict = false;
     for (const u of usedAnchors) {
-      const dx = anchor.x - u.x;
-      const dy = anchor.y - u.y;
-      const dist = Math.hypot(dx, dy);
-      // 0.85 leaves a small visual gap between wheels.
-      if (dist < (wheelGene.radius + u.r) * 0.85) {
+      const d = Math.hypot(anchor.x - u.x, anchor.y - u.y);
+      if (d < (wg.radius + u.r) * 0.85) {
         conflict = true;
         break;
       }
     }
     if (conflict) continue;
-    usedAnchors.push({ x: anchor.x, y: anchor.y, r: wheelGene.radius });
-    acceptedWheelGenes.push(wheelGene);
+    usedAnchors.push({ x: anchor.x, y: anchor.y, r: wg.radius });
+    accepted.push(wg);
   }
 
-  for (const wheelGene of acceptedWheelGenes) {
-    const anchor = decoded.chassis.vertices[wheelGene.attachVertex] ?? { x: 0, y: 0 };
-
-    const wheelBodyDesc = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(spawnX + anchor.x, spawnY + anchor.y)
-      .setLinearDamping(0.05)
-      .setAngularDamping(0.05)
-      .setCcdEnabled(true);
-    const wheelBody = world.createRigidBody(wheelBodyDesc);
-
-    const wheelColliderDesc = RAPIER.ColliderDesc.ball(wheelGene.radius)
-      .setDensity(wheelGene.density)
-      .setFriction(PHYSICS.wheel.friction)
-      .setRestitution(0)
-      .setCollisionGroups(packGroups(GROUP.CAR_WHEEL, GROUP.TRACK))
-      .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
-
-    const wheelCollider = world.createCollider(wheelColliderDesc, wheelBody);
-
-    const jointParams = RAPIER.JointData.revolute({ x: anchor.x, y: anchor.y }, { x: 0, y: 0 });
-    const joint = world.createImpulseJoint(jointParams, chassis, wheelBody, true);
-
-    wheels.push({ body: wheelBody, collider: wheelCollider, joint, radius: wheelGene.radius });
-  }
+  const wheels: WheelRuntime[] = accepted.map((wg) => {
+    const anchor = verts[wg.attachVertex]!;
+    const wb = world.createRigidBody(
+      RAPIER.RigidBodyDesc.dynamic()
+        .setTranslation(spawnX + anchor.x, spawnY + anchor.y)
+        .setLinearDamping(TUNING.wheel.linearDamping)
+        .setAngularDamping(TUNING.wheel.angularDamping)
+        .setCcdEnabled(true),
+    );
+    world.createCollider(
+      RAPIER.ColliderDesc.ball(wg.radius)
+        .setDensity(wg.density)
+        .setFriction(TUNING.wheel.friction)
+        .setRestitution(TUNING.wheel.restitution)
+        .setCollisionGroups(packGroups(GROUP.WHEEL, GROUP.TRACK)),
+      wb,
+    );
+    const joint = world.createImpulseJoint(
+      RAPIER.JointData.revolute({ x: anchor.x, y: anchor.y }, { x: 0, y: 0 }),
+      chassis,
+      wb,
+      true,
+    );
+    return {
+      body: wb,
+      joint,
+      radius: wg.radius,
+      motorTorque: wg.motorTorque,
+      onGround: false,
+    };
+  });
 
   return {
     index,
-    decoded,
+    genome,
+    vertices: verts,
     chassis,
-    chassisCollider,
     wheels,
-    health: HEALTH.initialSeconds,
-    alive: true,
-    bodiesReleased: false,
-    score: 0,
     spawnX,
     maxX: spawnX,
-    ageSec: 0,
-    windowStartTime: 0,
-    windowStartX: spawnX,
-    vertices: decoded.chassis.vertices,
-    finalSnapshot: null,
   };
 }
 
-/**
- * Forward-only motor.  For each wheel:
- *   1. Compare the wheel's bottom (centre.y - radius) to the track height
- *      at the wheel's x position.  Within 6 cm tolerance → wheel on ground.
- *   2. If on ground, apply torque toward the target angular velocity.
- *   3. Otherwise the engine produces no force.
- *
- * Why a height-sample instead of a raycast?  `castRay` in
- * @dimforge/rapier2d-compat occasionally fails to register hits on the
- * polyline track, causing the motor to spin freely and "pull" the car.
- * Sampling the track polyline directly is a few cycles slower but
- * 100 % deterministic — which is what the user is asking for.
- */
-function applyMotor(car: CarRuntime, gravity: number, track: Track): void {
-  const targetOmega = -car.decoded.motor.baseSpeed;
+/* ─── Per-tick logic ───────────────────────────────────────────────────── */
+
+function updateWheelContacts(car: CarRuntime, track: Track): void {
+  for (const w of car.wheels) {
+    w.onGround = wheelOnGround(w.body, w.radius, track);
+  }
+}
+
+function applyMotor(car: CarRuntime): void {
+  // No throttle input: every car always pushes forward at full power.
+  // It's the physics rules below that decide whether that effort
+  // translates into motion.
+
+  // Tilt gate: at extreme angles the car has clearly fallen on its side.
+  const tilt = Math.abs(normalizeAngle(car.chassis.rotation()));
+  if (tilt > TUNING.motor.maxChassisTilt) return;
+
+  // Need ≥2 grounded wheels, AND those wheels must span a real
+  // wheelbase.  With a single contact point the wheel motor's reaction
+  // torque on the chassis (Newton 3 via the joint) can perfectly
+  // balance gravity at some tilt and the car drives forever on one
+  // wheel.  Two contact points spread apart constrain that DOF away.
+  // But two wheels attached to nearby chassis vertices share almost
+  // the same contact point — a "near-zero" wheelbase that locks the
+  // chassis perfectly upright via geometry alone, again driving
+  // unphysically forever.  Reject those too.
+  const groundedPositions: { x: number; y: number }[] = [];
+  for (const w of car.wheels) {
+    if (w.onGround) groundedPositions.push(w.body.translation());
+  }
+  if (groundedPositions.length < 2) return;
+  let maxSpan = 0;
+  for (let i = 0; i < groundedPositions.length; i++) {
+    for (let j = i + 1; j < groundedPositions.length; j++) {
+      const a = groundedPositions[i]!;
+      const b = groundedPositions[j]!;
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (d > maxSpan) maxSpan = d;
+    }
+  }
+  if (maxSpan < TUNING.motor.minGroundedSpan) return;
+
+  const targetOmega = -car.genome.motorSpeed; // negative ⇒ forward
   const totalMass = totalMassOf(car);
-
-  for (let i = 0; i < car.wheels.length; i++) {
-    const w = car.wheels[i]!;
-    const wheelGene = car.decoded.wheels[i]!;
-    if (wheelGene.motorTorqueFraction <= 0) continue;
-    if (!isWheelOnGround(w.body, w.radius, track)) continue;
-
-    const currentOmega = w.body.angvel();
-    const error = targetOmega - currentOmega;
+  for (const w of car.wheels) {
+    if (!w.onGround) continue;
+    if (w.motorTorque <= 0) continue;
+    const cur = w.body.angvel();
+    const err = targetOmega - cur;
     const maxTorque =
-      wheelGene.motorTorqueFraction *
-      totalMass *
-      gravity *
-      Math.max(0.15, w.radius) *
-      PHYSICS.motor.torqueHeadroom;
-    const torque = clamp(error * 8, -maxTorque, maxTorque);
+      w.motorTorque * totalMass * GRAVITY * Math.max(0.15, w.radius) * TUNING.motor.torqueHeadroom;
+    const torque = clamp(err * TUNING.motor.feedbackGain, -maxTorque, maxTorque);
     w.body.addTorque(torque, true);
   }
 }
 
-/**
- * True iff the wheel is *resting on* the track surface — within 6 cm of
- * it on either side.  Uses the polyline directly, no Rapier API.
- *
- * The two-sided check is on purpose: if a wheel ends up below the track
- * (joints can briefly push a wheel through a polyline because they
- * don't see contact constraints), we don't want the motor to keep
- * dragging the car along.  A real on-track wheel sits AT the surface,
- * not many centimetres under it.
- */
-function isWheelOnGround(
-  wheelBody: RAPIER.RigidBody,
-  radius: number,
-  track: Track,
-): boolean {
-  const t = wheelBody.translation();
-  if (t.x < 0 || t.x > track.options.length) return false;
-  const trackY = sampleTrackY(track, t.x);
-  const wheelBottom = t.y - radius;
-  // 12 cm two-sided tolerance: the wheel must actually be sitting at the
-  // surface — not many centimetres below it (joint glitch) and not in
-  // the air above.  A bit of slack above the surface lets gentle slopes
-  // register a contact even when the wheel rolls along a chord.
-  return Math.abs(wheelBottom - trackY) <= 0.12;
-}
+/* ─── Geometry helpers ─────────────────────────────────────────────────── */
 
-function clamp(x: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, x));
+function wheelOnGround(body: RAPIER.RigidBody, radius: number, track: Track): boolean {
+  const t = body.translation();
+  if (t.x < 0 || t.x > track.options.length) return false;
+  const groundY = sampleTrackY(track, t.x);
+  const bottom = t.y - radius;
+  return Math.abs(bottom - groundY) <= TUNING.contact.wheelTolerance;
 }
 
 function totalMassOf(car: CarRuntime): number {
@@ -446,62 +527,28 @@ function totalMassOf(car: CarRuntime): number {
   return m;
 }
 
-function updateLifecycle(car: CarRuntime): { alive: boolean } {
+function normalizeAngle(a: number): number {
+  let x = a;
+  while (x > Math.PI) x -= Math.PI * 2;
+  while (x < -Math.PI) x += Math.PI * 2;
+  return x;
+}
+
+function packGroups(membership: number, filter: number): number {
+  return ((membership & 0xffff) << 16) | (filter & 0xffff);
+}
+
+/* ─── Snapshot ─────────────────────────────────────────────────────────── */
+
+function snapshotCar(car: CarRuntime): CarSnapshot {
   const pos = car.chassis.translation();
   const vel = car.chassis.linvel();
-  const speed = Math.hypot(vel.x, vel.y);
-  car.ageSec += SIM_DT;
-
-  // (a) Stall-based health: refill on real progress, drain otherwise.
-  if (pos.x > car.maxX + HEALTH.progressEpsilon) {
-    car.maxX = pos.x;
-    car.health = HEALTH.initialSeconds;
-  } else if (speed < HEALTH.stallSpeed) {
-    car.health -= HEALTH.stallDrainPerSecond * SIM_DT;
-  } else {
-    car.health -= SIM_DT;
-  }
-
-  // (b) Sliding-window check.
-  if (car.ageSec > HEALTH.graceSec) {
-    const windowAge = car.ageSec - car.windowStartTime;
-    if (windowAge >= HEALTH.progressWindowSec) {
-      const progress = car.maxX - car.windowStartX;
-      if (progress < HEALTH.progressWindowMin) car.health = 0;
-      car.windowStartTime = car.ageSec;
-      car.windowStartX = car.maxX;
-    }
-  }
-
-  if (car.health <= 0) {
-    car.alive = false;
-    car.score = Math.max(0, car.maxX - car.spawnX);
-  }
-  return { alive: car.alive };
-}
-
-function destroyCar(world: RAPIER.World, car: CarRuntime): void {
-  if (car.bodiesReleased) return;
-  for (const w of car.wheels) {
-    world.removeImpulseJoint(w.joint, true);
-    world.removeRigidBody(w.body);
-  }
-  world.removeRigidBody(car.chassis);
-  car.bodiesReleased = true;
-}
-
-/** Snapshot from live Rapier bodies — only safe before destruction. */
-function snapshotLiveCar(car: CarRuntime): CarSnapshot {
-  const pos = car.chassis.translation();
-  const travel = Math.max(0, car.maxX - car.spawnX);
   return {
     index: car.index,
-    alive: car.alive,
-    travel,
-    score: car.alive ? travel : car.score,
-    health: car.health,
     position: { x: pos.x, y: pos.y },
     angle: car.chassis.rotation(),
+    speed: Math.hypot(vel.x, vel.y),
+    travel: Math.max(0, car.maxX - car.spawnX),
     vertices: car.vertices,
     wheels: car.wheels.map((w) => {
       const wp = w.body.translation();
@@ -509,33 +556,8 @@ function snapshotLiveCar(car: CarRuntime): CarSnapshot {
         position: { x: wp.x, y: wp.y },
         angle: w.body.rotation(),
         radius: w.radius,
+        onGround: w.onGround,
       };
     }),
   };
-}
-
-/** Fallback used if a car somehow gets released before we cached its snapshot. */
-function deadStub(car: CarRuntime): CarSnapshot {
-  return {
-    index: car.index,
-    alive: false,
-    travel: car.score,
-    score: car.score,
-    health: 0,
-    position: { x: car.maxX, y: 0 },
-    angle: 0,
-    vertices: car.vertices,
-    wheels: car.wheels.map((w) => ({
-      position: { x: car.maxX, y: 0 },
-      angle: 0,
-      radius: w.radius,
-    })),
-  };
-}
-
-/* ─── Helpers ───────────────────────────────────────────────────────────── */
-
-/** Rapier interaction groups: high 16 bits = membership, low 16 bits = filter. */
-function packGroups(membership: number, filter: number): number {
-  return ((membership & 0xffff) << 16) | (filter & 0xffff);
 }

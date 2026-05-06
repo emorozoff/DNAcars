@@ -32,11 +32,5 @@ export default defineConfig(({ mode }) => ({
   build: {
     target: 'es2022',
     sourcemap: true,
-    rollupOptions: {
-      input: {
-        main: resolve(__dirname, 'index.html'),
-        demoPhysics: resolve(__dirname, 'demo-physics.html'),
-      },
-    },
   },
 }));

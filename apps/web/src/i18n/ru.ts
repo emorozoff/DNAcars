@@ -1,22 +1,12 @@
 import type { Dictionary } from './en';
 
 export const ru: Dictionary = {
-  'nav.freerun': 'Свободный режим',
-  'nav.daily': 'Дейли',
-  'panel.title': 'Поколение',
-  'panel.hint': 'Каркас собирается…',
-  'panel.generation': 'Поколение',
-  'panel.gen': 'Пок.',
-  'panel.alive': 'Живых',
+  'panel.run': 'Заезд',
+  'panel.cars': 'Машин',
   'panel.lead': 'Лидер',
-  'panel.records': 'Рекорды',
-  'panel.fastforward': 'Ускорить ×8',
-  'panel.fastforward.on': 'Обычная скорость',
-  'panel.restart': 'Новая популяция',
-  'panel.arena': 'Полигон',
-  'panel.arena.on': 'К эволюции',
-  'panel.bestEver': 'Абс. рекорд',
-  'panel.bestGen': 'Лучшее пок.',
-  'panel.lastBest': 'Прошлое лучшее',
+  'panel.seed': 'Сид',
+  'panel.restart': '↻ Новые формы',
+  'panel.hint':
+    'Нажми пробел (или кнопку) — сбрасывается трасса и спаунится новая партия случайных форм.',
   'footer.tagline': 'Эволюция в твоём браузере.',
 };

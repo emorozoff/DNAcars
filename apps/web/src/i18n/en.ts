@@ -1,21 +1,11 @@
 const enRaw = {
-  'nav.freerun': 'Free Run',
-  'nav.daily': 'Daily',
-  'panel.title': 'Generation',
-  'panel.hint': 'Setup in progress…',
-  'panel.generation': 'Generation',
-  'panel.gen': 'Gen',
-  'panel.alive': 'Alive',
+  'panel.run': 'Run',
+  'panel.cars': 'Cars',
   'panel.lead': 'Lead',
-  'panel.records': 'Records',
-  'panel.fastforward': 'Fast Forward ×8',
-  'panel.fastforward.on': 'Normal speed',
-  'panel.restart': 'New Population',
-  'panel.arena': 'Test Arena',
-  'panel.arena.on': 'Back to Evolution',
-  'panel.bestEver': 'Best ever',
-  'panel.bestGen': 'Best gen',
-  'panel.lastBest': 'Last best',
+  'panel.seed': 'Seed',
+  'panel.restart': '↻ New shapes',
+  'panel.hint':
+    'Press space (or the button) to reseed the track and respawn a new batch of random shapes.',
   'footer.tagline': 'Evolution, in your browser.',
 } as const;
 

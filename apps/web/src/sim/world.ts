@@ -163,11 +163,11 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
   // ground checks — sampleTrackY is the source of truth.
   buildTrack(world, opts.track);
 
-  // All cars share the same spawn coordinate — collision groups already
-  // prevent them from interacting, so visual overlap on frame 1 is
-  // expected and harmless.  Same starting line keeps comparisons honest.
-  const sx = opts.spawnX ?? 0;
-  const sy = (opts.spawnY ?? 0) + sampleTrackY(opts.track, sx) + 1.6;
+  // All cars share the same spawn coordinate.  We start them well clear
+  // of the left edge of the track (12 m by default) so a car that gets
+  // bumped backwards has somewhere safe to fall instead of off the world.
+  const sx = opts.spawnX ?? 12;
+  const sy = (opts.spawnY ?? 0) + sampleTrackY(opts.track, sx) + 2;
 
   const cars: CarRuntime[] = opts.genomes.map((genome, index) =>
     buildCar(world, genome, index, sx, sy),
@@ -244,6 +244,17 @@ function buildTrack(world: RAPIER.World, track: Track): void {
     .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
 
   world.createCollider(colliderDesc, ground);
+
+  // Back wall at x = 0 so cars that get bumped backwards can't roll off
+  // the start of the track and rack up "negative distance".
+  const startWallHalfHeight = 6;
+  const startWallHalfThickness = 0.05;
+  const startWallDesc = RAPIER.ColliderDesc.cuboid(startWallHalfThickness, startWallHalfHeight)
+    .setTranslation(-startWallHalfThickness, startWallHalfHeight)
+    .setFriction(0)
+    .setRestitution(0)
+    .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CAR_BODY | GROUP.CAR_WHEEL));
+  world.createCollider(startWallDesc, ground);
 
   // Finish wall: a tall vertical cuboid right at the finish line, so cars
   // can't run off the end of the world and "earn" infinite distance.  The

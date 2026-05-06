@@ -28,10 +28,12 @@ export type TrackOptions = {
 };
 
 export const DEFAULT_TRACK: TrackOptions = {
-  length: 500,
+  length: 600,
   step: 0.8,
   maxAmplitude: 3.5,
-  warmup: 50,
+  // Warmup is measured from x=0; cars spawn at x=12, so they get ~70m of
+  // gradually-increasing terrain before things get hard.
+  warmup: 80,
 };
 
 export type Track = {

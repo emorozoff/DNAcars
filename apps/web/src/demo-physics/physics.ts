@@ -62,6 +62,16 @@ export const TUNING = {
     feedbackGain: 7,
     /** Beyond this chassis tilt the motor is gated off. */
     maxChassisTilt: (45 * Math.PI) / 180,
+    /**
+     * Minimum span between any two grounded wheels (m) for the motor to
+     * fire.  Two wheels attached to nearby chassis vertices both touch
+     * the ground at almost the same point and form a near-zero
+     * "wheelbase".  Geometrically the two contact points lock the
+     * chassis orientation perfectly — the car can't tip over no matter
+     * what — and the engine pushes it along forever.  Requiring a real
+     * wheelbase rejects this degenerate shape.
+     */
+    minGroundedSpan: 0.4,
   },
   contact: {
     /** Max distance from track surface to count a wheel as "on ground". */
@@ -464,15 +474,30 @@ function applyMotor(car: CarRuntime): void {
   const tilt = Math.abs(normalizeAngle(car.chassis.rotation()));
   if (tilt > TUNING.motor.maxChassisTilt) return;
 
-  // Need ≥2 grounded wheels.  With a single contact point the wheel
-  // motor's reaction torque on the chassis (Newton 3 via the joint)
-  // can perfectly balance gravity at some tilt and the car drives
-  // forever on one wheel.  Two contact points constrain that DOF away.
-  let groundedCount = 0;
+  // Need ≥2 grounded wheels, AND those wheels must span a real
+  // wheelbase.  With a single contact point the wheel motor's reaction
+  // torque on the chassis (Newton 3 via the joint) can perfectly
+  // balance gravity at some tilt and the car drives forever on one
+  // wheel.  Two contact points spread apart constrain that DOF away.
+  // But two wheels attached to nearby chassis vertices share almost
+  // the same contact point — a "near-zero" wheelbase that locks the
+  // chassis perfectly upright via geometry alone, again driving
+  // unphysically forever.  Reject those too.
+  const groundedPositions: { x: number; y: number }[] = [];
   for (const w of car.wheels) {
-    if (w.onGround) groundedCount++;
+    if (w.onGround) groundedPositions.push(w.body.translation());
   }
-  if (groundedCount < 2) return;
+  if (groundedPositions.length < 2) return;
+  let maxSpan = 0;
+  for (let i = 0; i < groundedPositions.length; i++) {
+    for (let j = i + 1; j < groundedPositions.length; j++) {
+      const a = groundedPositions[i]!;
+      const b = groundedPositions[j]!;
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (d > maxSpan) maxSpan = d;
+    }
+  }
+  if (maxSpan < TUNING.motor.minGroundedSpan) return;
 
   const targetOmega = -car.genome.motorSpeed; // negative ⇒ forward
   const totalMass = totalMassOf(car);

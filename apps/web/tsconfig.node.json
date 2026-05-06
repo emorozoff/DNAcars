@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": true,
+    "tsBuildInfoFile": "./.tsbuild/node.tsbuildinfo",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"]
+  },
+  "include": ["vite.config.ts", "vitest.config.ts"]
+}

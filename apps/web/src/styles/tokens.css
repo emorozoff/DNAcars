@@ -1,0 +1,103 @@
+/* ============================================================================
+ * Design tokens — DNAcars
+ * Minimalism: 2-3 base colors, single accent, generous whitespace.
+ * Dark theme is canonical. Light theme is opt-in via [data-theme="light"].
+ * ============================================================================ */
+
+:root {
+  /* Surfaces */
+  --color-bg: #0e0e10;
+  --color-surface: #16161a;
+  --color-surface-2: #1d1d22;
+  --color-border: #2a2a31;
+
+  /* Foreground */
+  --color-fg: #e6e6e9;
+  --color-fg-muted: #8b8b94;
+  --color-fg-dim: #5a5a63;
+
+  /* Accent (single, used sparingly) */
+  --color-accent: #a8ff60;
+  --color-accent-soft: rgba(168, 255, 96, 0.12);
+
+  /* Semantic */
+  --color-good: #a8ff60;
+  --color-warn: #ffd166;
+  --color-bad: #ff6b6b;
+
+  /* Track / car palette (for Pixi rendering) */
+  --color-track: #2a2a31;
+  --color-car-body: #e6e6e9;
+  --color-car-wheel: #8b8b94;
+  --color-car-elite: #a8ff60;
+  --color-car-ghost: rgba(230, 230, 233, 0.18);
+
+  /* Type */
+  --font-sans:
+    'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.875rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.25rem;
+  --fs-xl: 1.625rem;
+  --fs-2xl: 2.25rem;
+
+  /* Spacing (4-pt grid) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+
+  /* Radii */
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 14px;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 120ms;
+  --dur-med: 240ms;
+  --dur-slow: 480ms;
+
+  /* Layout */
+  --topbar-h: 56px;
+  --footer-h: 32px;
+  --panel-w: 320px;
+
+  /* Shadow */
+  --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme='light'] {
+  --color-bg: #fafafa;
+  --color-surface: #ffffff;
+  --color-surface-2: #f3f3f5;
+  --color-border: #e4e4e8;
+  --color-fg: #0e0e10;
+  --color-fg-muted: #5a5a63;
+  --color-fg-dim: #8b8b94;
+  --color-accent: #4a8a26;
+  --color-accent-soft: rgba(74, 138, 38, 0.12);
+  --color-track: #d6d6dd;
+  --color-car-body: #1a1a1f;
+  --color-car-wheel: #5a5a63;
+  --color-car-elite: #4a8a26;
+  --color-car-ghost: rgba(26, 26, 31, 0.14);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-med: 0ms;
+    --dur-slow: 0ms;
+  }
+}

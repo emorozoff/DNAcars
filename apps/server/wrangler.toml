@@ -1,0 +1,14 @@
+name = "dnacars-api"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Leaderboard storage. Create with:
+#   wrangler kv:namespace create LEADERBOARD
+# then paste the id below.
+# [[kv_namespaces]]
+# binding = "LEADERBOARD"
+# id = "REPLACE_ME"
+
+[observability]
+enabled = true

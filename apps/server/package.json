@@ -1,0 +1,23 @@
+{
+  "name": "@dnacars/server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "tsc -b --noEmit",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@dnacars/shared": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "wrangler": "^3.99.0"
+  }
+}

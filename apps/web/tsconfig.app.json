@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": true,
+    "tsBuildInfoFile": "./.tsbuild/app.tsbuildinfo",
+    "types": ["vite/client", "vitest/globals"],
+    "paths": {
+      "@dnacars/shared": ["../../packages/shared/src/index.ts"],
+      "@dnacars/shared/*": ["../../packages/shared/src/*"]
+    }
+  },
+  "include": ["src/**/*"]
+}

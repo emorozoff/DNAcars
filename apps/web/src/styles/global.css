@@ -1,0 +1,180 @@
+@import './tokens.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#app {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: var(--topbar-h) 1fr var(--footer-h);
+}
+
+button {
+  font-family: inherit;
+}
+
+/* ─── Top bar ────────────────────────────────────────────────────────────── */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--sp-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.brand__mark {
+  color: var(--color-accent);
+  font-size: var(--fs-lg);
+  line-height: 1;
+}
+
+.brand__name {
+  font-size: var(--fs-md);
+}
+
+.topbar__nav {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+/* ─── Buttons ────────────────────────────────────────────────────────────── */
+
+.btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-fg);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.btn:hover {
+  background: var(--color-surface-2);
+}
+
+.btn--ghost {
+  color: var(--color-fg-muted);
+}
+
+.btn--ghost:hover {
+  color: var(--color-fg);
+}
+
+.btn--primary {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.btn--primary:hover {
+  background: var(--color-accent);
+  color: var(--color-bg);
+}
+
+/* ─── Stage ──────────────────────────────────────────────────────────────── */
+
+.stage {
+  display: grid;
+  grid-template-columns: 1fr var(--panel-w);
+  min-height: 0;
+}
+
+.stage__canvas {
+  position: relative;
+  background: var(--color-bg);
+  overflow: hidden;
+}
+
+.stage__canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ─── Panel ──────────────────────────────────────────────────────────────── */
+
+.panel {
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: var(--sp-5);
+  overflow-y: auto;
+}
+
+.panel__title {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-fg-muted);
+}
+
+.panel__hint {
+  margin: 0;
+  color: var(--color-fg-dim);
+  font-size: var(--fs-sm);
+}
+
+/* ─── Footer ─────────────────────────────────────────────────────────────── */
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-fg-dim);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ─── Mobile ─────────────────────────────────────────────────────────────── */
+
+@media (max-width: 720px) {
+  :root {
+    --panel-w: 100%;
+  }
+
+  .stage {
+    grid-template-columns: 1fr;
+    grid-template-rows: 60vh auto;
+  }
+
+  .panel {
+    border-left: none;
+    border-top: 1px solid var(--color-border);
+  }
+}

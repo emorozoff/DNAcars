@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0e0e10" />
+    <meta name="description" content="DNAcars — evolutionary 2D car simulation in your browser" />
+    <meta property="og:title" content="DNAcars" />
+    <meta
+      property="og:description"
+      content="Watch cars evolve. A genetic algorithm in your browser."
+    />
+    <meta property="og:type" content="website" />
+    <title>DNAcars</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand__mark">●</span>
+          <span class="brand__name">DNAcars</span>
+        </div>
+        <nav class="topbar__nav">
+          <button class="btn btn--ghost" data-i18n="nav.freerun">Free Run</button>
+          <button class="btn btn--ghost" data-i18n="nav.daily">Daily</button>
+          <button class="btn btn--ghost" id="lang-toggle" aria-label="Toggle language">EN</button>
+        </nav>
+      </header>
+
+      <main class="stage">
+        <div id="pixi-root" class="stage__canvas"></div>
+        <aside class="panel">
+          <h2 class="panel__title" data-i18n="panel.title">Generation</h2>
+          <p class="panel__hint" data-i18n="panel.hint">Setup in progress…</p>
+        </aside>
+      </main>
+
+      <footer class="footer">
+        <span data-i18n="footer.tagline">Evolution, in your browser.</span>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -45,7 +45,13 @@ export const TUNING = {
      */
     friction: 0.8,
     restitution: 0.0,
-    linearDamping: 0.4,
+    /**
+     * Bumped from 0.4 to 0.5 in v0.9.4 — a fast heavy chassis on a
+     * downhill could otherwise build up enough horizontal momentum
+     * that the next uphill became a launch ramp.  Slightly heavier
+     * air drag caps top speed without making the cars feel sluggish.
+     */
+    linearDamping: 0.5,
     angularDamping: 0.2,
   },
   wheel: {
@@ -73,8 +79,16 @@ export const TUNING = {
     angularDamping: 0.05,
   },
   motor: {
-    minSpeed: 10,
-    maxSpeed: 24,
+    /**
+     * Wheel angular speed range, rad/s.  Lowered in v0.9.4 from
+     * 10..24 to 8..18 — the upper end was producing chassis surface
+     * speeds around 14 m/s on flats, which combined with the (then
+     * 5 m amplitude) terrain to launch heavy cars metres above the
+     * highest hill.  18 rad/s ≈ 11 m/s on average — quick enough to
+     * feel dynamic, gentle enough that bumps don't trampoline.
+     */
+    minSpeed: 8,
+    maxSpeed: 18,
     torqueHeadroom: 1.8,
     feedbackGain: 7,
     /** Beyond this chassis tilt the motor is gated off. */
@@ -161,7 +175,15 @@ const DEFAULT_TRACK: TrackOptions = {
   length: 1500,
   step: 0.6,
   warmup: 25,
-  amplitude: 5.0,
+  /**
+   * Lowered from 5.0 in v0.9.4.  Layered-sine slope sums to roughly
+   * 0.25 in normalised units; multiplied by amplitude it becomes the
+   * world-space slope.  At 5.0 the worst slope was ~52° — a near
+   * vertical ramp that would launch a fast heavy car several metres
+   * above the next peak.  3.5 caps the worst slope at ~38°, still
+   * dramatic but no longer a trampoline.
+   */
+  amplitude: 3.5,
 };
 
 export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): Track {
@@ -300,6 +322,9 @@ type CarRuntime = {
 export type CarSnapshot = {
   index: number;
   position: { x: number; y: number };
+  /** Linear velocity of the chassis in world coords, m/s.  Useful for
+   *  debug bundles ("car was moving (vx, vy) at (px, py) when it flew"). */
+  velocity: { x: number; y: number };
   angle: number;
   speed: number;
   /** Distance from spawn, in metres.  Frozen at the moment the car finished. */
@@ -665,6 +690,7 @@ function snapshotCar(car: CarRuntime): CarSnapshot {
   return {
     index: car.index,
     position: { x: pos.x, y: pos.y },
+    velocity: { x: vel.x, y: vel.y },
     angle: car.chassis.rotation(),
     speed: Math.hypot(vel.x, vel.y),
     travel: Math.max(0, car.maxX - car.spawnX),

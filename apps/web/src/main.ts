@@ -37,6 +37,7 @@ import {
   generateTrack,
   makeRng,
   randomGenome,
+  sampleTrackY,
   SIM_DT,
   TUNING,
   type Genome,
@@ -182,6 +183,12 @@ async function startSession(opts: StartOptions): Promise<Session> {
     const snap = world.snapshot();
     const carSnap = snap.cars.find((c) => c.index === carIndex);
     if (!genome || !carSnap) return;
+    // Compose a debug bundle rich enough to reason about "why is this
+    // car doing X" off-line.  In particular we expose the velocity
+    // vector and the *altitude above the track surface at this x*: a
+    // high value is the tell that a car launched off a hill instead
+    // of just rolling fast.
+    const trackY = sampleTrackY(track, carSnap.position.x);
     const bundle = {
       version: __APP_VERSION__,
       trackSeed: trackSeed.toString(16).padStart(8, '0'),
@@ -190,10 +197,13 @@ async function startSession(opts: StartOptions): Promise<Session> {
       genome,
       snapshot: {
         position: carSnap.position,
+        velocity: carSnap.velocity,
         angle: carSnap.angle,
         speed: carSnap.speed,
         travel: carSnap.travel,
         finished: carSnap.finished,
+        trackYHere: Number(trackY.toFixed(3)),
+        heightAboveTrack: Number((carSnap.position.y - trackY).toFixed(3)),
       },
     };
     const json = JSON.stringify(bundle, null, 2);

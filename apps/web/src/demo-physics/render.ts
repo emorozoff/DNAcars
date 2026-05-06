@@ -128,6 +128,18 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     setTrack(points): void {
       trackPoints = points;
       drawTrack();
+      // Drop every cached per-car view.  Views are keyed by car index
+      // (0..N-1), and a new session reuses the same indices for a
+      // fresh batch of genomes with different chassis polygons and
+      // wheels.  Without this wipe, the rendered shape stays pinned
+      // to the FIRST session's genomes while the physics moves the
+      // SECOND session's shapes — and the result looks exactly like
+      // "the physics is broken on every restart but the first".
+      for (const v of carViews.values()) {
+        carsLayer.removeChild(v.container);
+        v.container.destroy({ children: true });
+      }
+      carViews.clear();
       camera.x = points[0]?.x ?? 0;
       camera.y = points[0]?.y ?? 0;
       cameraTarget = { ...camera };

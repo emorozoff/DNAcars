@@ -275,16 +275,17 @@ function updateCarView(
 /* ─── Math helpers ──────────────────────────────────────────────────────── */
 
 /**
- * Camera follows the leader: the alive car that has travelled the most.
- * When everyone is dead, falls back to the overall best-travelling car
- * so we still see the result of the round.
+ * Camera follows the front-runner — the alive car with the largest x
+ * position on the track.  This is "who is physically furthest along",
+ * which is what the user wants to watch.  travel can lie when cars
+ * spawn at different x slots.
  */
 function pickFollowedIndex(cars: CarSnapshot[]): number | null {
   let bestAlive: CarSnapshot | null = null;
   let bestAny: CarSnapshot | null = null;
   for (const c of cars) {
-    if (!bestAny || c.travel > bestAny.travel) bestAny = c;
-    if (c.alive && (!bestAlive || c.travel > bestAlive.travel)) bestAlive = c;
+    if (!bestAny || c.position.x > bestAny.position.x) bestAny = c;
+    if (c.alive && (!bestAlive || c.position.x > bestAlive.position.x)) bestAlive = c;
   }
   return (bestAlive ?? bestAny)?.index ?? null;
 }

@@ -40,6 +40,12 @@ export const HEALTH = {
   rolledAngleRad: (100 * Math.PI) / 180,
   /** Allowed time rolled over before death. */
   rolledLimitSec: 0.5,
+  /**
+   * If no wheel has touched the ground for this long, the car dies.
+   * Catches "drives without wheels on the road" cases that the slippery
+   * chassis still allowed (e.g. coasting on a slope after a flip).
+   */
+  noWheelContactLimitSec: 2.5,
 } as const;
 
 /** Collision group bitmasks (membership / filter). */
@@ -137,6 +143,8 @@ type CarRuntime = {
   windowStartX: number;
   /** Seconds spent rolled over (|angle| > 110°). */
   rolledSec: number;
+  /** Sim time when at least one wheel last touched the ground. */
+  lastWheelContactSec: number;
   vertices: { x: number; y: number }[];
   /** Frozen snapshot taken at the moment of death — read forever after. */
   finalSnapshot: CarSnapshot | null;
@@ -367,6 +375,7 @@ function buildCar(
     windowStartTime: 0,
     windowStartX: spawnX,
     rolledSec: 0,
+    lastWheelContactSec: 0,
     vertices: decoded.chassis.vertices,
     finalSnapshot: null,
   };
@@ -388,13 +397,17 @@ function buildCar(
 function applyMotor(car: CarRuntime, gravity: number, track: Track): void {
   const targetOmega = -car.decoded.motor.baseSpeed;
   const totalMass = totalMassOf(car);
+  let anyOnGround = false;
 
   for (let i = 0; i < car.wheels.length; i++) {
     const w = car.wheels[i]!;
     const wheelGene = car.decoded.wheels[i]!;
-    if (wheelGene.motorTorqueFraction <= 0) continue;
 
-    if (!isWheelOnGround(w.body, w.radius, track)) continue;
+    const onGround = isWheelOnGround(w.body, w.radius, track);
+    if (onGround) anyOnGround = true;
+
+    if (wheelGene.motorTorqueFraction <= 0) continue;
+    if (!onGround) continue;
 
     const currentOmega = w.body.angvel();
     const error = targetOmega - currentOmega;
@@ -407,11 +420,21 @@ function applyMotor(car: CarRuntime, gravity: number, track: Track): void {
     const torque = clamp(error * 8, -maxTorque, maxTorque);
     w.body.addTorque(torque, true);
   }
+
+  if (anyOnGround) {
+    car.lastWheelContactSec = car.ageSec;
+  }
 }
 
 /**
- * True iff the wheel is sitting on (or just above) the track surface.
- * Uses the track polyline directly — no Rapier API involved.
+ * True iff the wheel is *resting on* the track surface — within 6 cm of
+ * it on either side.  Uses the polyline directly, no Rapier API.
+ *
+ * The two-sided check is on purpose: if a wheel ends up below the track
+ * (joints can briefly push a wheel through a polyline because they
+ * don't see contact constraints), we don't want the motor to keep
+ * dragging the car along.  A real on-track wheel sits AT the surface,
+ * not many centimetres under it.
  */
 function isWheelOnGround(
   wheelBody: RAPIER.RigidBody,
@@ -419,12 +442,10 @@ function isWheelOnGround(
   track: Track,
 ): boolean {
   const t = wheelBody.translation();
-  // Off the track entirely (before start or past finish) → not on ground.
   if (t.x < 0 || t.x > track.options.length) return false;
   const trackY = sampleTrackY(track, t.x);
   const wheelBottom = t.y - radius;
-  // 6 cm tolerance covers the small penetration the solver allows + jitter.
-  return wheelBottom <= trackY + 0.06;
+  return Math.abs(wheelBottom - trackY) <= 0.06;
 }
 
 function clamp(x: number, lo: number, hi: number): number {
@@ -465,13 +486,22 @@ function updateLifecycle(car: CarRuntime): { alive: boolean } {
     }
   }
 
-  // (c) Roll-over: chassis tipped past 110° → tick the rolled-over timer.
+  // (c) Roll-over: chassis tipped past 100° → tick the rolled-over timer.
   if (Math.abs(angle) > HEALTH.rolledAngleRad) {
     car.rolledSec += SIM_DT;
     if (car.rolledSec >= HEALTH.rolledLimitSec) car.health = 0;
   } else {
-    // Recover slowly — short flips are forgiven.
     car.rolledSec = Math.max(0, car.rolledSec - SIM_DT * 2);
+  }
+
+  // (d) No wheel contact for too long → death.  After grace, if the car
+  // hasn't had a single wheel touch the track in `noWheelContactLimitSec`
+  // seconds, it isn't really driving — kill it.
+  if (
+    car.ageSec > HEALTH.graceSec &&
+    car.ageSec - car.lastWheelContactSec >= HEALTH.noWheelContactLimitSec
+  ) {
+    car.health = 0;
   }
 
   if (car.health <= 0) {

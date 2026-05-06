@@ -569,21 +569,38 @@ function updateContacts(car: CarRuntime, track: Track): void {
 function markCrashed(car: CarRuntime, reason: 'rollover' | 'body-down' | 'stalled'): void {
   car.crashed = true;
   car.crashReason = reason;
-  car.chassis.setLinearDamping(3.0);
-  car.chassis.setAngularDamping(3.0);
+  // Modest damping bump — enough to visibly stop the car within a second
+  // or two, but low enough that gravity can still pull it down at a
+  // sensible terminal velocity.  The previous 3.0 made crashed cars look
+  // like they were frozen in mid-air while the camera scrolled past.
+  car.chassis.setLinearDamping(1.5);
+  car.chassis.setAngularDamping(2.0);
   for (const w of car.wheels) {
-    w.body.setLinearDamping(2.0);
-    w.body.setAngularDamping(3.0);
+    w.body.setLinearDamping(1.0);
+    w.body.setAngularDamping(2.0);
   }
 }
 
 function applyMotor(car: CarRuntime): void {
-  // Gate the motor on chassis tilt.  Without this, the reaction torque on
-  // the chassis (the joint partner of the wheel torque) cancels gravity
-  // and the car balances forever on a single wheel — exactly what we
-  // don't want.  With the gate, gravity always wins past 45° tilt.
+  // Gate the motor on chassis tilt — at extreme angles even two grounded
+  // wheels can't make for a "driving" car.
   const tilt = Math.abs(normalizeAngle(car.chassis.rotation()));
   if (tilt > TUNING.motor.maxChassisTilt) return;
+
+  // Require at least two wheels in ground contact.  With a single
+  // grounded wheel, the motor's reaction torque on the chassis (Newton 3
+  // through the revolute joint) can perfectly cancel gravity at some
+  // tilt — and the car drives "stably on one wheel" forever, exactly
+  // the unphysical pattern the user keeps seeing.  Forcing two contact
+  // points removes the rotational degree of freedom that lets that
+  // equilibrium exist.  As a bonus, cars with all wheels stuck on top
+  // of the chassis (a "bad" shape) never satisfy this condition and
+  // simply stall out.
+  let groundedCount = 0;
+  for (const w of car.wheels) {
+    if (w.onGround) groundedCount++;
+  }
+  if (groundedCount < 2) return;
 
   const targetOmega = -car.genome.motorSpeed; // negative ⇒ clockwise ⇒ forward
   const totalMass = totalMassOf(car);

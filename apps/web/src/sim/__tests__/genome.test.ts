@@ -43,8 +43,8 @@ describe('genome', () => {
     for (const w of d.wheels) {
       expect(w.radius).toBeGreaterThanOrEqual(PHYSICS.wheel.minRadius);
       expect(w.radius).toBeLessThanOrEqual(PHYSICS.wheel.maxRadius);
-      expect(w.friction).toBeGreaterThanOrEqual(PHYSICS.wheel.minFriction);
-      expect(w.friction).toBeLessThanOrEqual(PHYSICS.wheel.maxFriction);
+      expect(w.density).toBeGreaterThanOrEqual(PHYSICS.wheel.minDensity);
+      expect(w.density).toBeLessThanOrEqual(PHYSICS.wheel.maxDensity);
     }
     expect(d.motor.baseSpeed).toBeGreaterThanOrEqual(PHYSICS.motor.minSpeed);
     expect(d.motor.baseSpeed).toBeLessThanOrEqual(PHYSICS.motor.maxSpeed);

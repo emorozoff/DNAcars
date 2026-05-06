@@ -275,19 +275,18 @@ function updateCarView(
 /* ─── Math helpers ──────────────────────────────────────────────────────── */
 
 /**
- * Camera follows car #0 while it's alive.  When it dies we fall back to
- * the lowest-index alive car so the view stays "anchored" rather than
- * jumping randomly to the leader.
+ * Camera follows the leader: the alive car that has travelled the most.
+ * When everyone is dead, falls back to the overall best-travelling car
+ * so we still see the result of the round.
  */
 function pickFollowedIndex(cars: CarSnapshot[]): number | null {
-  let lowestAliveIndex: number | null = null;
+  let bestAlive: CarSnapshot | null = null;
+  let bestAny: CarSnapshot | null = null;
   for (const c of cars) {
-    if (c.index === 0 && c.alive) return 0;
-    if (c.alive && (lowestAliveIndex === null || c.index < lowestAliveIndex)) {
-      lowestAliveIndex = c.index;
-    }
+    if (!bestAny || c.travel > bestAny.travel) bestAny = c;
+    if (c.alive && (!bestAlive || c.travel > bestAlive.travel)) bestAlive = c;
   }
-  return lowestAliveIndex;
+  return (bestAlive ?? bestAny)?.index ?? null;
 }
 
 function lerp(a: number, b: number, t: number): number {

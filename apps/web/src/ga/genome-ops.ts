@@ -3,9 +3,9 @@
  *
  * The wire-format `Genome` from @dnacars/shared has a flat list of numbers
  * in [0,1] for every gene plus structural integers (vertex count, attach
- * vertex, wheel count, etc.).  Crossover treats every gene as
- * independently swappable; mutation perturbs floats by gaussian noise and
- * resamples integers occasionally.
+ * vertex, wheel count).  Crossover treats every gene as independently
+ * swappable; mutation perturbs floats by gaussian noise and resamples
+ * integers occasionally.
  */
 
 import type { Genome, WheelGene } from '@dnacars/shared';
@@ -14,12 +14,6 @@ import { PHYSICS } from '../sim/genome';
 
 /* ─── Crossover ─────────────────────────────────────────────────────────── */
 
-/**
- * Uniform per-gene crossover.  Float arrays are mixed coordinate by
- * coordinate; structural integers (vertexCount, wheelCount, etc.) are taken
- * from one parent or the other; downstream arrays are truncated/extended
- * to match the chosen structure.
- */
 export function crossoverGenomes(a: Genome, b: Genome, rng: Rng): Genome {
   const pickA = (): boolean => rng() < 0.5;
 
@@ -27,33 +21,24 @@ export function crossoverGenomes(a: Genome, b: Genome, rng: Rng): Genome {
   const wheelCount = pickA() ? a.wheels.length : b.wheels.length;
 
   const radii: number[] = [];
-  const angleJitter: number[] = [];
   for (let i = 0; i < vertexCount; i++) {
     radii.push(pickGene(a.chassis.radii[i], b.chassis.radii[i], rng));
-    angleJitter.push(pickGene(a.chassis.angleJitter[i], b.chassis.angleJitter[i], rng));
   }
 
   const wheels: WheelGene[] = [];
   for (let i = 0; i < wheelCount; i++) {
-    const aw = a.wheels[i];
-    const bw = b.wheels[i];
-    wheels.push(crossoverWheel(aw, bw, vertexCount, rng));
+    wheels.push(crossoverWheel(a.wheels[i], b.wheels[i], vertexCount, rng));
   }
 
   return {
-    version: 1,
+    version: 2,
     chassis: {
       vertexCount,
       radii,
-      angleJitter,
       density: pickGene(a.chassis.density, b.chassis.density, rng),
     },
     wheels,
-    motor: {
-      baseSpeed: pickGene(a.motor.baseSpeed, b.motor.baseSpeed, rng),
-      canReverse: pickA() ? a.motor.canReverse : b.motor.canReverse,
-      gearRatio: pickGene(a.motor.gearRatio, b.motor.gearRatio, rng),
-    },
+    motor: { baseSpeed: pickGene(a.motor.baseSpeed, b.motor.baseSpeed, rng) },
   };
 }
 
@@ -69,10 +54,7 @@ function crossoverWheel(
   return {
     radius: pickGene(a.radius, b.radius, rng),
     density: pickGene(a.density, b.density, rng),
-    friction: pickGene(a.friction, b.friction, rng),
     attachVertex: clampInt(rng() < 0.5 ? a.attachVertex : b.attachVertex, vertexCount),
-    suspensionStiffness: pickGene(a.suspensionStiffness, b.suspensionStiffness, rng),
-    suspensionDamping: pickGene(a.suspensionDamping, b.suspensionDamping, rng),
     motorTorque: pickGene(a.motorTorque, b.motorTorque, rng),
   };
 }
@@ -99,7 +81,6 @@ export function mutateGenome(
   rng: Rng,
   config: MutationConfig = DEFAULT_MUTATION,
 ): Genome {
-  // Structural mutation: occasionally bump vertex / wheel counts.
   let vertexCount = genome.chassis.vertexCount;
   if (rng() < config.structuralRate) {
     vertexCount = clamp(
@@ -121,9 +102,6 @@ export function mutateGenome(
   const radii = adjustLength(genome.chassis.radii, vertexCount, rng).map((v) =>
     perturb(v, rng, config),
   );
-  const angleJitter = adjustLength(genome.chassis.angleJitter, vertexCount, rng).map((v) =>
-    perturb(v, rng, config),
-  );
 
   const wheels: WheelGene[] = [];
   for (let i = 0; i < wheelCount; i++) {
@@ -132,19 +110,14 @@ export function mutateGenome(
   }
 
   return {
-    version: 1,
+    version: 2,
     chassis: {
       vertexCount,
       radii,
-      angleJitter,
       density: perturb(genome.chassis.density, rng, config),
     },
     wheels,
-    motor: {
-      baseSpeed: perturb(genome.motor.baseSpeed, rng, config),
-      canReverse: rng() < config.rate ? !genome.motor.canReverse : genome.motor.canReverse,
-      gearRatio: perturb(genome.motor.gearRatio, rng, config),
-    },
+    motor: { baseSpeed: perturb(genome.motor.baseSpeed, rng, config) },
   };
 }
 
@@ -157,11 +130,8 @@ function mutateWheel(
   return {
     radius: perturb(w.radius, rng, config),
     density: perturb(w.density, rng, config),
-    friction: perturb(w.friction, rng, config),
     attachVertex:
       rng() < config.rate ? rngInt(rng, 0, vertexCount - 1) : clampInt(w.attachVertex, vertexCount),
-    suspensionStiffness: perturb(w.suspensionStiffness, rng, config),
-    suspensionDamping: perturb(w.suspensionDamping, rng, config),
     motorTorque: perturb(w.motorTorque, rng, config),
   };
 }
@@ -175,14 +145,12 @@ function pickGene(a: number | undefined, b: number | undefined, rng: Rng): numbe
   return rng() < 0.5 ? a : b;
 }
 
-/** Gaussian-style perturb of a [0,1] value, clamped back into [0,1]. */
 function perturb(value: number, rng: Rng, config: MutationConfig): number {
   if (rng() >= config.rate) return value;
   const noise = gaussian(rng) * config.sigma;
   return clamp01(value + noise);
 }
 
-/** Box-Muller from two uniform samples → one standard normal. */
 function gaussian(rng: Rng): number {
   const u1 = Math.max(1e-9, rng());
   const u2 = rng();
@@ -201,10 +169,7 @@ function randomWheel(rng: Rng, vertexCount: number): WheelGene {
   return {
     radius: rng(),
     density: rng(),
-    friction: rng(),
     attachVertex: rngInt(rng, 0, vertexCount - 1),
-    suspensionStiffness: rng(),
-    suspensionDamping: rng(),
     motorTorque: 0.4 + 0.6 * rng(),
   };
 }

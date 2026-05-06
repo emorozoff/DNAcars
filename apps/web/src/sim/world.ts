@@ -10,7 +10,7 @@
 import RAPIER from '@dimforge/rapier2d-compat';
 import type { Genome } from '@dnacars/shared';
 import type { Track } from './track';
-import { decodeGenome, type DecodedCar } from './genome';
+import { decodeGenome, PHYSICS, type DecodedCar } from './genome';
 
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
@@ -18,26 +18,28 @@ import { decodeGenome, type DecodedCar } from './genome';
 export const SIM_DT = 1 / 60;
 
 /**
- * Health rules — a car dies in two ways:
- *   (a) full stop: speed near zero for `initialSeconds` worth of stall.
- *   (b) stuck on a section: less than `progressWindowMin` meters of net
- *       progress over a sliding `progressWindowSec` window.  Catches cars
- *       that keep spinning their wheels without actually moving forward.
+ * Health rules.  A car dies if any of these hold:
+ *   (a) full stop      — speed near zero for `initialSeconds` of stall.
+ *   (b) no progress    — less than `progressWindowMin` over a sliding
+ *                        `progressWindowSec` window (catches creeping cars).
+ *   (c) rolled over    — |chassis.angle| > 110° for `rolledLimitSec` seconds.
+ *   (d) body dragging  — chassis collider in contact with track for
+ *                        `bodyTouchLimitSec` seconds.
  */
 export const HEALTH = {
   initialSeconds: 5,
-  /** Refills health when the car advances by at least this much. */
   progressEpsilon: 0.02,
-  /** Linear velocity below which we count the car as stalled. */
   stallSpeed: 0.2,
-  /** Health drained per second when stalled. */
   stallDrainPerSecond: 8,
-  /** Sliding window length, seconds, for the "stuck on a section" check. */
   progressWindowSec: 4,
-  /** Minimum forward progress (meters) required during the window. */
   progressWindowMin: 1.5,
-  /** Grace time after spawn before the window check kicks in. */
   graceSec: 2.5,
+  /** |angle| above this counts as rolled-over (rad). 110° = 1.92rad. */
+  rolledAngleRad: (110 * Math.PI) / 180,
+  /** Allowed time rolled over before death. */
+  rolledLimitSec: 1,
+  /** Allowed time chassis-on-track before death. */
+  bodyTouchLimitSec: 1.5,
 } as const;
 
 /** Collision group bitmasks (membership / filter). */
@@ -113,6 +115,7 @@ type CarRuntime = {
   index: number;
   decoded: DecodedCar;
   chassis: RAPIER.RigidBody;
+  chassisCollider: RAPIER.Collider;
   wheels: {
     body: RAPIER.RigidBody;
     collider: RAPIER.Collider;
@@ -132,6 +135,10 @@ type CarRuntime = {
   windowStartTime: number;
   /** maxX recorded at the start of the current window. */
   windowStartX: number;
+  /** Seconds spent rolled over (|angle| > 110°). */
+  rolledSec: number;
+  /** Seconds spent with the chassis body touching the track. */
+  bodyTouchSec: number;
   vertices: { x: number; y: number }[];
   /** Frozen snapshot taken at the moment of death — read forever after. */
   finalSnapshot: CarSnapshot | null;
@@ -175,7 +182,7 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
       time += SIM_DT;
       for (const car of cars) {
         if (!car.alive) continue;
-        const updated = updateLifecycle(car);
+        const updated = updateLifecycle(car, world, groundCollider);
         if (!updated.alive) {
           // Freeze the last visible state, then release Rapier resources.
           car.finalSnapshot = snapshotLiveCar(car);
@@ -292,7 +299,7 @@ function buildCar(
     .setRestitution(0)
     .setCollisionGroups(packGroups(GROUP.CAR_BODY, GROUP.TRACK));
 
-  world.createCollider(chassisColliderDesc, chassis);
+  const chassisCollider = world.createCollider(chassisColliderDesc, chassis);
 
   // Wheels ─────────────────────────────────────────────────────────────
   const wheels: CarRuntime['wheels'] = [];
@@ -332,7 +339,7 @@ function buildCar(
 
     const wheelColliderDesc = RAPIER.ColliderDesc.ball(wheelGene.radius)
       .setDensity(wheelGene.density)
-      .setFriction(wheelGene.friction)
+      .setFriction(PHYSICS.wheel.friction)
       .setRestitution(0)
       .setCollisionGroups(packGroups(GROUP.CAR_WHEEL, GROUP.TRACK))
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
@@ -349,6 +356,7 @@ function buildCar(
     index,
     decoded,
     chassis,
+    chassisCollider,
     wheels,
     health: HEALTH.initialSeconds,
     alive: true,
@@ -359,6 +367,8 @@ function buildCar(
     ageSec: 0,
     windowStartTime: 0,
     windowStartX: spawnX,
+    rolledSec: 0,
+    bodyTouchSec: 0,
     vertices: decoded.chassis.vertices,
     finalSnapshot: null,
   };
@@ -375,8 +385,9 @@ function applyMotor(
   world: RAPIER.World,
   groundCollider: RAPIER.Collider,
 ): void {
-  const m = car.decoded.motor;
-  const targetOmega = -m.baseSpeed * m.gearRatio;
+  // Always-on forward gas: wheels target a constant clockwise spin so the
+  // car drives to the right.  No reverse, no gearbox.
+  const targetOmega = -car.decoded.motor.baseSpeed;
   const totalMass = totalMassOf(car);
 
   for (let i = 0; i < car.wheels.length; i++) {
@@ -392,10 +403,12 @@ function applyMotor(
 
     const currentOmega = w.body.angvel();
     const error = targetOmega - currentOmega;
-    // Max torque sized to be able to lift the whole car on a slope.
     const maxTorque =
-      wheelGene.motorTorqueFraction * totalMass * gravity * Math.max(0.15, w.radius) * 2.5;
-    // Aggressive P-gain so the wheel reaches target speed within ~0.3s.
+      wheelGene.motorTorqueFraction *
+      totalMass *
+      gravity *
+      Math.max(0.15, w.radius) *
+      PHYSICS.motor.torqueHeadroom;
     const torque = clamp(error * 8, -maxTorque, maxTorque);
     w.body.addTorque(torque, true);
   }
@@ -441,10 +454,15 @@ function totalMassOf(car: CarRuntime): number {
   return m;
 }
 
-function updateLifecycle(car: CarRuntime): { alive: boolean } {
+function updateLifecycle(
+  car: CarRuntime,
+  world: RAPIER.World,
+  groundCollider: RAPIER.Collider,
+): { alive: boolean } {
   const pos = car.chassis.translation();
   const vel = car.chassis.linvel();
   const speed = Math.hypot(vel.x, vel.y);
+  const angle = normalizeAngle(car.chassis.rotation());
   car.ageSec += SIM_DT;
 
   // (a) Stall-based health: refill on real progress, drain otherwise.
@@ -457,18 +475,35 @@ function updateLifecycle(car: CarRuntime): { alive: boolean } {
     car.health -= SIM_DT;
   }
 
-  // (b) Sliding-window check: if the car can't make at least
-  // progressWindowMin meters within progressWindowSec seconds, kill it.
-  // Skips the first `graceSec` seconds so newborns get a chance to land.
+  // (b) Sliding-window check.
   if (car.ageSec > HEALTH.graceSec) {
     const windowAge = car.ageSec - car.windowStartTime;
     if (windowAge >= HEALTH.progressWindowSec) {
       const progress = car.maxX - car.windowStartX;
-      if (progress < HEALTH.progressWindowMin) {
-        car.health = 0;
-      }
+      if (progress < HEALTH.progressWindowMin) car.health = 0;
       car.windowStartTime = car.ageSec;
       car.windowStartX = car.maxX;
+    }
+  }
+
+  // (c) Roll-over: chassis tipped past 110° → tick the rolled-over timer.
+  if (Math.abs(angle) > HEALTH.rolledAngleRad) {
+    car.rolledSec += SIM_DT;
+    if (car.rolledSec >= HEALTH.rolledLimitSec) car.health = 0;
+  } else {
+    // Recover slowly — short flips are forgiven.
+    car.rolledSec = Math.max(0, car.rolledSec - SIM_DT * 2);
+  }
+
+  // (d) Chassis touching the track — only count after grace so a hard
+  // landing on spawn doesn't kill anyone.
+  if (car.ageSec > HEALTH.graceSec) {
+    const dragging = isChassisTouchingTrack(world, car.chassisCollider, groundCollider);
+    if (dragging) {
+      car.bodyTouchSec += SIM_DT;
+      if (car.bodyTouchSec >= HEALTH.bodyTouchLimitSec) car.health = 0;
+    } else {
+      car.bodyTouchSec = Math.max(0, car.bodyTouchSec - SIM_DT * 2);
     }
   }
 
@@ -477,6 +512,33 @@ function updateLifecycle(car: CarRuntime): { alive: boolean } {
     car.score = Math.max(0, car.maxX - car.spawnX);
   }
   return { alive: car.alive };
+}
+
+function normalizeAngle(a: number): number {
+  let x = a % (Math.PI * 2);
+  if (x > Math.PI) x -= Math.PI * 2;
+  if (x < -Math.PI) x += Math.PI * 2;
+  return x;
+}
+
+function isChassisTouchingTrack(
+  world: RAPIER.World,
+  chassis: RAPIER.Collider,
+  track: RAPIER.Collider,
+): boolean {
+  const w = world as unknown as {
+    contactPair?: (
+      a: RAPIER.Collider,
+      b: RAPIER.Collider,
+      cb: (m: unknown, flipped: boolean) => void,
+    ) => void;
+  };
+  if (typeof w.contactPair !== 'function') return false;
+  let touching = false;
+  w.contactPair(chassis, track, () => {
+    touching = true;
+  });
+  return touching;
 }
 
 function destroyCar(world: RAPIER.World, car: CarRuntime): void {

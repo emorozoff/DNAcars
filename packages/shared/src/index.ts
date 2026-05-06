@@ -11,10 +11,20 @@ export type IsoDate = string;
 /** Anonymous client identifier (UUID v4 stored in localStorage). */
 export type ClientId = string;
 
-/** Genome — the evolvable definition of a car. Wire-stable. */
+/**
+ * Genome — the evolvable definition of a car. Wire-stable.
+ *
+ * Bumping `version` is a breaking change.  Saved populations need to be
+ * filtered or migrated.
+ *
+ * Inspired by the original BoxCar2D / Genetic Cars 2 schema: only the
+ * traits that visibly matter on screen.  The car always presses the gas
+ * forward; there is no reverse, no gearbox, no per-wheel friction or
+ * suspension.
+ */
 export type Genome = {
-  /** Schema version, bump on breaking changes to the shape. */
-  version: 1;
+  /** Schema version. v2 dropped suspension/friction/canReverse/gearRatio. */
+  version: 2;
   chassis: ChassisGene;
   wheels: WheelGene[];
   motor: MotorGene;
@@ -25,8 +35,6 @@ export type ChassisGene = {
   vertexCount: number;
   /** Per-vertex distance from center, length === vertexCount, normalized [0,1]. */
   radii: number[];
-  /** Per-vertex angle jitter, length === vertexCount, normalized [0,1]. */
-  angleJitter: number[];
   /** Body density, normalized [0,1]. */
   density: number;
 };
@@ -36,14 +44,8 @@ export type WheelGene = {
   radius: number;
   /** Wheel density, normalized [0,1]. */
   density: number;
-  /** Tyre friction, normalized [0,1]. */
-  friction: number;
   /** Index into chassis vertices, 0..vertexCount-1. */
   attachVertex: number;
-  /** Suspension stiffness Hz, normalized [0,1]. */
-  suspensionStiffness: number;
-  /** Suspension damping ratio, normalized [0,1]. */
-  suspensionDamping: number;
   /** Fraction of base motor torque, normalized [0,1]. */
   motorTorque: number;
 };
@@ -51,10 +53,6 @@ export type WheelGene = {
 export type MotorGene = {
   /** Base angular speed, normalized [0,1]. */
   baseSpeed: number;
-  /** Whether the motor can apply reverse torque. */
-  canReverse: boolean;
-  /** Gear adjustment factor, normalized [0,1]. */
-  gearRatio: number;
 };
 
 /** Score record for the leaderboard. */

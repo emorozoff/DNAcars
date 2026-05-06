@@ -345,19 +345,25 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
 
 function buildTrackColliders(world: RAPIER.World, track: Track): void {
   const ground = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-  const flat = new Float32Array(track.points.length * 2);
-  for (let i = 0; i < track.points.length; i++) {
-    const p = track.points[i]!;
-    flat[i * 2] = p.x;
-    flat[i * 2 + 1] = p.y;
-  }
-  world.createCollider(
-    RAPIER.ColliderDesc.polyline(flat)
+
+  // Thick "earth" instead of a thin polyline.  Each track segment becomes a
+  // trapezoid extending from the polyline down to a far-below floor, so a
+  // body cannot tunnel through a thin line at speed and end up *under* the
+  // track.  Adjacent trapezoids share an edge — there are no gaps.
+  const floorY = -100;
+  for (let i = 0; i < track.points.length - 1; i++) {
+    const a = track.points[i]!;
+    const b = track.points[i + 1]!;
+    // Order matters for convex-hull validity; clockwise from the top-left.
+    const verts = new Float32Array([a.x, a.y, b.x, b.y, b.x, floorY, a.x, floorY]);
+    const desc = RAPIER.ColliderDesc.convexHull(verts);
+    if (!desc) continue;
+    desc
       .setFriction(1.0)
       .setRestitution(0.05)
-      .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL)),
-    ground,
-  );
+      .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL));
+    world.createCollider(desc, ground);
+  }
 
   // Back wall so a car bumped backwards doesn't roll off the world.
   world.createCollider(
@@ -481,12 +487,10 @@ function updateContacts(car: CarRuntime, track: Track): void {
   }
   // Chassis vertex closest to the surface — anything within tolerance
   // counts as "the body is touching".
-  car.chassis.translation();
   if (chassisTouchesGround(car, track)) {
     car.bodyContactTimer += SIM_DT;
     if (car.bodyContactTimer >= TUNING.crash.bodyContactGrace && !car.crashed) {
-      car.crashed = true;
-      car.crashReason = 'body-down';
+      markCrashed(car, 'body-down');
     }
   } else {
     car.bodyContactTimer = Math.max(0, car.bodyContactTimer - SIM_DT * 2);
@@ -497,11 +501,26 @@ function updateContacts(car: CarRuntime, track: Track): void {
   if (Math.abs(angle) > TUNING.crash.rolloverAngle) {
     car.rolloverTimer += SIM_DT;
     if (car.rolloverTimer >= TUNING.crash.rolloverGrace && !car.crashed) {
-      car.crashed = true;
-      car.crashReason = 'rollover';
+      markCrashed(car, 'rollover');
     }
   } else {
     car.rolloverTimer = Math.max(0, car.rolloverTimer - SIM_DT * 2);
+  }
+}
+
+/**
+ * Transition into the "crashed" state.  Beyond the flag, we crank up the
+ * chassis damping so a car that flipped at speed slides to a stop within
+ * a second or two — instead of "confidently driving forward" on inertia.
+ */
+function markCrashed(car: CarRuntime, reason: 'rollover' | 'body-down' | 'stalled'): void {
+  car.crashed = true;
+  car.crashReason = reason;
+  car.chassis.setLinearDamping(3.0);
+  car.chassis.setAngularDamping(3.0);
+  for (const w of car.wheels) {
+    w.body.setLinearDamping(2.0);
+    w.body.setAngularDamping(3.0);
   }
 }
 
@@ -534,8 +553,7 @@ function updateLifecycle(car: CarRuntime): void {
     car.stallTimer = 0;
   }
   if (car.stallTimer > 5 && !car.crashed) {
-    car.crashed = true;
-    car.crashReason = 'stalled';
+    markCrashed(car, 'stalled');
   }
 
   // "Alive" stays true even when crashed — we keep simulating the body so

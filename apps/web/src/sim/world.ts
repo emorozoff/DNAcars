@@ -36,10 +36,10 @@ export const HEALTH = {
   progressWindowSec: 4,
   progressWindowMin: 1.5,
   graceSec: 2.5,
-  /** |angle| above this counts as rolled-over (rad). 110° = 1.92rad. */
-  rolledAngleRad: (110 * Math.PI) / 180,
+  /** |angle| above this counts as rolled-over (rad). 100° = 1.745rad. */
+  rolledAngleRad: (100 * Math.PI) / 180,
   /** Allowed time rolled over before death. */
-  rolledLimitSec: 1,
+  rolledLimitSec: 0.5,
 } as const;
 
 /** Collision group bitmasks (membership / filter). */
@@ -151,7 +151,9 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
   // across versions.
   world.timestep = SIM_DT;
 
-  const groundCollider = buildTrack(world, opts.track);
+  // We keep the ground collider for collision but no longer query it for
+  // ground checks — sampleTrackY is the source of truth.
+  buildTrack(world, opts.track);
 
   // Stagger cars horizontally so they don't pile up at spawn.  Each car gets
   // its own slot ~1.5m wide.  All cars race on the same track but start
@@ -174,7 +176,7 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
     step(): void {
       for (const car of cars) {
         if (!car.alive) continue;
-        applyMotor(car, gravityMag, world, groundCollider);
+        applyMotor(car, gravityMag, opts.track);
       }
       world.step();
       time += SIM_DT;
@@ -219,7 +221,7 @@ function sampleTrackY(track: Track, x: number): number {
   return a.y + (b.y - a.y) * t;
 }
 
-function buildTrack(world: RAPIER.World, track: Track): RAPIER.Collider {
+function buildTrack(world: RAPIER.World, track: Track): void {
   const groundDesc = RAPIER.RigidBodyDesc.fixed();
   const ground = world.createRigidBody(groundDesc);
 
@@ -236,7 +238,7 @@ function buildTrack(world: RAPIER.World, track: Track): RAPIER.Collider {
     .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CAR_BODY | GROUP.CAR_WHEEL))
     .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
 
-  const groundCollider = world.createCollider(colliderDesc, ground);
+  world.createCollider(colliderDesc, ground);
 
   // Finish wall: a tall vertical cuboid right at the finish line, so cars
   // can't run off the end of the world and "earn" infinite distance.  The
@@ -251,8 +253,6 @@ function buildTrack(world: RAPIER.World, track: Track): RAPIER.Collider {
     .setRestitution(0)
     .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CAR_BODY | GROUP.CAR_WHEEL));
   world.createCollider(wallDesc, ground);
-
-  return groundCollider;
 }
 
 /* ─── Car construction ──────────────────────────────────────────────────── */
@@ -267,13 +267,14 @@ function buildCar(
   const decoded = decodeGenome(genome);
 
   // Chassis ────────────────────────────────────────────────────────────
-  // Low angular damping so the body actually flips and tumbles instead of
-  // staying glued upright on a single wheel — that "balanced on one wheel"
-  // miracle was just the damping faking it.
+  // Linear damping is high so a car without traction loses momentum
+  // quickly — the user shouldn't see "inertial coast on the roof".
+  // Angular damping is moderate: enough to calm out random wobble, but
+  // not enough to magically keep the car upright.
   const chassisBodyDesc = RAPIER.RigidBodyDesc.dynamic()
     .setTranslation(spawnX, spawnY)
-    .setLinearDamping(0.1)
-    .setAngularDamping(0.1)
+    .setLinearDamping(0.5)
+    .setAngularDamping(0.3)
     .setCcdEnabled(true);
   const chassis = world.createRigidBody(chassisBodyDesc);
 
@@ -373,22 +374,18 @@ function buildCar(
 
 /**
  * Forward-only motor.  For each wheel:
- *   1. Raycast straight down from the wheel centre by `radius * 1.1`.
- *   2. If the ray hits the track collider → wheel is on the ground.
- *      Apply torque toward the target angular velocity.
- *   3. If the wheel is airborne → no torque, full stop on the engine.
+ *   1. Compare the wheel's bottom (centre.y - radius) to the track height
+ *      at the wheel's x position.  Within 6 cm tolerance → wheel on ground.
+ *   2. If on ground, apply torque toward the target angular velocity.
+ *   3. Otherwise the engine produces no force.
  *
- * The raycast is the most reliable contact test in Rapier-WASM and gives
- * us a deterministic, consistent answer.  The previous `contactPair` path
- * silently fell back to "always touching" in compat builds, which was
- * the root cause of cars driving on their roof.
+ * Why a height-sample instead of a raycast?  `castRay` in
+ * @dimforge/rapier2d-compat occasionally fails to register hits on the
+ * polyline track, causing the motor to spin freely and "pull" the car.
+ * Sampling the track polyline directly is a few cycles slower but
+ * 100 % deterministic — which is what the user is asking for.
  */
-function applyMotor(
-  car: CarRuntime,
-  gravity: number,
-  world: RAPIER.World,
-  groundCollider: RAPIER.Collider,
-): void {
+function applyMotor(car: CarRuntime, gravity: number, track: Track): void {
   const targetOmega = -car.decoded.motor.baseSpeed;
   const totalMass = totalMassOf(car);
 
@@ -397,7 +394,7 @@ function applyMotor(
     const wheelGene = car.decoded.wheels[i]!;
     if (wheelGene.motorTorqueFraction <= 0) continue;
 
-    if (!isWheelOnGround(world, w.body, w.radius, groundCollider)) continue;
+    if (!isWheelOnGround(w.body, w.radius, track)) continue;
 
     const currentOmega = w.body.angvel();
     const error = targetOmega - currentOmega;
@@ -413,25 +410,21 @@ function applyMotor(
 }
 
 /**
- * True iff a downward ray from the wheel's centre hits the ground collider
- * within `radius * 1.1`.  We reuse a single Ray instance to avoid GC churn.
+ * True iff the wheel is sitting on (or just above) the track surface.
+ * Uses the track polyline directly — no Rapier API involved.
  */
-const _GROUND_RAY = new RAPIER.Ray({ x: 0, y: 0 }, { x: 0, y: -1 });
 function isWheelOnGround(
-  world: RAPIER.World,
   wheelBody: RAPIER.RigidBody,
   radius: number,
-  groundCollider: RAPIER.Collider,
+  track: Track,
 ): boolean {
   const t = wheelBody.translation();
-  _GROUND_RAY.origin.x = t.x;
-  _GROUND_RAY.origin.y = t.y;
-  const maxToi = radius * 1.1;
-  const hit = world.castRay(_GROUND_RAY, maxToi, true);
-  if (!hit) return false;
-  // Compare collider handles — works whether castRay returns the collider
-  // object directly or via its handle.
-  return hit.collider.handle === groundCollider.handle;
+  // Off the track entirely (before start or past finish) → not on ground.
+  if (t.x < 0 || t.x > track.options.length) return false;
+  const trackY = sampleTrackY(track, t.x);
+  const wheelBottom = t.y - radius;
+  // 6 cm tolerance covers the small penetration the solver allows + jitter.
+  return wheelBottom <= trackY + 0.06;
 }
 
 function clamp(x: number, lo: number, hi: number): number {

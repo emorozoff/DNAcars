@@ -19,20 +19,27 @@ import { rngInt, rngRange, type Rng } from './prng';
 /** Hard physical limits used by the decoder. */
 export const PHYSICS = {
   chassis: {
-    minVertices: 6,
+    minVertices: 5,
     maxVertices: 10,
     minRadius: 0.35,
     maxRadius: 1.0,
-    minDensity: 60,
-    maxDensity: 200,
+    /**
+     * The body is *much* denser than a wheel.  Together with the small
+     * wheel-density range below, this keeps the centre of gravity low
+     * and gives flips a real physical cause (steep slopes, jumps),
+     * not random body-on-tire spins.
+     */
+    minDensity: 180,
+    maxDensity: 320,
   },
   wheel: {
     minCount: 1,
     maxCount: 4,
     minRadius: 0.18,
     maxRadius: 0.7,
-    minDensity: 40,
-    maxDensity: 120,
+    /** Wheels are deliberately light so the chassis dominates the moment. */
+    minDensity: 25,
+    maxDensity: 70,
     /** Constant friction for every wheel — no longer evolved. */
     friction: 1.4,
   },

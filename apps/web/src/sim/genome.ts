@@ -24,11 +24,11 @@ export const PHYSICS = {
   },
   wheel: {
     minCount: 1,
-    maxCount: 5,
+    maxCount: 4,
     minRadius: 0.18,
     maxRadius: 0.7,
     minDensity: 40,
-    maxDensity: 180,
+    maxDensity: 120,
     minFriction: 0.6,
     maxFriction: 2.0,
     /** Suspension natural frequency in Hz. */

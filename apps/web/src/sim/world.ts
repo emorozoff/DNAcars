@@ -18,17 +18,26 @@ import { decodeGenome, type DecodedCar } from './genome';
 export const SIM_DT = 1 / 60;
 
 /**
- * Health rules — mirrors the spirit of the original "if you stop, you die",
- * but expressed in seconds rather than raw frames so it adapts to dt.
+ * Health rules — a car dies in two ways:
+ *   (a) full stop: speed near zero for `initialSeconds` worth of stall.
+ *   (b) stuck on a section: less than `progressWindowMin` meters of net
+ *       progress over a sliding `progressWindowSec` window.  Catches cars
+ *       that keep spinning their wheels without actually moving forward.
  */
 export const HEALTH = {
-  initialSeconds: 8,
-  /** When the car advances by at least this much in meters, refill. */
+  initialSeconds: 6,
+  /** Refills health when the car advances by at least this much. */
   progressEpsilon: 0.02,
   /** Linear velocity below which we count the car as stalled. */
   stallSpeed: 0.1,
   /** Health drained per second when stalled. */
-  stallDrainPerSecond: 5,
+  stallDrainPerSecond: 6,
+  /** Sliding window length, seconds, for the "stuck on a section" check. */
+  progressWindowSec: 5,
+  /** Minimum forward progress (meters) required during the window. */
+  progressWindowMin: 1.0,
+  /** Grace time after spawn before the window check kicks in. */
+  graceSec: 3,
 } as const;
 
 /** Collision group bitmasks (membership / filter). */
@@ -117,6 +126,12 @@ type CarRuntime = {
   score: number;
   spawnX: number;
   maxX: number;
+  /** Total simulated time the car has been alive, seconds. */
+  ageSec: number;
+  /** Sim time at which the current sliding progress window started. */
+  windowStartTime: number;
+  /** maxX recorded at the start of the current window. */
+  windowStartX: number;
   vertices: { x: number; y: number }[];
   /** Frozen snapshot taken at the moment of death — read forever after. */
   finalSnapshot: CarSnapshot | null;
@@ -233,8 +248,8 @@ function buildCar(
   // Chassis ────────────────────────────────────────────────────────────
   const chassisBodyDesc = RAPIER.RigidBodyDesc.dynamic()
     .setTranslation(spawnX, spawnY)
-    .setLinearDamping(0.05)
-    .setAngularDamping(0.4)
+    .setLinearDamping(0.1)
+    .setAngularDamping(0.5)
     .setCcdEnabled(true);
   const chassis = world.createRigidBody(chassisBodyDesc);
 
@@ -251,23 +266,47 @@ function buildCar(
 
   // Friction is tiny on purpose: when a car lands on its back it should
   // slide, not crawl forward by scrubbing the track with its body.  All
-  // grip should come from the wheels.
+  // grip should come from the wheels.  Restitution = 0 to kill bounces.
   chassisColliderDesc
     .setDensity(decoded.chassis.density)
     .setFriction(0.05)
-    .setRestitution(0.05)
+    .setRestitution(0)
     .setCollisionGroups(packGroups(GROUP.CAR_BODY, GROUP.TRACK));
 
   world.createCollider(chassisColliderDesc, chassis);
 
   // Wheels ─────────────────────────────────────────────────────────────
   const wheels: CarRuntime['wheels'] = [];
+  // Filter wheel genes so that no two wheels share an attachment vertex
+  // and no two wheels overlap geometrically.  Caps total wheels at 4.
+  const usedAnchors: { x: number; y: number; r: number }[] = [];
+  const acceptedWheelGenes: typeof decoded.wheels = [];
   for (const wheelGene of decoded.wheels) {
+    if (acceptedWheelGenes.length >= 4) break;
+    const anchor = decoded.chassis.vertices[wheelGene.attachVertex];
+    if (!anchor) continue;
+    let conflict = false;
+    for (const u of usedAnchors) {
+      const dx = anchor.x - u.x;
+      const dy = anchor.y - u.y;
+      const dist = Math.hypot(dx, dy);
+      // 0.85 leaves a small visual gap between wheels.
+      if (dist < (wheelGene.radius + u.r) * 0.85) {
+        conflict = true;
+        break;
+      }
+    }
+    if (conflict) continue;
+    usedAnchors.push({ x: anchor.x, y: anchor.y, r: wheelGene.radius });
+    acceptedWheelGenes.push(wheelGene);
+  }
+
+  for (const wheelGene of acceptedWheelGenes) {
     const anchor = decoded.chassis.vertices[wheelGene.attachVertex] ?? { x: 0, y: 0 };
 
     const wheelBodyDesc = RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(spawnX + anchor.x, spawnY + anchor.y)
-      .setLinearDamping(0.0)
+      .setLinearDamping(0.05)
       .setAngularDamping(0.05)
       .setCcdEnabled(true);
     const wheelBody = world.createRigidBody(wheelBodyDesc);
@@ -275,9 +314,8 @@ function buildCar(
     const wheelColliderDesc = RAPIER.ColliderDesc.ball(wheelGene.radius)
       .setDensity(wheelGene.density)
       .setFriction(wheelGene.friction)
-      .setRestitution(0.05)
+      .setRestitution(0)
       .setCollisionGroups(packGroups(GROUP.CAR_WHEEL, GROUP.TRACK))
-      // Active events so the world keeps a contact list we can query.
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
 
     const wheelCollider = world.createCollider(wheelColliderDesc, wheelBody);
@@ -299,6 +337,9 @@ function buildCar(
     score: 0,
     spawnX,
     maxX: spawnX,
+    ageSec: 0,
+    windowStartTime: 0,
+    windowStartX: spawnX,
     vertices: decoded.chassis.vertices,
     finalSnapshot: null,
   };
@@ -385,15 +426,30 @@ function updateLifecycle(car: CarRuntime): { alive: boolean } {
   const pos = car.chassis.translation();
   const vel = car.chassis.linvel();
   const speed = Math.hypot(vel.x, vel.y);
+  car.ageSec += SIM_DT;
 
+  // (a) Stall-based health: refill on real progress, drain otherwise.
   if (pos.x > car.maxX + HEALTH.progressEpsilon) {
     car.maxX = pos.x;
     car.health = HEALTH.initialSeconds;
+  } else if (speed < HEALTH.stallSpeed) {
+    car.health -= HEALTH.stallDrainPerSecond * SIM_DT;
   } else {
-    if (speed < HEALTH.stallSpeed) {
-      car.health -= HEALTH.stallDrainPerSecond * SIM_DT;
-    } else {
-      car.health -= SIM_DT;
+    car.health -= SIM_DT;
+  }
+
+  // (b) Sliding-window check: if the car can't make at least
+  // progressWindowMin meters within progressWindowSec seconds, kill it.
+  // Skips the first `graceSec` seconds so newborns get a chance to land.
+  if (car.ageSec > HEALTH.graceSec) {
+    const windowAge = car.ageSec - car.windowStartTime;
+    if (windowAge >= HEALTH.progressWindowSec) {
+      const progress = car.maxX - car.windowStartX;
+      if (progress < HEALTH.progressWindowMin) {
+        car.health = 0;
+      }
+      car.windowStartTime = car.ageSec;
+      car.windowStartX = car.maxX;
     }
   }
 

@@ -33,7 +33,12 @@ let currentGenomes: Genome[] = [];
 
 const SNAPSHOT_HZ = 60;
 const SNAPSHOT_INTERVAL = 1 / SNAPSHOT_HZ;
-const ROUND_TIMEOUT_SEC = 30;
+/**
+ * Hard upper bound, kept very generous so it only fires if a car
+ * genuinely gets into a permanent loop the lifecycle check missed.
+ * Normal rounds end when every car dies on its own.
+ */
+const ROUND_HARD_CAP_SEC = 90;
 let simTime = 0;
 let lastSnapshotTime = 0;
 let roundEnding = false;
@@ -128,8 +133,8 @@ function tick(): void {
   if (!roundEnding) {
     const snapshot = world.snapshot();
     const allDead = snapshot.cars.length > 0 && snapshot.cars.every((c) => !c.alive);
-    const timedOut = simTime >= ROUND_TIMEOUT_SEC;
-    if (allDead || timedOut) {
+    const hardCap = simTime >= ROUND_HARD_CAP_SEC;
+    if (allDead || hardCap) {
       roundEnding = true;
       advanceGeneration(snapshot);
     }

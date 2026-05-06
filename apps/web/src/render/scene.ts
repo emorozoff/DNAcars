@@ -16,8 +16,8 @@ import type { CarSnapshot, WorldSnapshot } from '../sim/world';
 
 const DEFAULT_ZOOM = 60;
 const CAMERA_LERP = 0.08;
-/** Expected interval between snapshots in ms. Worker posts at 60Hz. */
-const SNAPSHOT_INTERVAL_MS = 1000 / 60;
+/** Fallback if we don't have two snapshots yet to measure the real interval. */
+const FALLBACK_SNAPSHOT_INTERVAL_MS = 1000 / 60;
 
 export type SceneHandle = {
   setTrack(points: { x: number; y: number }[]): void;
@@ -58,7 +58,8 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   // Two most recent snapshots — used for interpolation.
   let prevSnapshot: WorldSnapshot | null = null;
   let currSnapshot: WorldSnapshot | null = null;
-  let snapshotPostedAt = 0;
+  let prevPostedAt = 0;
+  let currPostedAt = 0;
 
   applyTransform();
 
@@ -71,10 +72,16 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
 
   app.ticker.add(() => {
     if (currSnapshot) {
-      const ageMs = performance.now() - snapshotPostedAt;
-      // Allow mild extrapolation up to one extra frame so motion stays
-      // smooth even if a snapshot is briefly late.
-      const alpha = clamp(ageMs / SNAPSHOT_INTERVAL_MS, 0, 1.25);
+      const ageMs = performance.now() - currPostedAt;
+      // Use the actual interval between the last two snapshots so jitter in
+      // their delivery doesn't translate into jitter on screen.  Clamped to
+      // [0, 1] — no extrapolation, the worst we do is hold the frame still
+      // for one extra rAF if a snapshot is briefly late.
+      const interval =
+        prevPostedAt && currPostedAt > prevPostedAt
+          ? currPostedAt - prevPostedAt
+          : FALLBACK_SNAPSHOT_INTERVAL_MS;
+      const alpha = clamp(ageMs / interval, 0, 1);
       renderInterpolated(prevSnapshot, currSnapshot, alpha);
     }
     camera.x += (cameraTarget.x - camera.x) * CAMERA_LERP;
@@ -121,9 +128,11 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     const prevByIndex = new Map<number, CarSnapshot>();
     if (prev) for (const c of prev.cars) prevByIndex.set(c.index, c);
 
-    let leadX = -Infinity;
-    let leadY = 0;
-    let leadTravel = -Infinity;
+    // Camera target: prefer car index 0 if alive, otherwise the lowest-index
+    // alive car, otherwise no change.
+    const followedIndex = pickFollowedIndex(curr.cars);
+    let followedX: number | null = null;
+    let followedY: number | null = null;
 
     for (const car of curr.cars) {
       seen.add(car.index);
@@ -142,12 +151,12 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       const ix = lerp(px, car.position.x, a);
       const iy = lerp(py, car.position.y, a);
       const iAng = lerpAngle(pAng, car.angle, a);
-      updateCarView(view, car, prevCar, a, ix, iy, iAng, colors);
+      const isFollowed = car.index === followedIndex;
+      updateCarView(view, car, prevCar, a, ix, iy, iAng, colors, isFollowed);
 
-      if (car.alive && car.travel > leadTravel) {
-        leadTravel = car.travel;
-        leadX = ix;
-        leadY = iy;
+      if (isFollowed) {
+        followedX = ix;
+        followedY = iy;
       }
     }
 
@@ -159,8 +168,8 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       }
     }
 
-    if (leadTravel > -Infinity) {
-      cameraTarget = { x: leadX, y: leadY };
+    if (followedX !== null && followedY !== null) {
+      cameraTarget = { x: followedX, y: followedY };
     }
   }
 
@@ -174,8 +183,9 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     },
     setSnapshot(snapshot): void {
       prevSnapshot = currSnapshot;
+      prevPostedAt = currPostedAt;
       currSnapshot = snapshot;
-      snapshotPostedAt = performance.now();
+      currPostedAt = performance.now();
     },
     destroy(): void {
       ro.disconnect();
@@ -223,6 +233,7 @@ function updateCarView(
   iy: number,
   iAng: number,
   colors: ReturnType<typeof readColors>,
+  isFollowed: boolean,
 ): void {
   view.container.position.set(ix, iy);
   view.container.rotation = iAng;
@@ -250,9 +261,32 @@ function updateCarView(
     for (const w of view.wheels) w.tint = colors.dim;
     view.recolored = true;
   }
+
+  // Highlight the followed car so the user knows which one the camera is on.
+  const targetTint = isFollowed && car.alive ? colors.accent : colors.body;
+  if (car.alive && view.body.tint !== targetTint) {
+    view.body.tint = targetTint;
+    for (const w of view.wheels) w.tint = targetTint;
+  }
 }
 
 /* ─── Math helpers ──────────────────────────────────────────────────────── */
+
+/**
+ * Camera follows car #0 while it's alive.  When it dies we fall back to
+ * the lowest-index alive car so the view stays "anchored" rather than
+ * jumping randomly to the leader.
+ */
+function pickFollowedIndex(cars: CarSnapshot[]): number | null {
+  let lowestAliveIndex: number | null = null;
+  for (const c of cars) {
+    if (c.index === 0 && c.alive) return 0;
+    if (c.alive && (lowestAliveIndex === null || c.index < lowestAliveIndex)) {
+      lowestAliveIndex = c.index;
+    }
+  }
+  return lowestAliveIndex;
+}
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;

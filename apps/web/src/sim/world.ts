@@ -25,19 +25,19 @@ export const SIM_DT = 1 / 60;
  *       that keep spinning their wheels without actually moving forward.
  */
 export const HEALTH = {
-  initialSeconds: 6,
+  initialSeconds: 5,
   /** Refills health when the car advances by at least this much. */
   progressEpsilon: 0.02,
   /** Linear velocity below which we count the car as stalled. */
-  stallSpeed: 0.1,
+  stallSpeed: 0.2,
   /** Health drained per second when stalled. */
-  stallDrainPerSecond: 6,
+  stallDrainPerSecond: 8,
   /** Sliding window length, seconds, for the "stuck on a section" check. */
-  progressWindowSec: 5,
+  progressWindowSec: 4,
   /** Minimum forward progress (meters) required during the window. */
-  progressWindowMin: 1.0,
+  progressWindowMin: 1.5,
   /** Grace time after spawn before the window check kicks in. */
-  graceSec: 3,
+  graceSec: 2.5,
 } as const;
 
 /** Collision group bitmasks (membership / filter). */
@@ -231,7 +231,23 @@ function buildTrack(world: RAPIER.World, track: Track): RAPIER.Collider {
     .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CAR_BODY | GROUP.CAR_WHEEL))
     .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
 
-  return world.createCollider(colliderDesc, ground);
+  const groundCollider = world.createCollider(colliderDesc, ground);
+
+  // Finish wall: a tall vertical cuboid right at the finish line, so cars
+  // can't run off the end of the world and "earn" infinite distance.  The
+  // wall is in the same TRACK collision group, so wheels and the chassis
+  // both bounce off it.
+  const last = track.points[track.points.length - 1]!;
+  const wallHalfHeight = 4;
+  const wallHalfThickness = 0.05;
+  const wallDesc = RAPIER.ColliderDesc.cuboid(wallHalfThickness, wallHalfHeight)
+    .setTranslation(last.x + wallHalfThickness, last.y + wallHalfHeight)
+    .setFriction(0.4)
+    .setRestitution(0)
+    .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CAR_BODY | GROUP.CAR_WHEEL));
+  world.createCollider(wallDesc, ground);
+
+  return groundCollider;
 }
 
 /* ─── Car construction ──────────────────────────────────────────────────── */
@@ -246,10 +262,13 @@ function buildCar(
   const decoded = decodeGenome(genome);
 
   // Chassis ────────────────────────────────────────────────────────────
+  // Low angular damping so the body actually flips and tumbles instead of
+  // staying glued upright on a single wheel — that "balanced on one wheel"
+  // miracle was just the damping faking it.
   const chassisBodyDesc = RAPIER.RigidBodyDesc.dynamic()
     .setTranslation(spawnX, spawnY)
     .setLinearDamping(0.1)
-    .setAngularDamping(0.5)
+    .setAngularDamping(0.1)
     .setCcdEnabled(true);
   const chassis = world.createRigidBody(chassisBodyDesc);
 

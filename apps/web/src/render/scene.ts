@@ -113,10 +113,12 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     }
     trackGfx.stroke({ color: colors.track, width: 0.08, alpha: 1 });
 
+    // Finish wall: 8m vertical, matches the physics collider on the same x.
     trackGfx
       .moveTo(last.x, last.y)
-      .lineTo(last.x, last.y + 4)
-      .stroke({ color: colors.accent, width: 0.06, alpha: 0.8 });
+      .lineTo(last.x, last.y + 8)
+      .stroke({ color: colors.accent, width: 0.08, alpha: 0.9 });
+    trackGfx.circle(last.x, last.y + 8, 0.14).fill({ color: colors.accent, alpha: 0.9 });
   }
 
   function renderInterpolated(

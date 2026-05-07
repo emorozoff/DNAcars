@@ -607,10 +607,11 @@ button {
 }
 
 .minimap__leader {
-  fill: var(--color-accent);
-  /* Same as viewport: this is a visual-only marker, clicks should
-     hit the dot directly underneath (the leader car) instead of
-     the green ring on top of it. */
+  stroke: var(--color-accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+  /* Visual-only marker — clicks should hit the underlying car
+     tick instead of the leader highlight on top of it. */
   pointer-events: none;
 }
 
@@ -622,7 +623,9 @@ button {
 }
 
 .minimap__car {
-  fill: var(--color-fg);
+  stroke: var(--color-fg);
+  stroke-width: 2;
+  stroke-linecap: round;
   cursor: pointer;
 }
 

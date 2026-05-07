@@ -75,7 +75,7 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
   const trackEl = svg.querySelector<SVGPolylineElement>('.minimap__track');
   const viewportEl = svg.querySelector<SVGRectElement>('.minimap__viewport');
   const carsGroup = svg.querySelector<SVGGElement>('.minimap__cars');
-  const leaderEl = svg.querySelector<SVGCircleElement>('.minimap__leader');
+  const leaderEl = svg.querySelector<SVGLineElement>('.minimap__leader');
   const recordsGroup = svg.querySelector<SVGGElement>('.minimap__records');
   if (!trackEl || !viewportEl || !carsGroup || !leaderEl || !recordsGroup) {
     throw new Error('mountMinimap: missing child elements');
@@ -84,8 +84,20 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
   let trackLength = 0;
   let trackMinY = 0;
   let trackMaxY = 1;
-  /** Pool of <circle> elements for the population dots, grown on demand. */
-  const carDots: SVGCircleElement[] = [];
+  /**
+   * Pool of <line> elements (one per car).  Lines instead of
+   * circles because the minimap SVG uses
+   * `preserveAspectRatio="none"` — circles get squashed into
+   * ellipses on the tall ×32-mode minimap, but vertical lines
+   * with `vector-effect="non-scaling-stroke"` keep their
+   * stroke 2 px regardless of aspect, so they always read as
+   * crisp tick marks.
+   */
+  const carDots: SVGLineElement[] = [];
+  /** Half-length (viewBox y-units) of each car's vertical tick. */
+  const CAR_TICK_HALF = 2.4;
+  /** Half-length of the leader's tick — bigger so it stands out. */
+  const LEADER_TICK_HALF = 6;
   /**
    * Pool of <line> elements for the record-history vertical lines.
    * Pre-built once at mount time — RECORD_HISTORY_MAX is small and
@@ -189,12 +201,12 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
       let leaderRunning: { x: number; y: number } | null = null;
       for (let i = 0; i < snap.cars.length; i++) {
         const car = snap.cars[i]!;
-        // Grow the dot pool lazily.
+        // Grow the line pool lazily.
         let dot = carDots[i];
         if (!dot) {
-          dot = document.createElementNS(SVG_NS, 'circle');
-          dot.setAttribute('r', '2.4');
+          dot = document.createElementNS(SVG_NS, 'line');
           dot.setAttribute('class', 'minimap__car');
+          dot.setAttribute('vector-effect', 'non-scaling-stroke');
           carsGroup.appendChild(dot);
           carDots[i] = dot;
         }
@@ -205,8 +217,14 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
         dot.dataset['carIdx'] = String(car.index);
         const dx = xToView(car.position.x);
         const dy = VIEW_H - PAD_Y - ((car.position.y - trackMinY) / yRange) * (VIEW_H - 2 * PAD_Y);
-        dot.setAttribute('cx', dx.toFixed(1));
-        dot.setAttribute('cy', dy.toFixed(1));
+        // Vertical tick centred on (dx, dy), CAR_TICK_HALF either
+        // side.  x1 == x2 so the line is purely vertical; the
+        // non-scaling-stroke means it stays a 2 px tick on screen
+        // regardless of how tall the minimap is rendered.
+        dot.setAttribute('x1', dx.toFixed(1));
+        dot.setAttribute('x2', dx.toFixed(1));
+        dot.setAttribute('y1', (dy - CAR_TICK_HALF).toFixed(1));
+        dot.setAttribute('y2', (dy + CAR_TICK_HALF).toFixed(1));
         dot.setAttribute('opacity', car.finished ? '0.35' : '0.75');
 
         if (!leader || car.position.x > leader.x) leader = { x: car.position.x, y: car.position.y };
@@ -223,8 +241,10 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
       if (lead) {
         const lx = xToView(lead.x);
         const ly = VIEW_H - PAD_Y - ((lead.y - trackMinY) / yRange) * (VIEW_H - 2 * PAD_Y);
-        leaderEl.setAttribute('cx', String(lx));
-        leaderEl.setAttribute('cy', String(ly));
+        leaderEl.setAttribute('x1', String(lx));
+        leaderEl.setAttribute('x2', String(lx));
+        leaderEl.setAttribute('y1', String(ly - LEADER_TICK_HALF));
+        leaderEl.setAttribute('y2', String(ly + LEADER_TICK_HALF));
         leaderEl.setAttribute('opacity', '1');
       } else {
         leaderEl.setAttribute('opacity', '0');

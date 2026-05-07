@@ -77,19 +77,26 @@ const gaParams: GAParams = {
 /**
  * Live track-tuning parameters.  Mutated in place by the "Track"
  * sidebar sliders; the next generation's track is built using
- * whatever is current here.  Defaults to no obstacles so the
- * baseline track matches v0.9.26 until the user touches a slider.
+ * whatever is current here.
+ *
+ *   difficulty (1..100) — drives the procedural noise amplitude.
+ *                         1 % ≈ flat road, 100 % ≈ dramatic hills.
+ *                         Replaces the v1.3 pits + bumps sliders
+ *                         (the procedural surface IS the hazard
+ *                         budget; scattered Gaussian dips were
+ *                         redundant with hill amplitude).
+ *   obstacles  — discrete-hazard intensities, all 0..1, default 0.
  */
-const trackTuning: { obstacles: ObstacleConfig } = {
+const trackTuning: {
+  difficulty: number;
+  obstacles: ObstacleConfig;
+} = {
+  difficulty: 40,
   obstacles: {
-    pit: 0,
-    bump: 0,
     wall: 0,
     ceiling: 0,
     cliff: 0,
-    killzone: 0,
     slick: 0,
-    bouncy: 0,
   },
 };
 
@@ -111,22 +118,25 @@ const trackTuning: { obstacles: ObstacleConfig } = {
 let paused = false;
 
 /**
- * Track presets — clicking the "🗺" button cycles through them.
+ * Track presets after the v1.4 simplification:
  *
  *   random   (default)  — fresh random track every generation
  *                         (favours universal cars across terrains)
  *   fixed              — pick a seed once at the start of the run
  *                         and reuse it every generation (evolution
  *                         converges on this specific track)
- *   smooth             — random per gen, gentle hills (amplitude 2.0)
- *   extreme            — random per gen, dramatic hills (amplitude 8.0)
  *
- * `fixedTrackSeed` only matters in 'fixed' mode; we capture it at
- * the moment the user switches into the mode (or at the start of a
- * fresh run while in fixed mode).
+ * The old "smooth" and "extreme" presets are gone — players now
+ * dial difficulty directly via the Difficulty slider, which also
+ * makes the segmented selector simpler (two pills instead of
+ * four).
+ *
+ * `fixedTrackSeed` only matters in 'fixed' mode; captured the
+ * moment the user enters that mode (or at the start of a fresh
+ * run while already in it).
  */
-type TrackMode = 'random' | 'fixed' | 'smooth' | 'extreme';
-const TRACK_MODES: TrackMode[] = ['random', 'fixed', 'smooth', 'extreme'];
+type TrackMode = 'random' | 'fixed';
+const TRACK_MODES: TrackMode[] = ['random', 'fixed'];
 let trackModeIdx = 0;
 let fixedTrackSeed: number | null = null;
 
@@ -225,18 +235,24 @@ function effectiveSpeed(): SpeedState {
  */
 function nextTrackParams(): { seed: number; opts: Partial<TrackOptions> } {
   const mode: TrackMode = TRACK_MODES[trackModeIdx] ?? 'random';
-  // The slider-driven obstacles apply on every preset — the user's
-  // intent ("I want pits") shouldn't depend on whether the track is
-  // smooth or extreme.
-  const baseOpts: Partial<TrackOptions> = { obstacles: { ...trackTuning.obstacles } };
+  // Difficulty slider 1..100 maps to amplitude 0.5..12 m via
+  // linear lerp.  At 1 % the track is essentially flat (gentle
+  // 50-cm rolling); at 100 % the hills hit ±12 m which exceeds
+  // the wall of the finish basin and is a real challenge for
+  // anything but well-evolved climbers.  Default UI value 40 %
+  // ≈ amplitude 5 m, matching the historical default.
+  const difficulty = trackTuning.difficulty / 100;
+  const amplitude = 0.5 + difficulty * (12 - 0.5);
+  const baseOpts: Partial<TrackOptions> = {
+    amplitude,
+    obstacles: { ...trackTuning.obstacles },
+  };
   if (mode === 'fixed') {
     if (fixedTrackSeed === null) fixedTrackSeed = (Math.random() * 0xffffffff) >>> 0;
     return { seed: fixedTrackSeed, opts: baseOpts };
   }
   const seed = (Math.random() * 0xffffffff) >>> 0;
-  if (mode === 'smooth') return { seed, opts: { ...baseOpts, amplitude: 2.0 } };
-  if (mode === 'extreme') return { seed, opts: { ...baseOpts, amplitude: 8.0 } };
-  return { seed, opts: baseOpts }; // 'random' uses default amplitude
+  return { seed, opts: baseOpts };
 }
 
 type Hud = {
@@ -649,16 +665,13 @@ function bindControls(): void {
     gaParams.eliteCount = v;
     return String(v);
   });
-  // Track-tuning sliders — values 0..100 in the DOM, mapped to
-  // 0..1 intensities for the obstacle generator.  Take effect on
-  // the next generation (current run keeps whatever was set when
-  // it started).
-  bindSlider('ctrl-pits', 'ctrl-pits-val', (v) => {
-    trackTuning.obstacles.pit = v / 100;
-    return `${v}%`;
-  });
-  bindSlider('ctrl-bumps', 'ctrl-bumps-val', (v) => {
-    trackTuning.obstacles.bump = v / 100;
+  // Track-tuning sliders.  Difficulty drives the procedural
+  // amplitude in nextTrackParams; the rest are 0..1 obstacle
+  // intensities.  All take effect on the *next* generation —
+  // the in-flight run keeps whatever the values were at the
+  // moment it started.
+  bindSlider('ctrl-difficulty', 'ctrl-difficulty-val', (v) => {
+    trackTuning.difficulty = v;
     return `${v}%`;
   });
   bindSlider('ctrl-walls', 'ctrl-walls-val', (v) => {
@@ -673,16 +686,8 @@ function bindControls(): void {
     trackTuning.obstacles.cliff = v / 100;
     return `${v}%`;
   });
-  bindSlider('ctrl-killzones', 'ctrl-killzones-val', (v) => {
-    trackTuning.obstacles.killzone = v / 100;
-    return `${v}%`;
-  });
   bindSlider('ctrl-slick', 'ctrl-slick-val', (v) => {
     trackTuning.obstacles.slick = v / 100;
-    return `${v}%`;
-  });
-  bindSlider('ctrl-bouncy', 'ctrl-bouncy-val', (v) => {
-    trackTuning.obstacles.bouncy = v / 100;
     return `${v}%`;
   });
 }

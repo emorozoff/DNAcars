@@ -56,12 +56,10 @@ const COLORS = {
   wheel: 0x8b8b94,
   wheelGround: 0xa8ff60,
   highlight: 0xffd166,
-  /** Walls + ceilings + kill-zones — hazard red, matches the record marker. */
+  /** Walls + ceilings — hazard red, matches the record marker. */
   obstacle: 0xd05d5d,
   /** Slick patch — light blue, "ice-like".  Drawn over the track polyline. */
   slick: 0x7ec8ff,
-  /** Bouncy patch — warm orange, "trampoline-like". */
-  bouncy: 0xffb96e,
   /** Finish-line stripes alternate between these. */
   finishDark: 0x1a1a1f,
   finishLight: 0xf2f2f5,
@@ -396,17 +394,6 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         // 16 cm, centred at xCenter.
         obstaclesGfx.rect(ob.xCenter - ob.halfWidth, ob.y - 0.08, ob.halfWidth * 2, 0.16);
         obstaclesGfx.fill({ color: COLORS.obstacle, alpha: 0.95 });
-      } else if (ob.kind === 'killzone') {
-        // Kill-zone: translucent red shaded region from yFloor up
-        // 6 m.  6 m is plenty of vertical span — anything flying
-        // higher than that has long since hit the floor edge.
-        // Plus a brighter horizontal stroke at yFloor so the
-        // boundary reads cleanly against busy parallax backgrounds.
-        const kzHeight = 6;
-        obstaclesGfx.rect(ob.x1, ob.yFloor, ob.x2 - ob.x1, kzHeight);
-        obstaclesGfx.fill({ color: COLORS.obstacle, alpha: 0.18 });
-        obstaclesGfx.moveTo(ob.x1, ob.yFloor).lineTo(ob.x2, ob.yFloor);
-        obstaclesGfx.stroke({ color: COLORS.obstacle, width: 0.06, alpha: 0.9 });
       } else if (ob.kind === 'finish') {
         // Finish line: a 20 cm wide vertical wall striped in
         // alternating dark/light bands like a real finish flag,
@@ -439,11 +426,10 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
           .closePath();
         obstaclesGfx.fill({ color: COLORS.finishFlag, alpha: 1 });
       } else {
-        // Slick + bouncy: re-trace the track polyline between x1
-        // and x2 in the modifier's signature colour.  Drawn at a
-        // touch heavier stroke than the grey track so it reads as
-        // an overlay rather than blending in.
-        const color = ob.kind === 'slick' ? COLORS.slick : COLORS.bouncy;
+        // Slick patches: re-trace the track polyline between x1
+        // and x2 in light blue.  Drawn at a touch heavier stroke
+        // than the grey track so it reads as an overlay rather
+        // than blending in.
         const stride = 0.6;
         let first = true;
         for (let x = ob.x1; x <= ob.x2 + 1e-4; x += stride) {
@@ -456,7 +442,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
             obstaclesGfx.lineTo(xc, y);
           }
         }
-        obstaclesGfx.stroke({ color, width: 0.16, alpha: 0.95 });
+        obstaclesGfx.stroke({ color: COLORS.slick, width: 0.16, alpha: 0.95 });
       }
     }
 

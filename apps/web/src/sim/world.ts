@@ -304,10 +304,6 @@ export type TrackOptions = {
 };
 
 export type ObstacleConfig = {
-  /** Pit (downward dip) intensity, 0..1.  Drives both density and depth. */
-  pit: number;
-  /** Bump (upward spike) intensity, 0..1.  Drives both density and height. */
-  bump: number;
   /**
    * Vertical wall intensity, 0..1.  At full strength: ≈ 2 m tall
    * thin posts that the chassis must climb over or jump.  Walls
@@ -324,35 +320,18 @@ export type ObstacleConfig = {
    */
   ceiling: number;
   /**
-   * Cliff (asymmetric drop with approach ramp) intensity, 0..1.
-   * Y-profile only.  Profile: a ramp UP for ≈ 3 m → a sharp 1-m
-   * drop → a recovery curve back to ambient.  The ramp lets a fast
-   * car launch over the cliff edge if it carries enough speed; a
-   * slow car nose-dives off and lands inside the dip.
+   * Cliff (deep vertical-walled pit) intensity, 0..1.  Y-profile
+   * only.  At low intensity: a narrow shallow dip a car bounces
+   * over.  At full intensity: a 4-m-wide pit ≈ 8 m deep that a
+   * small chassis falls straight into and can't climb out of.
    */
   cliff: number;
-  /**
-   * Kill-zone intensity, 0..1.  At each placement we draw a region
-   * above the track surface; if a chassis ever enters that region
-   * (i.e. flies "too high" inside the zone's x-range) the car's
-   * run ends immediately.  Counters wildly-jumpy strategies in a
-   * harder way than ceilings — there's no second chance, contact
-   * is fatal.
-   */
-  killzone: number;
   /**
    * Slick-patch intensity, 0..1.  Track segments inside a slick
    * region have friction reduced from 1.0 to ≈ 0.05 — wheels lose
    * grip and slide.  Higher intensity = longer/denser regions.
    */
   slick: number;
-  /**
-   * Bouncy-patch intensity, 0..1.  Track segments inside a bouncy
-   * region have restitution bumped from 0.05 to ≈ 0.7 — the chassis
-   * trampolines back up after impact.  Higher intensity = longer
-   * and denser regions.
-   */
-  bouncy: number;
 };
 
 /**
@@ -363,18 +342,7 @@ export type ObstacleConfig = {
 export type PhysicalObstacle =
   | { kind: 'wall'; x: number; height: number }
   | { kind: 'ceiling'; xCenter: number; halfWidth: number; y: number }
-  | {
-      kind: 'killzone';
-      x1: number;
-      x2: number;
-      /** World-y of the killzone floor (everything above is fatal). */
-      yFloor: number;
-    }
-  | {
-      kind: 'slick' | 'bouncy';
-      x1: number;
-      x2: number;
-    }
+  | { kind: 'slick'; x1: number; x2: number }
   | {
       /**
        * The finish line at the very end of every track — a tall
@@ -430,19 +398,24 @@ const DEFAULT_TRACK: TrackOptions = {
    * touched the new controls.
    */
   obstacles: {
-    pit: 0,
-    bump: 0,
     wall: 0,
     ceiling: 0,
     cliff: 0,
-    killzone: 0,
     slick: 0,
-    bouncy: 0,
   },
 };
 
 /** Frequency where the high-frequency "sharpness" octaves wake up (m). */
 const SHARPNESS_START = 80;
+/**
+ * Horizontal width (m) of the linear-blend zone at each pit edge.
+ * Smaller = closer to a true vertical wall but more brittle for
+ * the polyline-trapezoid colliders to handle.  At 0.05 m, the
+ * standard 0.6 m sample step + a typical 4 m pit depth produces
+ * a slope of ≈ tan⁻¹(4 / 0.6) = 81° — visually vertical, and
+ * steep enough that a chassis can't push past horizontally.
+ */
+const CLIFF_EDGE_M = 0.05;
 /**
  * Earliest world-x at which obstacles can spawn.  Same as the
  * sharpness gate — first 80 m is always smooth so cars get a
@@ -484,35 +457,23 @@ const CLIFF_WIDTH_M = 1;
 const WALL_HEIGHT_M = 18;
 
 /**
- * One placed terrain obstacle.  Pits and bumps are symmetric
- * Gaussian deformations (subtract / add to the procedural Y
- * surface).  Cliffs are an asymmetric piecewise profile with
- * three regions: a ramp up before `x`, a sharp drop *at* `x`,
- * and a recovery curve back to ambient afterwards.  All three
- * kinds are folded directly into the `points` array; nothing
- * about them needs a separate Rapier collider.
+ * One placed terrain obstacle.  Currently only cliffs — deep
+ * vertical-walled pits.  Folded directly into the `points`
+ * array (Y-profile only); the polyline's near-vertical edges
+ * give Rapier the vertical-wall behaviour for free, no extra
+ * collider needed.  At 0.6 m sample step + 0.05 m edge
+ * transition the resulting trapezoid sides slope at ≈ 86°
+ * which a chassis can't easily climb.
  */
-type PlacedObstacle =
-  | {
-      kind: 'pit' | 'bump';
-      x: number;
-      magnitude: number;
-      /** Gaussian standard deviation, m.  Influence essentially zero past 3σ. */
-      width: number;
-    }
-  | {
-      kind: 'cliff';
-      /** World-x of the cliff *edge* — drop happens between x and x+1. */
-      x: number;
-      /** Approach-ramp peak height (metres above ambient). */
-      height: number;
-      /** Drop magnitude below ambient at the bottom of the cliff. */
-      depth: number;
-      /** Approach-ramp width in metres before x. */
-      approach: number;
-      /** Recovery distance after the drop until the surface returns to ambient. */
-      recovery: number;
-    };
+type PlacedObstacle = {
+  kind: 'cliff';
+  /** World-x of the pit's left edge. */
+  x: number;
+  /** Pit horizontal extent in metres. */
+  width: number;
+  /** Pit depth below ambient surface, metres. */
+  depth: number;
+};
 
 /**
  * Lay out the obstacle list deterministically from `rng`.  Density
@@ -537,51 +498,26 @@ function placeObstacles(
 ): { terrain: PlacedObstacle[]; physical: PhysicalObstacle[] } {
   const terrain: PlacedObstacle[] = [];
   const physical: PhysicalObstacle[] = [];
-  // Average gap between obstacles of one kind, in metres.  Linear
-  // interpolation from 200 m (sparse hint) at low intensity down to
-  // 12 m (≈ 125 obstacles per kind on a 1500 m track) at full.  The
-  // pre-v0.9.31 formula was `Math.max(25, 350 / intensity)` which
-  // had the relationship inverted: at intensity=1 it returned 350 m
-  // (≈ 4 obstacles total), making the slider feel like nothing was
-  // happening even at "100 %".  User reported "ceilings appear 1-5
-  // times — should be 100" and was correct: the formula was wrong.
+  // Average gap between obstacles of one kind, m.  Linear lerp
+  // from 200 m (sparse hint at 1 % intensity) down to 12 m at
+  // full strength — at 100 % a 1500 m track gets ≈ 125 obstacles
+  // of that kind.
   const gapFor = (intensity: number): number => lerp(200, 12, intensity);
 
-  const placePitOrBump = (kind: 'pit' | 'bump', intensity: number, fullMagnitude: number): void => {
-    if (intensity <= 0) return;
-    const meanGap = gapFor(intensity);
-    let x = OBSTACLE_START + rng() * meanGap;
-    while (x < trackLength - 5) {
-      const mag = fullMagnitude * intensity * (0.7 + rng() * 0.3);
-      const width = 0.6 + rng() * 1.0;
-      terrain.push({ kind, x, magnitude: mag, width });
-      x += meanGap * (0.55 + rng() * 0.9);
-    }
-  };
-
-  // Y-profile hazards.
-  placePitOrBump('pit', obstacles.pit, 4.0);
-  placePitOrBump('bump', obstacles.bump, 2.5);
-
-  // Cliffs — asymmetric Y deformation.  Higher intensity → bigger
-  // ramp + deeper drop, encouraging fast cars to launch off; slow
-  // ones tumble in.  Placement uses the same gap formula as the
-  // others.
+  // Cliffs — deep vertical-walled pits.  At low intensity:
+  // narrow shallow dimples a car bounces over.  At full intensity:
+  // 4 m wide × 8 m deep traps a small chassis falls into and
+  // can't climb out of.  Y-profile only — the polyline's near-
+  // vertical sides give the wall behaviour for free.
   if (obstacles.cliff > 0) {
     const meanGap = gapFor(obstacles.cliff);
     let x = OBSTACLE_START + rng() * meanGap;
     while (x < trackLength - 8) {
       const intensity = obstacles.cliff;
-      // Ramp peak 0.5..2.5 m, drop 1..4 m below ambient.
-      const height = lerp(0.5, 2.5, intensity) * (0.7 + rng() * 0.3);
-      const depth = lerp(1.0, 4.0, intensity) * (0.7 + rng() * 0.3);
-      // Approach 2..4 m, recovery 3..6 m — the recovery is wider so
-      // the post-drop dip has time to come back to ambient without
-      // a visible kink.
-      const approach = 2 + rng() * 2;
-      const recovery = 3 + rng() * 3;
-      terrain.push({ kind: 'cliff', x, height, depth, approach, recovery });
-      x += meanGap * (0.55 + rng() * 0.9);
+      const width = lerp(0.5, 4.0, intensity) * (0.7 + rng() * 0.3);
+      const depth = lerp(0.3, 8.0, intensity) * (0.7 + rng() * 0.3);
+      terrain.push({ kind: 'cliff', x, width, depth });
+      x += width + meanGap * (0.55 + rng() * 0.9);
     }
   }
 
@@ -615,8 +551,6 @@ function placeObstacles(
       // clearance floor is 0.9 m — a typical chassis is ≈ 1 m
       // tall, so 100 % ceilings are *meant* to be borderline
       // impossible to pass without hugging the surface exactly.
-      // (Was lerp(3.5, 1.8) pre-v0.9.31; user reported 100 %
-      // ceilings still felt easy to fit under.)
       const clearance = lerp(4.0, 0.9, obstacles.ceiling) * (0.85 + rng() * 0.3);
       // We stash clearance in `y` here — buildTrackColliders adds
       // the local track surface y so the absolute world-y can be
@@ -628,63 +562,23 @@ function placeObstacles(
     }
   }
 
-  // Kill-zones — overhead AABB regions.  Width and clearance
-  // both scale with intensity: low = wide and high (easy to slip
-  // under), full = narrow and *low* (no second chance).  Clearance
-  // is stored in `yFloor` as a *relative* offset above the local
-  // track surface; resolved to absolute world-y at the end of
-  // generateTrack alongside the ceilings.
-  if (obstacles.killzone > 0) {
-    const meanGap = gapFor(obstacles.killzone);
+  // Slick surface patches — span of x where the surface segments
+  // get friction lowered to ~ 0.05 (near-ice).  Region length
+  // scales 5..22 m with intensity.
+  if (obstacles.slick > 0) {
+    const meanGap = gapFor(obstacles.slick);
     let x = OBSTACLE_START + rng() * meanGap;
     while (x < trackLength - 5) {
-      const intensity = obstacles.killzone;
-      const halfWidth = lerp(2.5, 1.0, intensity) * (0.8 + rng() * 0.4);
-      // Clearance scales 4.5 m (low intensity = easy to dodge)
-      // down to 1.2 m at full strength — a chassis just barely
-      // fits under, any small jump = death.  Floor matches the
-      // ceiling tightening (was lerp(4.0, 1.8) pre-v0.9.31).
-      const clearance = lerp(4.5, 1.2, intensity) * (0.85 + rng() * 0.3);
-      physical.push({
-        kind: 'killzone',
-        x1: x - halfWidth,
-        x2: x + halfWidth,
-        // Same trick as ceilings: stash the *relative* clearance
-        // here, resolved to world-y after points[] exists.
-        yFloor: clearance,
-      });
-      x += meanGap * (0.55 + rng() * 0.9);
-    }
-  }
-
-  // Slick + bouncy surface modifiers — both work the same way:
-  // a span of x where the surface segments get a friction or
-  // restitution override.  Region length scales with intensity:
-  // 5 m at low intensities, up to ≈ 22 m at full.
-  const placeSurfaceMod = (kind: 'slick' | 'bouncy', intensity: number): void => {
-    if (intensity <= 0) return;
-    const meanGap = gapFor(intensity);
-    let x = OBSTACLE_START + rng() * meanGap;
-    while (x < trackLength - 5) {
-      const length = lerp(5, 22, intensity) * (0.7 + rng() * 0.5);
+      const length = lerp(5, 22, obstacles.slick) * (0.7 + rng() * 0.5);
       const x2 = Math.min(trackLength - 1, x + length);
-      physical.push({ kind, x1: x, x2 });
+      physical.push({ kind: 'slick', x1: x, x2 });
       x = x2 + meanGap * (0.55 + rng() * 0.9);
     }
-  };
-  placeSurfaceMod('slick', obstacles.slick);
-  placeSurfaceMod('bouncy', obstacles.bouncy);
+  }
 
   // Sort terrain by x so the per-track-point loop can stop scanning early.
   terrain.sort((a, b) => a.x - b.x);
   return { terrain, physical };
-}
-
-/** Gaussian deformation amount at distance `d` from an obstacle centre. */
-function obstacleProfile(d: number, magnitude: number, width: number): number {
-  // Cheap early exit: past 3σ the contribution is < 1 % of magnitude.
-  if (Math.abs(d) > width * 3) return 0;
-  return magnitude * Math.exp(-(d * d) / (2 * width * width));
 }
 
 export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): Track {
@@ -753,42 +647,33 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
     y += Math.sin(x * layers[3]!.freq + layers[3]!.phase) * layers[3]!.weight * sharpness;
     y += Math.sin(x * drift.freq + drift.phase) * drift.weight;
     y *= baseRamp * ampScale * o.amplitude;
-    // Overlay obstacles on top of the procedural profile.  Pits
-    // subtract from y (Gaussian dip), bumps add (Gaussian peak),
-    // cliffs apply a piecewise asymmetric profile with three
-    // regions.  Same baseRamp gates everything out of the spawn
-    // pad.  We use `continue` rather than `break` here because
-    // cliffs and pits/bumps have different bounding ranges, so a
-    // simple sort-by-x can't drive a single break condition.
-    if (obstacles.length > 0) {
-      let obstacleDelta = 0;
-      for (const ob of obstacles) {
-        const d = x - ob.x;
-        if (ob.kind === 'cliff') {
-          if (d < -ob.approach || d > 1 + ob.recovery) continue;
-          if (d < 0) {
-            // Approach ramp: smooth ascent from 0 to peak height.
-            const t = (d + ob.approach) / ob.approach;
-            obstacleDelta += ob.height * smoothstep(0, 1, t);
-          } else if (d < 1) {
-            // Drop region: linear interpolate from peak to bottom
-            // over a 1-m horizontal span.  Sharp on purpose — this
-            // is the cliff edge.
-            obstacleDelta += lerp(ob.height, -ob.depth, d);
-          } else {
-            // Recovery: smooth return from -depth back to 0 over
-            // recovery metres, so the dip blends into the ambient
-            // surface without a visible kink.
-            const t = (d - 1) / ob.recovery;
-            obstacleDelta += lerp(-ob.depth, 0, smoothstep(0, 1, t));
-          }
-        } else {
-          if (d < -ob.width * 3 || d > ob.width * 3) continue;
-          const contribution = obstacleProfile(d, ob.magnitude, ob.width);
-          obstacleDelta += ob.kind === 'pit' ? -contribution : contribution;
-        }
+    // Cliffs are deep vertical-walled pits — when x is inside a
+    // pit's [start, start + width] range, the surface drops to
+    // -depth (relative to ambient).  At the very narrow edges
+    // (CLIFF_EDGE_M wide on each side) we lerp from the ambient
+    // y down to -depth so the polyline doesn't have a literal
+    // discontinuity, but the slope is steep enough (≈ 86° at
+    // 0.05 m edge × 0.6 m sample step × typical depths) that
+    // visually it reads as a vertical wall and a small chassis
+    // can fall straight in without climbing back out.
+    for (const ob of obstacles) {
+      if (ob.kind !== 'cliff') continue;
+      const d = x - ob.x;
+      if (d < 0 || d > ob.width) continue;
+      const distFromLeftEdge = d;
+      const distFromRightEdge = ob.width - d;
+      if (distFromLeftEdge < CLIFF_EDGE_M) {
+        const t = distFromLeftEdge / CLIFF_EDGE_M;
+        y = lerp(y, -ob.depth, t) * baseRamp + (1 - baseRamp) * y;
+      } else if (distFromRightEdge < CLIFF_EDGE_M) {
+        const t = distFromRightEdge / CLIFF_EDGE_M;
+        y = lerp(y, -ob.depth, t) * baseRamp + (1 - baseRamp) * y;
+      } else {
+        y = -ob.depth * baseRamp + (1 - baseRamp) * y;
       }
-      y += obstacleDelta * baseRamp;
+      // A point can be inside at most one cliff in normal
+      // placement (gaps ≥ pit width), so it's safe to break.
+      break;
     }
     // Finish zone: at `cliffEdge` the surface plunges in 1 m
     // horizontal to the basin floor (BASIN_Y), then stays flat
@@ -808,21 +693,12 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
     points.push({ x, y });
   }
   if (points[0]) points[0].y = 0;
-  // Resolve absolute world-y for any obstacle that was placed with
-  // a *relative* clearance (ceilings + killzones).  Easier here
-  // than threading a sampler into placeObstacles, where the points
-  // array doesn't exist yet.
+  // Resolve absolute world-y for ceilings (their `y` field carries
+  // the *relative* clearance during placement; we add the local
+  // surface height now that the points array exists).
   const resolved: PhysicalObstacle[] = physicalObstacles.map((p) => {
     if (p.kind === 'ceiling') {
       return { ...p, y: sampleY(points, p.xCenter) + p.y };
-    }
-    if (p.kind === 'killzone') {
-      // Sample the surface at the zone's mid-x for a representative
-      // floor height — the kill region then extends straight up
-      // from there regardless of the procedural surface dipping
-      // inside the x-range.
-      const xMid = (p.x1 + p.x2) / 2;
-      return { ...p, yFloor: sampleY(points, xMid) + p.yFloor };
     }
     return p;
   });
@@ -1140,10 +1016,6 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
         clampInsaneVelocity(car, opts.track, time);
         const wasFinished = car.finished;
         updateLifecycle(car);
-        // Kill-zone test: any chassis whose centre lies inside a
-        // killzone's x-range AND above its yFloor finishes
-        // immediately.  Cheap O(zones) check per car.
-        if (!car.finished) checkKillZones(car, opts.track);
         // Record a periodic sample for this car.  If updateLifecycle
         // just promoted us to "finished", record an event entry too
         // so the timeline ends with a clear "this is when it stopped"
@@ -1194,16 +1066,12 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
 function buildTrackColliders(world: RAPIER.World, track: Track): void {
   const ground = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
 
-  // Pre-collect surface modifier regions (slick / bouncy).  Each
-  // segment trapezoid below looks up its friction and restitution
-  // by checking whether its midpoint lies inside any region.  Done
-  // once up front so we don't iterate `track.physicalObstacles`
-  // every segment.
+  // Pre-collect slick regions so each surface trapezoid can look
+  // up its friction by midpoint-in-region.  Done once up front to
+  // avoid re-iterating `track.physicalObstacles` every segment.
   const slickRegions: { x1: number; x2: number }[] = [];
-  const bouncyRegions: { x1: number; x2: number }[] = [];
   for (const ob of track.physicalObstacles) {
     if (ob.kind === 'slick') slickRegions.push({ x1: ob.x1, x2: ob.x2 });
-    else if (ob.kind === 'bouncy') bouncyRegions.push({ x1: ob.x1, x2: ob.x2 });
   }
   const inAnyRegion = (regions: { x1: number; x2: number }[], x: number): boolean => {
     for (const r of regions) if (x >= r.x1 && x <= r.x2) return true;
@@ -1226,13 +1094,12 @@ function buildTrackColliders(world: RAPIER.World, track: Track): void {
     const verts = new Float32Array([a.x, a.y, b.x, b.y, b.x, floorY, a.x, floorY]);
     const desc = RAPIER.ColliderDesc.convexHull(verts);
     if (!desc) continue;
-    // Per-segment friction/restitution.  Defaults match the
-    // pre-v0.9.30 single-value setup; slick regions drop friction
-    // to a near-ice 0.05, bouncy regions raise restitution from
-    // 0.05 to 0.7 (≈ 70 % bounce-back).
+    // Per-segment friction.  Default 1.0; slick regions drop to
+    // near-ice 0.05.  Restitution is uniform at 0.05 since the
+    // bouncy obstacle was retired in v1.4.0.
     const segCenter = (a.x + b.x) / 2;
     const friction = inAnyRegion(slickRegions, segCenter) ? 0.05 : 1.0;
-    const restitution = inAnyRegion(bouncyRegions, segCenter) ? 0.7 : 0.05;
+    const restitution = 0.05;
     desc
       .setFriction(friction)
       .setRestitution(restitution)
@@ -1294,13 +1161,10 @@ function buildTrackColliders(world: RAPIER.World, track: Track): void {
           .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL)),
         ground,
       );
-      // Kill-zones, slick + bouncy aren't real colliders here:
-      //   - Kill-zones are AABB triggers checked per-tick against
-      //     the chassis position in checkKillZones.
-      //   - Slick + bouncy modify the friction/restitution of the
-      //     surface segments above; that lookup ran in the segment
-      //     loop a few lines up.
-      // All three are drawn by the renderer for player visibility.
+      // Slick patches don't get their own collider — they modify
+      // the friction of the surface trapezoids in the segment
+      // loop above.  The renderer draws an overlay so the player
+      // sees where they are.
     }
   }
 }
@@ -1581,30 +1445,6 @@ function updateLifecycle(car: CarRuntime): void {
   }
   if (car.ageSec - car.lastProgressTime >= TUNING.lifecycle.stallSeconds) {
     car.finished = true;
-  }
-}
-
-/**
- * Finish any car whose chassis is currently inside a killzone.  A
- * killzone is an axis-aligned box from (x1, yFloor) extending right
- * (to x2) and up (to infinity); cars hugging the surface stay
- * below yFloor and pass through harmlessly, but a chassis that
- * launches over the zone hits its lower face and dies on contact.
- *
- * O(zones × cars) total per tick, but zones are sparse (≈ one per
- * 35–350 m at the user's chosen intensity) and cars are ≤ 60, so
- * this is cheap.  No grace period: any chassis intrusion ends the
- * run, even one frame after spawn — but the spawn pad is
- * obstacle-free so this never fires accidentally.
- */
-function checkKillZones(car: CarRuntime, track: Track): void {
-  const pos = car.chassis.translation();
-  for (const ob of track.physicalObstacles) {
-    if (ob.kind !== 'killzone') continue;
-    if (pos.x < ob.x1 || pos.x > ob.x2) continue;
-    if (pos.y < ob.yFloor) continue;
-    car.finished = true;
-    return;
   }
 }
 

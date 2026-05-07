@@ -35,7 +35,7 @@
           <polyline class="minimap__track" id="minimap-track" />
           <rect class="minimap__viewport" id="minimap-viewport" y="0" height="86" />
           <g class="minimap__cars" id="minimap-cars"></g>
-          <circle class="minimap__leader" id="minimap-leader" r="4" />
+          <line class="minimap__leader" id="minimap-leader" vector-effect="non-scaling-stroke" />
           <g class="minimap__records" id="minimap-records"></g>
         </svg>
 
@@ -105,31 +105,17 @@
             <h3 class="hud-card__heading" data-i18n="panel.trackTuning">track</h3>
 
             <label class="ctrl">
-              <span class="ctrl__label" data-i18n="panel.pits">pits</span>
+              <span class="ctrl__label" data-i18n="panel.difficulty">difficulty</span>
               <input
                 class="ctrl__slider"
                 type="range"
-                id="ctrl-pits"
-                min="0"
+                id="ctrl-difficulty"
+                min="1"
                 max="100"
                 step="1"
-                value="0"
+                value="40"
               />
-              <span class="ctrl__value" id="ctrl-pits-val">0%</span>
-            </label>
-
-            <label class="ctrl">
-              <span class="ctrl__label" data-i18n="panel.bumps">bumps</span>
-              <input
-                class="ctrl__slider"
-                type="range"
-                id="ctrl-bumps"
-                min="0"
-                max="100"
-                step="1"
-                value="0"
-              />
-              <span class="ctrl__value" id="ctrl-bumps-val">0%</span>
+              <span class="ctrl__value" id="ctrl-difficulty-val">40%</span>
             </label>
 
             <label class="ctrl">
@@ -175,20 +161,6 @@
             </label>
 
             <label class="ctrl">
-              <span class="ctrl__label" data-i18n="panel.killzones">kill-zones</span>
-              <input
-                class="ctrl__slider"
-                type="range"
-                id="ctrl-killzones"
-                min="0"
-                max="100"
-                step="1"
-                value="0"
-              />
-              <span class="ctrl__value" id="ctrl-killzones-val">0%</span>
-            </label>
-
-            <label class="ctrl">
               <span class="ctrl__label" data-i18n="panel.slick">slick</span>
               <input
                 class="ctrl__slider"
@@ -200,20 +172,6 @@
                 value="0"
               />
               <span class="ctrl__value" id="ctrl-slick-val">0%</span>
-            </label>
-
-            <label class="ctrl">
-              <span class="ctrl__label" data-i18n="panel.bouncy">bouncy</span>
-              <input
-                class="ctrl__slider"
-                type="range"
-                id="ctrl-bouncy"
-                min="0"
-                max="100"
-                step="1"
-                value="0"
-              />
-              <span class="ctrl__value" id="ctrl-bouncy-val">0%</span>
             </label>
           </section>
         </aside>
@@ -235,18 +193,12 @@
 
           <div class="seg-group">
             <span class="seg-group__label" data-i18n="panel.trackLabel">Track preset</span>
-            <div class="segmented segmented--stack" id="seg-track" role="radiogroup">
+            <div class="segmented" id="seg-track" role="radiogroup">
               <button class="segmented__item" data-track-mode="random" type="button">
                 <span data-i18n="panel.trackShortRandom">Random</span>
               </button>
               <button class="segmented__item" data-track-mode="fixed" type="button">
                 <span data-i18n="panel.trackShortFixed">Fixed</span>
-              </button>
-              <button class="segmented__item" data-track-mode="smooth" type="button">
-                <span data-i18n="panel.trackShortSmooth">Smooth</span>
-              </button>
-              <button class="segmented__item" data-track-mode="extreme" type="button">
-                <span data-i18n="panel.trackShortExtreme">Hard</span>
               </button>
             </div>
           </div>

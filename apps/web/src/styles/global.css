@@ -129,6 +129,29 @@ button {
   border-color: var(--color-accent);
 }
 
+.btn--floating {
+  position: absolute;
+  top: calc(var(--sp-4) + 60px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  background: rgba(22, 22, 26, 0.88);
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  padding: var(--sp-2) var(--sp-4);
+  backdrop-filter: blur(8px);
+}
+
+.btn--floating:hover {
+  background: rgba(40, 40, 48, 0.92);
+}
+
+.btn--floating[hidden] {
+  display: none;
+}
+
 /* ─── Stage (full-canvas + floating overlays) ────────────────────────────── */
 
 .stage {
@@ -322,6 +345,16 @@ button {
   backdrop-filter: blur(8px);
   z-index: 1;
   display: block;
+  /* Click or drag anywhere on the minimap to move the camera.
+     `grab` signals "you can grab this and drag it"; the JS
+     side switches it to `grabbing` while a drag is active via
+     the .minimap--dragging class. */
+  cursor: grab;
+  touch-action: none;
+}
+
+.minimap--dragging {
+  cursor: grabbing;
 }
 
 .minimap__track {
@@ -337,10 +370,18 @@ button {
   stroke: var(--color-accent);
   stroke-opacity: 0.5;
   stroke-width: 1;
+  /* Pure visual indicator — let pointer events fall through to
+     the underlying minimap SVG so the user can drag straight
+     across the green rect without the gesture vanishing. */
+  pointer-events: none;
 }
 
 .minimap__leader {
   fill: var(--color-accent);
+  /* Same as viewport: this is a visual-only marker, clicks should
+     hit the dot directly underneath (the leader car) instead of
+     the green ring on top of it. */
+  pointer-events: none;
 }
 
 .minimap__record {
@@ -352,6 +393,7 @@ button {
 
 .minimap__car {
   fill: var(--color-fg);
+  cursor: pointer;
 }
 
 /* ─── Stats / charts panel ──────────────────────────────────────────────── */

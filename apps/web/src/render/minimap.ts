@@ -52,6 +52,20 @@ export type MinimapHandle = {
     viewportWorldWidth: number,
     recordHistory?: number[],
   ): void;
+  /**
+   * Subscribe to "user clicked or dragged on the minimap surface".
+   * The handler is called with the world-x corresponding to the
+   * cursor position.  Used by the host to enter free-camera mode.
+   * Click on a specific car dot does NOT fire this — those have
+   * their own pointerdown handler that stops propagation.
+   */
+  onJump(handler: ((worldX: number) => void) | null): void;
+  /**
+   * Subscribe to "user clicked a specific car dot on the minimap".
+   * The handler is called with that car's snapshot index.  Host
+   * uses this to enter follow-this-car mode.
+   */
+  onCarSelect(handler: ((carIdx: number) => void) | null): void;
 };
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -87,6 +101,51 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
     recordsGroup.appendChild(line);
     recordLines.push(line);
   }
+
+  let jumpHandler: ((worldX: number) => void) | null = null;
+  let carSelectHandler: ((idx: number) => void) | null = null;
+  let dragging = false;
+
+  // Clicking a car-dot is a "follow this car" gesture; the handler
+  // stops propagation so the surrounding minimap-surface listener
+  // doesn't *also* treat it as a free-camera jump.  Dot indices are
+  // stored in dataset and updated each frame in update() — this lets
+  // a single delegated listener service the whole pool.
+  carsGroup.addEventListener('pointerdown', (e) => {
+    if (!(e.target instanceof SVGElement)) return;
+    const idxStr = e.target.dataset['carIdx'];
+    if (idxStr === undefined) return;
+    e.stopPropagation();
+    carSelectHandler?.(Number(idxStr));
+  });
+
+  // Click or drag anywhere else on the minimap → manual camera jump
+  // to that world-x.  Uses pointer capture so the drag keeps tracking
+  // even if the cursor leaves the SVG bounds while still pressed.
+  function emitJumpFromEvent(e: PointerEvent): void {
+    if (!jumpHandler || trackLength === 0) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const ratio = (e.clientX - rect.left) / rect.width;
+    const worldX = Math.max(0, Math.min(trackLength, ratio * trackLength));
+    jumpHandler(worldX);
+  }
+  svg.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    svg.classList.add('minimap--dragging');
+    svg.setPointerCapture(e.pointerId);
+    emitJumpFromEvent(e);
+  });
+  svg.addEventListener('pointermove', (e) => {
+    if (dragging) emitJumpFromEvent(e);
+  });
+  const stopDragging = (e: PointerEvent): void => {
+    dragging = false;
+    svg.classList.remove('minimap--dragging');
+    if (svg.hasPointerCapture(e.pointerId)) svg.releasePointerCapture(e.pointerId);
+  };
+  svg.addEventListener('pointerup', stopDragging);
+  svg.addEventListener('pointercancel', stopDragging);
 
   return {
     setTrack(points): void {
@@ -138,6 +197,11 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
           carsGroup.appendChild(dot);
           carDots[i] = dot;
         }
+        // Stamp the car index on the DOM node so the delegated
+        // pointerdown listener on `carsGroup` can read it back when
+        // the user clicks.  Re-set every frame because the pool is
+        // reused across populations.
+        dot.dataset['carIdx'] = String(car.index);
         const dx = xToView(car.position.x);
         const dy = VIEW_H - PAD_Y - ((car.position.y - trackMinY) / yRange) * (VIEW_H - 2 * PAD_Y);
         dot.setAttribute('cx', dx.toFixed(1));
@@ -190,6 +254,12 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
         line.setAttribute('x2', String(lx));
         line.setAttribute('opacity', opacity.toFixed(2));
       }
+    },
+    onJump(handler): void {
+      jumpHandler = handler;
+    },
+    onCarSelect(handler): void {
+      carSelectHandler = handler;
     },
   };
 }

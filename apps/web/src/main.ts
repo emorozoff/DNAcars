@@ -303,6 +303,33 @@ async function bootstrap(): Promise<void> {
     $locale.subscribe(() => updatePauseButtonText());
   }
 
+  // Floating "back to leader" button — shown only when the camera
+  // has been taken away from leader-follow (via minimap drag or
+  // car-dot click).  Clicking it (or pressing L) snaps the camera
+  // back and hides the button.
+  const cameraLeaderBtn = document.getElementById('btn-camera-leader');
+  let cameraManual = false;
+  function updateCameraButton(): void {
+    if (!(cameraLeaderBtn instanceof HTMLButtonElement)) return;
+    if (!cameraManual) {
+      cameraLeaderBtn.hidden = true;
+      return;
+    }
+    cameraLeaderBtn.hidden = false;
+    cameraLeaderBtn.textContent = t('panel.cameraLeader');
+  }
+  scene.onCameraChange((info) => {
+    cameraManual = info.manual;
+    updateCameraButton();
+  });
+  if (cameraLeaderBtn instanceof HTMLButtonElement) {
+    cameraLeaderBtn.addEventListener('click', () => {
+      scene.followLeader();
+      cameraLeaderBtn.blur();
+    });
+  }
+  $locale.subscribe(() => updateCameraButton());
+
   const restartBtn = document.getElementById('btn-restart');
   function confirmAndRestart(): void {
     // Native confirm is plenty here — short, blocking, and works
@@ -358,6 +385,12 @@ async function bootstrap(): Promise<void> {
         // P kept as an alternative pause hotkey for muscle-memory.
         ev.preventDefault();
         togglePause();
+        return;
+      case 'KeyL':
+        // L = "look at the leader" — snap the camera back to the
+        // running leader after a manual minimap drag or car-dot pick.
+        ev.preventDefault();
+        scene.followLeader();
         return;
       case 'Escape':
         // Cancel skip and drop to realtime — universal "calm down" hotkey.

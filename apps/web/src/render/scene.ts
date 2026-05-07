@@ -22,12 +22,15 @@ import { mountMinimap, type MinimapHandle } from './minimap';
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
 /**
- * Pixels per world-metre.  Lowered 50 → 35 in v0.9.11 by user
- * request: at 50 the camera felt too tight and you couldn't see the
- * upcoming terrain or the rest of the population.  35 fits roughly
- * 40 m of track on a 1400 px screen — plenty of context.
+ * Pixels per world-metre.  Used to be a const; now mutable so the
+ * mouse-wheel zoom can adjust it.  35 is the comfortable default
+ * (≈40 m of track visible on a 1400 px screen).  Clamped at every
+ * adjustment to ZOOM_MIN..ZOOM_MAX so the UI never goes degenerate.
  */
-const ZOOM = 35;
+const ZOOM_DEFAULT = 35;
+const ZOOM_MIN = 12;
+const ZOOM_MAX = 90;
+const ZOOM_WHEEL_FACTOR = 1.12;
 const CAMERA_LERP = 0.08;
 
 /** Parallax factors: 1.0 = pinned to camera (foreground), 0 = static. */
@@ -50,6 +53,28 @@ const HIGHLIGHT_MS = 1500;
 
 export type CarClickHandler = (carIndex: number) => void;
 
+/**
+ * What the camera is currently locked onto.
+ *
+ *   leader  default — the running leader, falling back to whatever
+ *           car is furthest along if everyone has finished.
+ *   car     a specific car index (set by clicking its minimap dot).
+ *           Falls back to leader when that index isn't in the
+ *           snapshot any more (e.g. after a population restart).
+ *   free    manual mode — a fixed world-x picked by the user via
+ *           minimap drag.  Camera doesn't track anything; user
+ *           can drag again to re-position or hit "back to leader".
+ */
+export type CameraMode = { type: 'leader' } | { type: 'car'; idx: number } | { type: 'free' };
+
+export type CameraInfo = {
+  mode: CameraMode;
+  /** True when the user has taken control away from leader-follow. */
+  manual: boolean;
+};
+
+export type CameraChangeHandler = (info: CameraInfo) => void;
+
 export type SceneHandle = {
   setTrack(points: { x: number; y: number }[]): void;
   /**
@@ -71,6 +96,20 @@ export type SceneHandle = {
    * track" isn't meaningful.
    */
   setRecordHistory(worldXs: number[]): void;
+  /** Switch the camera back to "follow the running leader". */
+  followLeader(): void;
+  /** Switch the camera to follow the car with the given snapshot index. */
+  followCar(idx: number): void;
+  /**
+   * Manual mode: park the camera at this world-x and stop tracking
+   * anything.  Camera lerps there and stays.  Used by the minimap
+   * drag handler.
+   */
+  setCameraX(worldX: number): void;
+  /** Multiply the current zoom by `factor`, clamped to ZOOM_MIN..ZOOM_MAX. */
+  zoomBy(factor: number): void;
+  /** Subscribe to camera-mode changes (so the host can update UI). */
+  onCameraChange(handler: CameraChangeHandler | null): void;
   destroy(): void;
 };
 
@@ -124,8 +163,45 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   const minimap: MinimapHandle | null =
     minimapEl instanceof SVGSVGElement ? mountMinimap(minimapEl) : null;
 
+  let zoom = ZOOM_DEFAULT;
   const camera = { x: 0, y: 0 };
   let cameraTarget = { x: 0, y: 0 };
+  let cameraMode: CameraMode = { type: 'leader' };
+  /** Sticky world-x for free-camera mode.  Updated each minimap drag. */
+  let freeCameraX = 0;
+  let cameraChangeHandler: CameraChangeHandler | null = null;
+  function emitCameraChange(): void {
+    cameraChangeHandler?.({ mode: cameraMode, manual: cameraMode.type !== 'leader' });
+  }
+
+  // Wire minimap interactions (only when a minimap actually mounted).
+  if (minimap) {
+    minimap.onJump((worldX) => {
+      cameraMode = { type: 'free' };
+      freeCameraX = worldX;
+      cameraTarget = { x: worldX, y: cameraTarget.y };
+      emitCameraChange();
+    });
+    minimap.onCarSelect((idx) => {
+      cameraMode = { type: 'car', idx };
+      emitCameraChange();
+    });
+  }
+
+  // Mouse-wheel zoom on the main canvas.  Wheel-up zooms in (more
+  // pixels per metre), wheel-down zooms out.  preventDefault to
+  // suppress the browser's default page scroll on top of the
+  // canvas.  applyTransform reads `zoom` directly so the next RAF
+  // tick picks up the new value.
+  host.addEventListener(
+    'wheel',
+    (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? ZOOM_WHEEL_FACTOR : 1 / ZOOM_WHEEL_FACTOR;
+      zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom * factor));
+    },
+    { passive: false },
+  );
 
   applyTransform();
   const ro = new ResizeObserver(() => {
@@ -144,15 +220,15 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     const w = app.renderer.width / (window.devicePixelRatio || 1);
     const h = app.renderer.height / (window.devicePixelRatio || 1);
     // Foreground (cars + track) — full camera follow.
-    world.position.set(w / 2 - camera.x * ZOOM, h * 0.6 + camera.y * ZOOM);
-    world.scale.set(ZOOM, -ZOOM);
+    world.position.set(w / 2 - camera.x * zoom, h * 0.6 + camera.y * zoom);
+    world.scale.set(zoom, -zoom);
     // Parallax silhouettes — partial camera follow so they appear
     // farther away.  Each layer has its own ZOOM so the same world
     // coordinates produce different on-screen positions.
-    bgFar.position.set(w / 2 - camera.x * PARALLAX_FAR * ZOOM, h * 0.62 + camera.y * 0.05 * ZOOM);
-    bgFar.scale.set(ZOOM, -ZOOM);
-    bgNear.position.set(w / 2 - camera.x * PARALLAX_NEAR * ZOOM, h * 0.62 + camera.y * 0.1 * ZOOM);
-    bgNear.scale.set(ZOOM, -ZOOM);
+    bgFar.position.set(w / 2 - camera.x * PARALLAX_FAR * zoom, h * 0.62 + camera.y * 0.05 * zoom);
+    bgFar.scale.set(zoom, -zoom);
+    bgNear.position.set(w / 2 - camera.x * PARALLAX_NEAR * zoom, h * 0.62 + camera.y * 0.1 * zoom);
+    bgNear.scale.set(zoom, -zoom);
   }
 
   function drawTrack(): void {
@@ -182,19 +258,32 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     const renderCars = opts.renderCars !== false;
 
     // ── Always run, regardless of headless mode ────────────────────
-    // Pick the leader (still-running preferred) for the camera target
-    // and the minimap dot.  Cheap: one pass through snap.cars with no
-    // Pixi side effects.
+    // Pick the leader (still-running preferred) and look up the
+    // explicitly-followed car (if any) in a single pass.  Cheap:
+    // O(N) with no Pixi side effects.
     let runningLead: CarSnapshot | null = null;
     let anyLead: CarSnapshot | null = null;
+    let pickedCar: CarSnapshot | null = null;
+    const followedIdx = cameraMode.type === 'car' ? cameraMode.idx : -1;
     for (const car of snap.cars) {
       if (!anyLead || car.position.x > anyLead.position.x) anyLead = car;
       if (!car.finished && (!runningLead || car.position.x > runningLead.position.x)) {
         runningLead = car;
       }
+      if (car.index === followedIdx) pickedCar = car;
     }
-    const followed = runningLead ?? anyLead;
-    if (followed) cameraTarget = { x: followed.position.x, y: followed.position.y };
+
+    // Resolve the actual camera target based on mode.  `free` mode
+    // parks at freeCameraX (no per-frame update); `car` falls back
+    // to leader if the picked car isn't in the snapshot any more.
+    if (cameraMode.type === 'free') {
+      cameraTarget = { x: freeCameraX, y: cameraTarget.y };
+    } else if (cameraMode.type === 'car' && pickedCar) {
+      cameraTarget = { x: pickedCar.position.x, y: pickedCar.position.y };
+    } else {
+      const leader = runningLead ?? anyLead;
+      if (leader) cameraTarget = { x: leader.position.x, y: leader.position.y };
+    }
 
     // Minimap is SVG and ~30–50 attribute writes per call; cheap
     // enough that we keep updating it even when the main canvas is
@@ -202,7 +291,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     // crawling along the track up there.
     if (minimap) {
       const dpr = window.devicePixelRatio || 1;
-      const viewportWorldWidth = app.renderer.width / dpr / ZOOM;
+      const viewportWorldWidth = app.renderer.width / dpr / zoom;
       minimap.update(snap, camera.x, viewportWorldWidth, recordHistory);
     }
 
@@ -254,6 +343,16 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       camera.x = points[0]?.x ?? 0;
       camera.y = points[0]?.y ?? 0;
       cameraTarget = { ...camera };
+      // Each new generation resets the camera to leader-follow.  The
+      // user can manually re-pick a car or free-cam position right
+      // after.  Sticky-across-restarts behaviour gets confusing —
+      // the same `idx` selects a wholly different genome on the
+      // next gen, so following car #5 across gens means jumping to
+      // a stranger.  Better to default back to "watch the action".
+      if (cameraMode.type !== 'leader') {
+        cameraMode = { type: 'leader' };
+        emitCameraChange();
+      }
     },
     setSnapshot,
     onCarClick(handler): void {
@@ -261,6 +360,26 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     },
     setRecordHistory(worldXs): void {
       recordHistory = worldXs;
+    },
+    followLeader(): void {
+      cameraMode = { type: 'leader' };
+      emitCameraChange();
+    },
+    followCar(idx): void {
+      cameraMode = { type: 'car', idx };
+      emitCameraChange();
+    },
+    setCameraX(worldX): void {
+      cameraMode = { type: 'free' };
+      freeCameraX = worldX;
+      cameraTarget = { x: worldX, y: cameraTarget.y };
+      emitCameraChange();
+    },
+    zoomBy(factor): void {
+      zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom * factor));
+    },
+    onCameraChange(handler): void {
+      cameraChangeHandler = handler;
     },
     destroy(): void {
       ro.disconnect();

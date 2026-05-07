@@ -1,14 +1,17 @@
 /**
  * SVG-based minimap.  Compresses the entire track length into a tiny
- * 600 × 50 viewBox at the top of the canvas, then on every snapshot
- * updates two markers:
+ * 1500 × 50 viewBox at the top of the canvas, then on every snapshot
+ * updates several markers:
  *
  *   - a translucent rectangle showing the camera's current viewport
  *   - a green dot for whoever is currently the leader
+ *   - up to RECORD_HISTORY_MAX vertical red lines marking the most
+ *     recent record-setting positions on this track.  The newest
+ *     line is at full opacity; older ones fade.
  *
  * Compared to a Pixi-based minimap (own RenderTexture etc.) the SVG
  * variant is dirt cheap to draw: a single polyline that's set once
- * per session and two attribute writes per frame.
+ * per session, plus a handful of attribute writes per frame.
  */
 
 import type { WorldSnapshot } from '../sim/world';
@@ -26,21 +29,28 @@ const VIEW_H = 50;
 const PAD_Y = 6;
 /** Stride target — keep one polyline node per ≈ 6 viewBox units. */
 const STRIDE_TARGET = 6;
+/**
+ * How many past records to keep on screen.  Newest = full opacity;
+ * each older entry is dimmed linearly down to a floor that's still
+ * visible but unmistakably "old".
+ */
+const RECORD_HISTORY_MAX = 5;
 
 export type MinimapHandle = {
   setTrack(points: { x: number; y: number }[]): void;
   /**
-   * Tell the minimap where the camera is currently centred.  The
-   * optional `recordX` parameter pins a small red dot at that world-x
-   * to indicate the all-time best run on the current track; pass null
-   * (or omit) to hide it (e.g. when the track changes every gen and
-   * "record on this track" isn't meaningful).
+   * Tell the minimap where the camera is currently centred and which
+   * record-positions to highlight.  `recordHistory` is ordered oldest
+   * → newest; the last entry is the current track record (drawn at
+   * full opacity), earlier entries fade with age.  Pass an empty
+   * array (or omit) to hide all record markers — e.g. when the track
+   * changes every gen and "record on this track" isn't meaningful.
    */
   update(
     snap: WorldSnapshot,
     cameraX: number,
     viewportWorldWidth: number,
-    recordX?: number | null,
+    recordHistory?: number[],
   ): void;
 };
 
@@ -51,27 +61,36 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
   const viewportEl = svg.querySelector<SVGRectElement>('.minimap__viewport');
   const carsGroup = svg.querySelector<SVGGElement>('.minimap__cars');
   const leaderEl = svg.querySelector<SVGCircleElement>('.minimap__leader');
-  const recordEl = svg.querySelector<SVGCircleElement>('.minimap__record');
-  if (!trackEl || !viewportEl || !carsGroup || !leaderEl || !recordEl) {
+  const recordsGroup = svg.querySelector<SVGGElement>('.minimap__records');
+  if (!trackEl || !viewportEl || !carsGroup || !leaderEl || !recordsGroup) {
     throw new Error('mountMinimap: missing child elements');
   }
 
   let trackLength = 0;
   let trackMinY = 0;
   let trackMaxY = 1;
-  /**
-   * Cached track points so we can sample the surface y at any world-x
-   * for the record marker.  Stored once in setTrack and never written
-   * to from update().
-   */
-  let trackSamples: { x: number; y: number }[] = [];
   /** Pool of <circle> elements for the population dots, grown on demand. */
   const carDots: SVGCircleElement[] = [];
+  /**
+   * Pool of <line> elements for the record-history vertical lines.
+   * Pre-built once at mount time — RECORD_HISTORY_MAX is small and
+   * fixed, so we never grow this pool dynamically.  Lines we don't
+   * have a history entry for get hidden via opacity 0 each frame.
+   */
+  const recordLines: SVGLineElement[] = [];
+  for (let i = 0; i < RECORD_HISTORY_MAX; i++) {
+    const line = document.createElementNS(SVG_NS, 'line');
+    line.setAttribute('class', 'minimap__record');
+    line.setAttribute('y1', '0');
+    line.setAttribute('y2', String(VIEW_H));
+    line.setAttribute('opacity', '0');
+    recordsGroup.appendChild(line);
+    recordLines.push(line);
+  }
 
   return {
     setTrack(points): void {
       if (points.length < 2) return;
-      trackSamples = points;
       trackLength = points[points.length - 1]!.x;
       let minY = Infinity;
       let maxY = -Infinity;
@@ -96,7 +115,7 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
       }
       trackEl.setAttribute('points', pts.trim());
     },
-    update(snap, cameraX, viewportWorldWidth, recordX): void {
+    update(snap, cameraX, viewportWorldWidth, recordHistory): void {
       if (trackLength === 0) return;
       const xToView = (worldX: number): number => (worldX / trackLength) * VIEW_W;
       const halfW = (viewportWorldWidth / trackLength) * VIEW_W * 0.5;
@@ -146,38 +165,31 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
         leaderEl.setAttribute('opacity', '0');
       }
 
-      // Record marker — only shown when caller passes a non-null x
-      // (i.e. we're on a fixed-track preset and there's a meaningful
-      // record to display).  Pin to the actual track surface y at
-      // that x so the dot sits on the curve, not in the air.
-      if (recordX !== null && recordX !== undefined) {
-        const rx = xToView(recordX);
-        const ry =
-          VIEW_H -
-          PAD_Y -
-          ((sampleY(trackSamples, recordX) - trackMinY) / yRange) * (VIEW_H - 2 * PAD_Y);
-        recordEl.setAttribute('cx', String(rx));
-        recordEl.setAttribute('cy', String(ry));
-        recordEl.setAttribute('opacity', '1');
-      } else {
-        recordEl.setAttribute('opacity', '0');
+      // Record-history lines.  Each entry in `recordHistory` (oldest
+      // → newest) maps to one of the pooled <line> elements.  The
+      // newest gets full opacity; older ones fade linearly down to
+      // a floor, so a long-broken record is still visible but
+      // unmistakably "old".  Lines we have no history for stay
+      // hidden (opacity 0).
+      const history = recordHistory ?? [];
+      const N = Math.min(history.length, RECORD_HISTORY_MAX);
+      for (let i = 0; i < recordLines.length; i++) {
+        const line = recordLines[i]!;
+        if (i >= N) {
+          line.setAttribute('opacity', '0');
+          continue;
+        }
+        const x = history[history.length - N + i]!;
+        const lx = xToView(x);
+        // age = 0 for the newest, N-1 for the oldest.  Map to
+        // opacity in [0.18, 1.0] so even the oldest stays readable.
+        const age = N - 1 - i;
+        const denom = Math.max(1, RECORD_HISTORY_MAX - 1);
+        const opacity = 1 - (age / denom) * 0.82;
+        line.setAttribute('x1', String(lx));
+        line.setAttribute('x2', String(lx));
+        line.setAttribute('opacity', opacity.toFixed(2));
       }
     },
   };
-}
-
-/** Linear-interpolated track y at a given world x (matches sim/world.ts:sampleTrackY). */
-function sampleY(points: { x: number; y: number }[], x: number): number {
-  if (points.length === 0) return 0;
-  if (x <= points[0]!.x) return points[0]!.y;
-  const last = points[points.length - 1]!;
-  if (x >= last.x) return last.y;
-  const step = points.length > 1 ? points[1]!.x - points[0]!.x : 1;
-  const i = Math.floor(x / step);
-  const a = points[i];
-  const b = points[i + 1];
-  if (!a) return 0;
-  if (!b) return a.y;
-  const t = (x - a.x) / (b.x - a.x);
-  return a.y + (b.y - a.y) * t;
 }

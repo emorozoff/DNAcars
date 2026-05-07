@@ -26,10 +26,8 @@ const enRaw = {
   'legend.wheelAir': 'wheel in air',
   'legend.wheelGround': 'wheel on ground',
   // Chart titles (stats dashboard)
-  'chart.best': 'Best fitness',
-  'chart.mean': 'Mean fitness',
-  'chart.median': 'Median fitness',
-  'chart.worst': 'Worst fitness',
+  'chart.best': 'Best distance',
+  'chart.mean': 'Mean distance',
   'chart.stdev': 'Diversity (σ)',
   'chart.alive': 'Cars that moved',
   'chart.avgVerts': 'Avg chassis verts',
@@ -38,7 +36,6 @@ const enRaw = {
   'chart.avgMotorSpeed': 'Avg motor speed',
   'chart.avgChassisDensity': 'Avg chassis density',
   'chart.avgChassisSize': 'Avg chassis size',
-  'chart.duration': 'Generation time',
 } as const;
 
 export type TranslationKey = keyof typeof enRaw;

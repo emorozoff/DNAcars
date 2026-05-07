@@ -28,10 +28,8 @@ export const ru: Dictionary = {
   'legend.wheelAir': 'в воздухе',
   'legend.wheelGround': 'на земле',
   // Графики (дашборд статистики)
-  'chart.best': 'Лучший фитнес',
-  'chart.mean': 'Средний фитнес',
-  'chart.median': 'Медианный фитнес',
-  'chart.worst': 'Худший фитнес',
+  'chart.best': 'Лучший результат',
+  'chart.mean': 'Средний результат',
   'chart.stdev': 'Разнообразие (σ)',
   'chart.alive': 'Машин поехало',
   'chart.avgVerts': 'Ср. вершин корпуса',
@@ -40,5 +38,4 @@ export const ru: Dictionary = {
   'chart.avgMotorSpeed': 'Ср. скорость мотора',
   'chart.avgChassisDensity': 'Ср. плотность корпуса',
   'chart.avgChassisSize': 'Ср. размер корпуса',
-  'chart.duration': 'Время поколения',
 };

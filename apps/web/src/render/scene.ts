@@ -63,11 +63,14 @@ export type SceneHandle = {
   /** Register (or clear) the callback fired when the user clicks a car. */
   onCarClick(handler: CarClickHandler | null): void;
   /**
-   * Pin the minimap's red record marker at this world-x.  Pass null
-   * to hide it (e.g. when the track changes every gen and "record on
-   * this track" isn't meaningful).
+   * Pass an array of world-x values for the recent record-setting
+   * positions on the current track, oldest → newest.  The minimap
+   * draws each as a vertical line; the newest at full opacity, older
+   * ones progressively dimmer.  Pass an empty array to hide every
+   * line — used when the track changes per gen and "record on this
+   * track" isn't meaningful.
    */
-  setRecordPosition(worldX: number | null): void;
+  setRecordHistory(worldXs: number[]): void;
   destroy(): void;
 };
 
@@ -107,8 +110,13 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   let trackPoints: { x: number; y: number }[] | null = null;
   const carViews = new Map<number, CarView>();
   let onCarClickHandler: CarClickHandler | null = null;
-  /** Most recent record-marker world-x (null = hide marker). */
-  let recordX: number | null = null;
+  /**
+   * World-x values of the recent record-setting positions on the
+   * current track, oldest → newest.  Passed to the minimap on every
+   * frame so the cluster of vertical record lines stays in sync with
+   * whatever record-history main.ts is maintaining.
+   */
+  let recordHistory: number[] = [];
 
   // Optional minimap: if the SVG element is in the DOM at mount-time,
   // wire it up so it gets updated alongside the main scene.
@@ -195,7 +203,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     if (minimap) {
       const dpr = window.devicePixelRatio || 1;
       const viewportWorldWidth = app.renderer.width / dpr / ZOOM;
-      minimap.update(snap, camera.x, viewportWorldWidth, recordX);
+      minimap.update(snap, camera.x, viewportWorldWidth, recordHistory);
     }
 
     // ── Heavy work, skipped when canvas is hidden ──────────────────
@@ -251,8 +259,8 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     onCarClick(handler): void {
       onCarClickHandler = handler;
     },
-    setRecordPosition(x): void {
-      recordX = x;
+    setRecordHistory(worldXs): void {
+      recordHistory = worldXs;
     },
     destroy(): void {
       ro.disconnect();

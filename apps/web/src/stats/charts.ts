@@ -35,8 +35,6 @@ const CHART_DEFS: ChartDef[] = [
     color: '#a8ff60',
   },
   { key: 'mean', i18nKey: 'chart.mean', format: (v) => `${v.toFixed(1)} m` },
-  { key: 'median', i18nKey: 'chart.median', format: (v) => `${v.toFixed(1)} m` },
-  { key: 'worst', i18nKey: 'chart.worst', format: (v) => `${v.toFixed(1)} m` },
   { key: 'stdev', i18nKey: 'chart.stdev', format: (v) => `${v.toFixed(1)} m` },
   { key: 'alive', i18nKey: 'chart.alive', format: (v) => v.toFixed(0) },
   { key: 'avgVertexCount', i18nKey: 'chart.avgVerts', format: (v) => v.toFixed(1) },
@@ -57,7 +55,6 @@ const CHART_DEFS: ChartDef[] = [
     i18nKey: 'chart.avgChassisSize',
     format: (v) => v.toFixed(2),
   },
-  { key: 'durationSec', i18nKey: 'chart.duration', format: (v) => `${v.toFixed(1)} s` },
 ];
 
 const SPARK_W = 160;

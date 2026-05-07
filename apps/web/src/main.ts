@@ -224,9 +224,17 @@ async function bootstrap(): Promise<void> {
    * World-x of the all-time best run on the *current* track.  Only
    * meaningful in 'fixed' track mode (where the same track is reused
    * across generations); in any other mode we keep this null and the
-   * minimap hides the marker.
+   * minimap hides the markers.
    */
   let trackRecordX: number | null = null;
+  /**
+   * Last few record-setting world-x values on the current fixed
+   * track, oldest → newest.  Capped at TRACK_RECORD_HISTORY_MAX so
+   * the minimap's record-history rendering stays bounded; the
+   * newest entry is always equal to `trackRecordX`.
+   */
+  const trackRecordHistory: number[] = [];
+  const TRACK_RECORD_HISTORY_MAX = 5;
 
   function freshRun(): void {
     generation = 0;
@@ -237,7 +245,8 @@ async function bootstrap(): Promise<void> {
     // even if the user is still on the 'fixed' preset.
     fixedTrackSeed = null;
     trackRecordX = null;
-    scene.setRecordPosition(null);
+    trackRecordHistory.length = 0;
+    scene.setRecordHistory([]);
     hud.best.textContent = '—';
     if (charts) charts.update(history);
   }
@@ -265,7 +274,8 @@ async function bootstrap(): Promise<void> {
       // mode, so clear it on mode change.
       fixedTrackSeed = null;
       trackRecordX = null;
-      scene.setRecordPosition(null);
+      trackRecordHistory.length = 0;
+      scene.setRecordHistory([]);
       updateTrackButtonText();
     });
     updateTrackButtonText();
@@ -447,16 +457,27 @@ async function bootstrap(): Promise<void> {
         }
         // In 'fixed' track mode, "best on this track" is meaningful;
         // every generation runs on the same seed, so we accumulate
-        // the all-time max across them and pin a red dot on the
-        // minimap there.  Other modes pick a fresh track per gen so
-        // a "record" on the previous track no longer applies.
+        // the all-time max across them and push a vertical record
+        // line on the minimap.  Older record lines fade with age
+        // (rendered by the minimap) so the player can see the
+        // progression: gen-2's record at x=120, gen-7's at x=180,
+        // gen-15's at x=400, etc.  Other modes pick a fresh track
+        // per gen so a "record" on the previous track is meaningless.
         if (TRACK_MODES[trackModeIdx] === 'fixed') {
           const candidate = SPAWN_X + genBest;
-          trackRecordX = trackRecordX === null ? candidate : Math.max(trackRecordX, candidate);
-          scene.setRecordPosition(trackRecordX);
+          const beatRecord = trackRecordX === null || candidate > trackRecordX;
+          if (beatRecord) {
+            trackRecordX = candidate;
+            trackRecordHistory.push(candidate);
+            if (trackRecordHistory.length > TRACK_RECORD_HISTORY_MAX) {
+              trackRecordHistory.shift();
+            }
+          }
+          scene.setRecordHistory(trackRecordHistory);
         } else {
           trackRecordX = null;
-          scene.setRecordPosition(null);
+          trackRecordHistory.length = 0;
+          scene.setRecordHistory([]);
         }
         // Record summary stats and refresh sparklines.
         const durationSec = (performance.now() - sessionStartedAt) / 1000;

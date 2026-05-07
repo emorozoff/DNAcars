@@ -42,6 +42,8 @@ import {
   SIM_DT,
   TUNING,
   type Genome,
+  type ObstacleConfig,
+  type TrackOptions,
   type WorldHandle,
   type WorldSnapshot,
 } from './sim/world';
@@ -69,6 +71,16 @@ const gaParams: GAParams = {
   populationSize: 24,
   eliteCount: 2,
   mutationRate: 0.15,
+};
+
+/**
+ * Live track-tuning parameters.  Mutated in place by the "Track"
+ * sidebar sliders; the next generation's track is built using
+ * whatever is current here.  Defaults to no obstacles so the
+ * baseline track matches v0.9.26 until the user touches a slider.
+ */
+const trackTuning: { obstacles: ObstacleConfig } = {
+  obstacles: { pit: 0, bump: 0 },
 };
 
 /**
@@ -149,21 +161,27 @@ function effectiveSpeed(): SpeedState {
 }
 
 /**
- * Pick the track seed and amplitude for the upcoming generation
- * based on the current track mode.  In 'fixed' mode the seed is
- * captured once and reused across generations of the same run; the
- * `freshRun()` helper resets it so a new run gets a new fixed track.
+ * Pick the track seed and per-generation overrides for the upcoming
+ * run based on the current track mode.  Returned `opts` are merged
+ * over DEFAULT_TRACK in generateTrack — at minimum we pass
+ * obstacles (from the user's sliders); presets also override
+ * amplitude.  In 'fixed' mode the seed is captured once and reused
+ * across generations of the same run; freshRun() resets it.
  */
-function nextTrackParams(): { seed: number; amplitude?: number } {
+function nextTrackParams(): { seed: number; opts: Partial<TrackOptions> } {
   const mode: TrackMode = TRACK_MODES[trackModeIdx] ?? 'random';
+  // The slider-driven obstacles apply on every preset — the user's
+  // intent ("I want pits") shouldn't depend on whether the track is
+  // smooth or extreme.
+  const baseOpts: Partial<TrackOptions> = { obstacles: { ...trackTuning.obstacles } };
   if (mode === 'fixed') {
     if (fixedTrackSeed === null) fixedTrackSeed = (Math.random() * 0xffffffff) >>> 0;
-    return { seed: fixedTrackSeed };
+    return { seed: fixedTrackSeed, opts: baseOpts };
   }
   const seed = (Math.random() * 0xffffffff) >>> 0;
-  if (mode === 'smooth') return { seed, amplitude: 2.0 };
-  if (mode === 'extreme') return { seed, amplitude: 8.0 };
-  return { seed }; // 'random' uses default amplitude
+  if (mode === 'smooth') return { seed, opts: { ...baseOpts, amplitude: 2.0 } };
+  if (mode === 'extreme') return { seed, opts: { ...baseOpts, amplitude: 8.0 } };
+  return { seed, opts: baseOpts }; // 'random' uses default amplitude
 }
 
 type Hud = {
@@ -476,7 +494,7 @@ async function bootstrap(): Promise<void> {
     const sessionStartedAt = performance.now();
     session = await startSession({
       trackSeed,
-      trackAmplitude: trackParams.amplitude,
+      trackOpts: trackParams.opts,
       generation,
       genomes,
       scene,
@@ -551,6 +569,18 @@ function bindControls(): void {
     gaParams.eliteCount = v;
     return String(v);
   });
+  // Track-tuning sliders — values 0..100 in the DOM, mapped to
+  // 0..1 intensities for the obstacle generator.  Take effect on
+  // the next generation (current run keeps whatever was set when
+  // it started).
+  bindSlider('ctrl-pits', 'ctrl-pits-val', (v) => {
+    trackTuning.obstacles.pit = v / 100;
+    return `${v}%`;
+  });
+  bindSlider('ctrl-bumps', 'ctrl-bumps-val', (v) => {
+    trackTuning.obstacles.bump = v / 100;
+    return `${v}%`;
+  });
 }
 
 function bindSlider(inputId: string, valueId: string, apply: (v: number) => string): void {
@@ -572,8 +602,12 @@ type Session = {
 
 type StartOptions = {
   trackSeed: number;
-  /** Optional override for track amplitude (smooth / extreme presets). */
-  trackAmplitude?: number;
+  /**
+   * Per-generation overrides merged into DEFAULT_TRACK.  Carries
+   * preset-driven amplitude (smooth/extreme) plus the user's
+   * obstacle-slider settings.  Empty object = pure defaults.
+   */
+  trackOpts?: Partial<TrackOptions>;
   generation: number;
   genomes: Genome[];
   scene: SceneHandle;
@@ -582,12 +616,9 @@ type StartOptions = {
 };
 
 async function startSession(opts: StartOptions): Promise<Session> {
-  const { trackSeed, trackAmplitude, generation, genomes, scene, hud, onGenerationEnd } = opts;
+  const { trackSeed, trackOpts, generation, genomes, scene, hud, onGenerationEnd } = opts;
 
-  const track = generateTrack(
-    trackSeed,
-    trackAmplitude !== undefined ? { amplitude: trackAmplitude } : {},
-  );
+  const track = generateTrack(trackSeed, trackOpts ?? {});
   scene.setTrack(track.points);
 
   const world = await createWorld({ track, genomes, spawnX: SPAWN_X });

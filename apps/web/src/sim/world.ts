@@ -289,6 +289,25 @@ export type TrackOptions = {
    * specced amplitude and full chaos.
    */
   difficultyDistance: number;
+  /**
+   * Obstacle intensities, each in 0..1.  Zero means "off"; one
+   * means full-strength (very deep pits, very tall bumps).  These
+   * are overlaid on top of the procedural sine terrain — at low
+   * intensities the obstacles are subtle modulation; at high
+   * intensities they dominate the local profile.
+   *
+   * Obstacles are placed deterministically from the same seed so
+   * a fixed-track run reproduces the same layout every gen.  None
+   * appear inside the warmup pad.
+   */
+  obstacles: ObstacleConfig;
+};
+
+export type ObstacleConfig = {
+  /** Pit (downward dip) intensity, 0..1.  Drives both density and depth. */
+  pit: number;
+  /** Bump (upward spike) intensity, 0..1.  Drives both density and height. */
+  bump: number;
 };
 
 export type Track = {
@@ -316,10 +335,89 @@ const DEFAULT_TRACK: TrackOptions = {
    * when the player wants to see the harder challenges.
    */
   difficultyDistance: 250,
+  /**
+   * Obstacles default to off in v0.9.27 — turning them on at
+   * non-zero intensities is a player choice via the new track-
+   * tuning sliders.  This keeps the baseline track identical to
+   * v0.9.26 for anyone who hasn't touched the new controls.
+   */
+  obstacles: { pit: 0, bump: 0 },
 };
 
 /** Frequency where the high-frequency "sharpness" octaves wake up (m). */
 const SHARPNESS_START = 80;
+/**
+ * Earliest world-x at which obstacles can spawn.  Same as the
+ * sharpness gate — first 80 m is always smooth so cars get a
+ * fair shot at building speed before facing local hazards.
+ */
+const OBSTACLE_START = 80;
+
+/**
+ * One placed obstacle — `kind` tells which side of the surface to
+ * modulate (pit = subtract, bump = add), `magnitude` is the peak
+ * deformation in metres, `width` is the Gaussian sigma controlling
+ * how wide the influence is.
+ */
+type PlacedObstacle = {
+  kind: 'pit' | 'bump';
+  x: number;
+  magnitude: number;
+  /** Gaussian standard deviation, m.  Influence essentially zero past 3σ. */
+  width: number;
+};
+
+/**
+ * Lay out the obstacle list deterministically from `rng`.  Density
+ * scales linearly with intensity: at 1.0 the average gap between
+ * obstacles of one kind is ≈ 35 m; at 0.1 it's ≈ 350 m.  Each
+ * obstacle's magnitude is a fraction of its kind's full strength
+ * times a small RNG jitter so they aren't all identical.
+ *
+ * Obstacles never spawn inside the warmup pad or the early sharpness
+ * window (first OBSTACLE_START metres) — same logic as the
+ * procedural difficulty ramp: cars need a runway to evolve into
+ * before they get punished by local hazards.
+ */
+function placeObstacles(
+  rng: Rng,
+  obstacles: ObstacleConfig,
+  trackLength: number,
+): PlacedObstacle[] {
+  const out: PlacedObstacle[] = [];
+  const place = (kind: 'pit' | 'bump', intensity: number, fullMagnitude: number): void => {
+    if (intensity <= 0) return;
+    // Average gap shrinks as intensity grows.  Floor at 25 m so
+    // even at 100 % they don't overlap into a continuous trench.
+    const meanGap = Math.max(25, 350 / Math.max(0.1, intensity));
+    let x = OBSTACLE_START + rng() * meanGap;
+    while (x < trackLength - 5) {
+      // Per-obstacle magnitude: 70..100 % of full strength × intensity.
+      const mag = fullMagnitude * intensity * (0.7 + rng() * 0.3);
+      // Width 0.6..1.6 m — narrower obstacles read as sharper
+      // hazards, wider ones as gentle dips/swells.
+      const width = 0.6 + rng() * 1.0;
+      out.push({ kind, x, magnitude: mag, width });
+      // Jittered next gap so they don't appear on a metronome.
+      x += meanGap * (0.55 + rng() * 0.9);
+    }
+  };
+  // Full-strength magnitudes were tuned visually: a 4 m pit is
+  // unmistakable next to ±5 m amplitude hills, a 2.5 m bump is a
+  // sharp jolt that any car will feel.
+  place('pit', obstacles.pit, 4.0);
+  place('bump', obstacles.bump, 2.5);
+  // Sort by x so the per-track-point loop can stop scanning early.
+  out.sort((a, b) => a.x - b.x);
+  return out;
+}
+
+/** Gaussian deformation amount at distance `d` from an obstacle centre. */
+function obstacleProfile(d: number, magnitude: number, width: number): number {
+  // Cheap early exit: past 3σ the contribution is < 1 % of magnitude.
+  if (Math.abs(d) > width * 3) return 0;
+  return magnitude * Math.exp(-(d * d) / (2 * width * width));
+}
 
 export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): Track {
   const o: TrackOptions = { ...DEFAULT_TRACK, ...opts };
@@ -335,6 +433,11 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
     { freq: 0.16 * 1.618 ** 3, phase: rng() * Math.PI * 2, weight: 0.1 },
   ];
   const drift = { freq: 0.018, phase: rng() * Math.PI * 2, weight: 0.85 };
+  // Obstacle list is built from the same RNG stream so placement is
+  // a pure function of the seed.  This is intentional: a fixed-track
+  // run reproduces the exact same hazard layout every generation,
+  // which is how the GA gets to optimise against them.
+  const obstacles = placeObstacles(rng, o.obstacles, o.length);
 
   const points: { x: number; y: number }[] = [];
   const difficultyEnd = o.warmup + o.difficultyDistance;
@@ -363,6 +466,22 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
     y += Math.sin(x * layers[3]!.freq + layers[3]!.phase) * layers[3]!.weight * sharpness;
     y += Math.sin(x * drift.freq + drift.phase) * drift.weight;
     y *= baseRamp * ampScale * o.amplitude;
+    // Overlay obstacles on top of the procedural profile.  Pits
+    // subtract from y (carve into the surface), bumps add to it.
+    // Same baseRamp gates them out of the spawn pad.  Obstacles
+    // are sorted by x so we can break out of the loop early once
+    // we're past their influence radius.
+    if (obstacles.length > 0) {
+      let obstacleDelta = 0;
+      for (const ob of obstacles) {
+        const d = x - ob.x;
+        if (d < -ob.width * 3) break; // sorted; everything ahead is too far right
+        if (d > ob.width * 3) continue; // skip ones we've already passed
+        const contribution = obstacleProfile(d, ob.magnitude, ob.width);
+        obstacleDelta += ob.kind === 'pit' ? -contribution : contribution;
+      }
+      y += obstacleDelta * baseRamp;
+    }
     points.push({ x, y });
   }
   if (points[0]) points[0].y = 0;

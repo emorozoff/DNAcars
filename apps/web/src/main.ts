@@ -65,11 +65,54 @@ const gaParams: GAParams = {
 };
 
 /**
- * Real-time speed multiplier.  1 = realtime; 8 = "speed up", physics
- * advances 8× faster but rendering still runs every frame so the
- * generations whip through visibly.  Toggled by the speed-up button.
+ * Speed-up cycle: clicking the button rotates through these in order.
+ *   ×1   — realtime, full render
+ *   ×8   — physics 8× faster, render still on (cars zoom)
+ *   ×32  — physics 32× faster, *render off* (only stats and counters
+ *          update — much higher CPU budget for physics)
+ *
+ * Headless = true means we hide the canvas and skip setSnapshot
+ * calls; the user watches the stats panel grow instead.
  */
-let speedMultiplier = 1;
+type SpeedState = { multiplier: number; headless: boolean };
+const SPEED_STATES: SpeedState[] = [
+  { multiplier: 1, headless: false },
+  { multiplier: 8, headless: false },
+  { multiplier: 32, headless: true },
+];
+let speedIdx = 0;
+
+/**
+ * "Skip N generations" mode.  When non-null, the loop runs at very
+ * high speed with rendering off until `generation` reaches this
+ * target, then resets to whatever the speed cycle was on before.
+ */
+let skipUntilGen: number | null = null;
+const SKIP_SPEED = 64;
+const SKIP_AMOUNT = 10;
+
+/**
+ * Wall-time budget per RAF frame for physics steps, in ms.  At ×1 we
+ * never come close.  At ×8/×32 the inner while-loop hits this cap and
+ * the next RAF picks up where it left off — so the UI never blocks
+ * for more than a single frame regardless of speed multiplier.
+ */
+const STEP_DEADLINE_MS = 25;
+/**
+ * Hard cap on how much sim-time can pile up in the accumulator.  If
+ * the user hides the tab and the RAF stops firing, we don't want to
+ * resume by trying to simulate a minute of skipped time in one go.
+ */
+const MAX_ACC_SEC = 1.0;
+
+/**
+ * Resolve the multiplier and headless flag the tick loop should use
+ * *right now*, taking the skip-N-gens override into account.
+ */
+function effectiveSpeed(): SpeedState {
+  if (skipUntilGen !== null) return { multiplier: SKIP_SPEED, headless: true };
+  return SPEED_STATES[speedIdx] ?? SPEED_STATES[0]!;
+}
 
 type Hud = {
   total: HTMLElement;
@@ -151,10 +194,47 @@ async function bootstrap(): Promise<void> {
   });
 
   const speedBtn = document.getElementById('btn-speedup');
+  const skipBtn = document.getElementById('btn-skip');
+
+  function updateSpeedButtonText(): void {
+    if (!(speedBtn instanceof HTMLButtonElement)) return;
+    if (skipUntilGen !== null) {
+      speedBtn.textContent = t('panel.skipping');
+      return;
+    }
+    const idx = speedIdx;
+    const key: 'panel.speedup' | 'panel.speedup8' | 'panel.speedup32' =
+      idx === 0 ? 'panel.speedup' : idx === 1 ? 'panel.speedup8' : 'panel.speedup32';
+    speedBtn.textContent = t(key);
+  }
+
+  function applyHeadless(): void {
+    const headless = skipUntilGen !== null || (SPEED_STATES[speedIdx]?.headless ?? false);
+    // Re-narrow inside the closure — TS loses the earlier instanceof
+    // narrowing once `host` is captured by another function.
+    if (host instanceof HTMLElement) {
+      host.style.visibility = headless ? 'hidden' : '';
+    }
+  }
+
   if (speedBtn instanceof HTMLButtonElement) {
     speedBtn.addEventListener('click', () => {
-      speedMultiplier = speedMultiplier === 1 ? 8 : 1;
-      speedBtn.textContent = speedMultiplier === 1 ? t('panel.speedup') : t('panel.speedupOn');
+      // Clicking the speed button while in skip mode cancels the skip.
+      if (skipUntilGen !== null) skipUntilGen = null;
+      speedIdx = (speedIdx + 1) % SPEED_STATES.length;
+      updateSpeedButtonText();
+      applyHeadless();
+    });
+    updateSpeedButtonText();
+  }
+
+  if (skipBtn instanceof HTMLButtonElement) {
+    skipBtn.addEventListener('click', () => {
+      // Set a target generation; the tick loop takes care of forcing
+      // top speed + headless mode until we get there.
+      skipUntilGen = generation + SKIP_AMOUNT;
+      updateSpeedButtonText();
+      applyHeadless();
     });
   }
 
@@ -199,7 +279,15 @@ async function bootstrap(): Promise<void> {
         history.push(collectStats(generation, durationSec, results));
         if (charts) charts.update(history);
         generation += 1;
-        setTimeout(() => void restart(), GENERATION_PAUSE_MS / speedMultiplier);
+        // If we were skipping ahead and just hit the target generation,
+        // exit skip mode and restore the visible speed cycle state.
+        if (skipUntilGen !== null && generation >= skipUntilGen) {
+          skipUntilGen = null;
+          updateSpeedButtonText();
+          applyHeadless();
+        }
+        const effective = effectiveSpeed();
+        setTimeout(() => void restart(), GENERATION_PAUSE_MS / effective.multiplier);
       },
     });
   }
@@ -307,14 +395,20 @@ async function startSession(opts: StartOptions): Promise<Session> {
   function tick(): void {
     if (!running) return;
     const now = performance.now();
+    const eff = effectiveSpeed();
     // Multiply real elapsed time by speed multiplier, then feed into
-    // the fixed-timestep accumulator.  At ×1 the world ticks at real
-    // time; at ×8 the same wall second produces 8 s of simulated time
-    // (the inner while loop just runs more world.step()s).
-    const dt = Math.min((now - lastTime) / 1000, 0.25) * speedMultiplier;
+    // the fixed-timestep accumulator.  Cap the accumulator so a long
+    // pause (tab hidden) doesn't try to simulate minutes of skipped
+    // time on resume.
+    const dt = Math.min((now - lastTime) / 1000, 0.25) * eff.multiplier;
     lastTime = now;
-    acc += dt;
-    while (acc >= SIM_DT) {
+    acc = Math.min(acc + dt, MAX_ACC_SEC);
+    // Wall-time deadline: spend at most STEP_DEADLINE_MS in physics
+    // each frame.  At high speed multipliers the inner loop hits the
+    // budget and the next RAF picks up the leftover acc — UI never
+    // blocks for more than ~25 ms regardless of the multiplier.
+    const stepBudgetEnd = now + STEP_DEADLINE_MS;
+    while (acc >= SIM_DT && performance.now() < stepBudgetEnd) {
       world.step();
       acc -= SIM_DT;
       elapsed += SIM_DT;
@@ -323,7 +417,10 @@ async function startSession(opts: StartOptions): Promise<Session> {
       world.forceFinishAll();
     }
     const snap = world.snapshot();
-    scene.setSnapshot(snap);
+    // In headless mode (×32 or skip) we don't push snapshots to the
+    // Pixi scene at all — saves the per-frame render cost so physics
+    // gets the full CPU budget.  HUD numbers and stats still update.
+    if (!eff.headless) scene.setSnapshot(snap);
     updateHud(hud, snap);
 
     if (!endNotified && world.allFinished()) {

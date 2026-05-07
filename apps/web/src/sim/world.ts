@@ -192,20 +192,29 @@ export const TUNING = {
      */
     stallSeconds: 5,
     /**
-     * Minimum forward progress (m) that counts as "real" progress —
-     * sub-mm physics noise drift mustn't reset the stall timer.
-     * Without this threshold, an upside-down chassis micro-drifting
-     * forward at ~1 mm/s never stalls (every tick its x grows by
-     * ε > 0, lastProgressTime resets, the timer never accumulates).
-     * v0.9.22 stall worked but couldn't catch this case — see the
-     * gen-2 carIndex-9 timeline that lived 86 sim-seconds with
-     * |v|<0.02 m/s.
+     * Minimum forward progress (m) that counts as "real" progress.
+     * The stall timer only resets when the chassis x grows by at
+     * least this much beyond `lastProgressX`.  Combined with
+     * `stallSeconds=5` this means the implied minimum average
+     * speed to stay alive is `progressEpsilon / stallSeconds`.
      *
-     * At stallSeconds=5 the implied minimum average speed to stay
-     * alive is `progressEpsilon / stallSeconds` = 2 cm/s.  Any
-     * legitimate driving is *much* faster than that.
+     *   0.1 m  → 0.02 m/s — caught zombie drift but missed slow
+     *                       crawlers (a car oscillating forward at
+     *                       0.2 m/s would trigger the threshold
+     *                       every ~0.5 s, never stalling).  The
+     *                       v1.7.0 user-reported bug: a car that
+     *                       averaged 0.224 m/s for 80 s stayed
+     *                       alive because each oscillation crossed
+     *                       the 10 cm mark before the 5 s timer
+     *                       could fire.
+     *   4.0 m  → 0.8 m/s   — catches zombie drift AND slow
+     *                       oscillators.  Real evolved cars
+     *                       cruise at 5–10 m/s, so a 0.8 m/s
+     *                       cutoff is well below normal driving
+     *                       and only kills cars that aren't
+     *                       meaningfully going anywhere.
      */
-    progressEpsilon: 0.1,
+    progressEpsilon: 4,
     /**
      * If a car rolls back this far from its peak `maxX` we finish
      * it on the spot.  Catches the "leader lands upside-down after

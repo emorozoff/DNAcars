@@ -88,9 +88,12 @@ const gaParams: GAParams = {
  *   obstacles  — discrete-hazard intensities, all 0..1, default 0.
  */
 const trackTuning: {
+  /** Track length in metres.  Slider range 200..3000, default 500. */
+  length: number;
   difficulty: number;
   obstacles: ObstacleConfig;
 } = {
+  length: 500,
   difficulty: 40,
   obstacles: {
     wall: 0,
@@ -244,6 +247,7 @@ function nextTrackParams(): { seed: number; opts: Partial<TrackOptions> } {
   const difficulty = trackTuning.difficulty / 100;
   const amplitude = 0.5 + difficulty * (12 - 0.5);
   const baseOpts: Partial<TrackOptions> = {
+    length: trackTuning.length,
     amplitude,
     obstacles: { ...trackTuning.obstacles },
   };
@@ -667,9 +671,13 @@ function bindControls(): void {
   });
   // Track-tuning sliders.  Difficulty drives the procedural
   // amplitude in nextTrackParams; the rest are 0..1 obstacle
-  // intensities.  All take effect on the *next* generation —
-  // the in-flight run keeps whatever the values were at the
-  // moment it started.
+  // intensities.  Length is in metres directly.  All take
+  // effect on the *next* generation — the in-flight run keeps
+  // whatever the values were at the moment it started.
+  bindSlider('ctrl-length', 'ctrl-length-val', (v) => {
+    trackTuning.length = v;
+    return `${v}m`;
+  });
   bindSlider('ctrl-difficulty', 'ctrl-difficulty-val', (v) => {
     trackTuning.difficulty = v;
     return `${v}%`;

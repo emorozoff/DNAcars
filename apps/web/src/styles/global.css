@@ -646,6 +646,27 @@ button {
   z-index: 1;
 }
 
+.charts-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+.charts-panel__label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--color-fg-muted);
+  text-transform: uppercase;
+}
+
+.charts-panel__window {
+  /* Tighter than the sidebar segmented controls — header context. */
+  flex: 0 0 auto;
+}
+
 .charts-panel[hidden] {
   display: none;
 }

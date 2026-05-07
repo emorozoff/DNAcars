@@ -372,7 +372,12 @@ export type Track = {
 };
 
 const DEFAULT_TRACK: TrackOptions = {
-  length: 1500,
+  // 500 m default in v1.5 (was 1500 m).  Shorter tracks make
+  // each generation feel like a focused attempt — evolved cars
+  // routinely reach the finish wall by ≈ gen 10–15 instead of
+  // crawling forever toward a distant horizon.  The Track-
+  // length slider can crank it back up to 3000 m if desired.
+  length: 500,
   step: 0.6,
   warmup: 25,
   /**

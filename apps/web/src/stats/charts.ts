@@ -60,6 +60,16 @@ const CHART_DEFS: ChartDef[] = [
 const SPARK_W = 160;
 const SPARK_H = 44;
 
+/**
+ * How many of the most recent generations to plot.  `null` = all,
+ * the historical default.  At 50 (the new default) the chart zooms
+ * in on recent evolution — handy when total runs hit hundreds of
+ * generations and the long tail squashes detail.
+ */
+type WindowSize = 50 | 100 | 200 | null;
+const WINDOW_OPTIONS: WindowSize[] = [50, 100, 200, null];
+const DEFAULT_WINDOW: WindowSize = 50;
+
 export type ChartsHandle = {
   update(history: GenerationStats[]): void;
   setVisible(v: boolean): void;
@@ -75,21 +85,84 @@ type Cell = {
 };
 
 export function mountCharts(host: HTMLElement): ChartsHandle {
-  host.classList.add('charts-grid');
-  const cells: Cell[] = CHART_DEFS.map((def) => buildCell(def, host));
+  // Top-of-panel window selector.  The cells go in their own
+  // grid container below so the segmented row sits cleanly above
+  // them with header-style typography.
+  const header = document.createElement('div');
+  header.className = 'charts-panel__header';
+  const label = document.createElement('span');
+  label.className = 'charts-panel__label';
+  label.setAttribute('data-i18n', 'panel.chartWindow');
+  label.textContent = t('panel.chartWindow');
+  const seg = document.createElement('div');
+  seg.className = 'segmented charts-panel__window';
+  seg.setAttribute('role', 'radiogroup');
+  const segItems: HTMLButtonElement[] = [];
+  let windowSize: WindowSize = DEFAULT_WINDOW;
+  let lastHistory: GenerationStats[] = [];
+  const updateSegmentedActive = (): void => {
+    for (const btn of segItems) {
+      const v = btn.dataset['window'];
+      const active = (v === 'all' && windowSize === null) || Number(v) === windowSize;
+      btn.classList.toggle('segmented__item--active', active);
+    }
+  };
+  for (const opt of WINDOW_OPTIONS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'segmented__item';
+    if (opt === null) {
+      btn.dataset['window'] = 'all';
+      btn.setAttribute('data-i18n', 'panel.chartWindowAll');
+      btn.textContent = t('panel.chartWindowAll');
+    } else {
+      btn.dataset['window'] = String(opt);
+      btn.textContent = String(opt);
+    }
+    btn.addEventListener('click', () => {
+      windowSize = opt;
+      updateSegmentedActive();
+      drawAll();
+      btn.blur();
+    });
+    seg.appendChild(btn);
+    segItems.push(btn);
+  }
+  header.appendChild(label);
+  header.appendChild(seg);
+  host.appendChild(header);
+
+  const grid = document.createElement('div');
+  grid.className = 'charts-grid';
+  host.appendChild(grid);
+
+  const cells: Cell[] = CHART_DEFS.map((def) => buildCell(def, grid));
 
   let visible = !host.hasAttribute('hidden');
 
+  function applyWindow(history: GenerationStats[]): GenerationStats[] {
+    if (windowSize === null || history.length <= windowSize) return history;
+    return history.slice(history.length - windowSize);
+  }
+
+  function drawAll(): void {
+    if (lastHistory.length === 0) return;
+    const slice = applyWindow(lastHistory);
+    const latest = slice[slice.length - 1]!;
+    for (const cell of cells) {
+      const current = latest[cell.def.key] as number;
+      cell.value.textContent = cell.def.format(current);
+      const series = slice.map((h) => h[cell.def.key] as number);
+      renderSparkline(cell.polyline, series);
+    }
+  }
+
+  updateSegmentedActive();
+
   return {
     update(history): void {
-      if (history.length === 0) return;
-      const latest = history[history.length - 1]!;
-      for (const cell of cells) {
-        const current = latest[cell.def.key] as number;
-        cell.value.textContent = cell.def.format(current);
-        const series = history.map((h) => h[cell.def.key] as number);
-        renderSparkline(cell.polyline, series);
-      }
+      lastHistory = history;
+      drawAll();
     },
     setVisible(v): void {
       visible = v;

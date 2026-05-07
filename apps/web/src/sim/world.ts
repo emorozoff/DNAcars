@@ -590,6 +590,31 @@ function placeObstacles(
     }
   }
 
+  // Drop walls that fall under (or right next to) a ceiling.  A wall
+  // directly beneath a low ceiling is unbeatable: the car can't jump
+  // over the wall (the ceiling blocks the arc) and can't drive under
+  // the ceiling (the wall blocks the floor).  At max intensity walls
+  // are 2 m tall and ceilings hang 0.9 m above the surface — the gap
+  // is *negative*.  Even at moderate intensities the geometry leaves
+  // the car nowhere to go.  Buffer by 1 m on each side of the ceiling
+  // so the car has landing room when exiting the ceiling tunnel
+  // before having to lever over a wall.
+  const CEILING_WALL_BUFFER_M = 1.0;
+  for (let i = physical.length - 1; i >= 0; i--) {
+    const p = physical[i]!;
+    if (p.kind !== 'wall') continue;
+    for (const c of physical) {
+      if (c.kind !== 'ceiling') continue;
+      if (
+        p.x >= c.xCenter - c.halfWidth - CEILING_WALL_BUFFER_M &&
+        p.x <= c.xCenter + c.halfWidth + CEILING_WALL_BUFFER_M
+      ) {
+        physical.splice(i, 1);
+        break;
+      }
+    }
+  }
+
   // Sort terrain by x so the per-track-point loop can stop scanning early.
   terrain.sort((a, b) => a.x - b.x);
   return { terrain, physical };

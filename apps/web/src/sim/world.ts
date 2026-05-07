@@ -139,17 +139,23 @@ export const TUNING = {
      */
     numIterations: 8,
   },
-  /**
-   * Hard upper bound on the chassis's linear-velocity magnitude.
-   * Tightened from 30 to 22 in v0.9.7: the user's bundles showed
-   * launches starting from ≈ 26 m/s — comfortably below the old 30
-   * cap so it never fired, but enough to send the chassis 16+ m up.
-   * Top normal driving speed is ≈ 12 m/s, so 22 is still plenty of
-   * head room for legitimate downhill bursts while catching the
-   * "moderate but unphysical" launches that fall under 30.
-   */
   safety: {
+    /**
+     * Hard upper bound on the chassis's linear-velocity magnitude.
+     * Top normal driving speed is ≈ 11 m/s, so 22 is still plenty of
+     * head room for legitimate downhill bursts.
+     */
     maxLinvel: 22,
+    /**
+     * Maximum altitude (m) a chassis is allowed above the local
+     * track surface.  Past this we set vertical velocity to 0
+     * (only when ascending) so gravity pulls the body straight
+     * back down — a hard ceiling that prevents "flying to the
+     * moon" no matter how dramatic the terrain.  4 m is a few
+     * jumps above any natural ramp clearance, never fires for
+     * legitimate hops over a hill crest.
+     */
+    maxAirHeight: 4,
   },
   lifecycle: {
     /** Speed below which a car counts as "not moving" (m/s). */
@@ -219,24 +225,30 @@ const DEFAULT_TRACK: TrackOptions = {
   step: 0.6,
   warmup: 25,
   /**
-   * Lowered again 3.5 → 2.8 in v0.9.7.  At 3.5 the worst slope was
-   * ~38°, still steep enough that a 26 m/s downhill car bouncing off
-   * the next uphill ended 16 m above the surface.  2.8 caps the
-   * worst slope at ~32° — visibly hilly, but no longer a trampoline
-   * corridor.
+   * Cranked back up 2.8 → 5.0 in v0.9.11 by user request: more
+   * dramatic hills make the evolutionary fitness landscape more
+   * interesting (cars need to climb, jump, recover) and visually
+   * the world looks more alive.  Flying is no longer a worry
+   * because TUNING.safety.maxAirHeight enforces a hard altitude
+   * ceiling regardless of how steep the terrain gets.
    */
-  amplitude: 2.8,
+  amplitude: 5.0,
 };
 
 export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): Track {
   const o: TrackOptions = { ...DEFAULT_TRACK, ...opts };
   const rng = makeRng(seed);
+  // Four octaves now — added a higher-frequency layer in v0.9.11 for
+  // sharper local roughness (small bumps + crevices on top of the
+  // larger hill structure).  Frequencies climb by a golden-ratio
+  // factor so harmonics don't visibly align.
   const layers = [
     { freq: 0.16, phase: rng() * Math.PI * 2, weight: 0.55 },
     { freq: 0.16 * 1.618, phase: rng() * Math.PI * 2, weight: 0.3 },
     { freq: 0.16 * 1.618 * 1.618, phase: rng() * Math.PI * 2, weight: 0.18 },
+    { freq: 0.16 * 1.618 ** 3, phase: rng() * Math.PI * 2, weight: 0.1 },
   ];
-  const drift = { freq: 0.018, phase: rng() * Math.PI * 2, weight: 0.7 };
+  const drift = { freq: 0.018, phase: rng() * Math.PI * 2, weight: 0.85 };
 
   const points: { x: number; y: number }[] = [];
   for (let x = 0; x <= o.length + 1e-4; x += o.step) {
@@ -450,6 +462,7 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
         const x = car.chassis.translation().x;
         if (x > car.maxX) car.maxX = x;
         clampInsaneVelocity(car);
+        clampAirHeight(car, opts.track);
         updateLifecycle(car);
       }
     },
@@ -750,6 +763,32 @@ function clampInsaneVelocity(car: CarRuntime): void {
   console.warn(
     `[safety] car ${car.index} clamped from ${sp.toFixed(1)} m/s to ${TUNING.safety.maxLinvel}`,
   );
+}
+
+/**
+ * Hard altitude ceiling — defence against "flying to the moon".
+ *
+ * If the chassis ends up more than `maxAirHeight` metres above the
+ * track surface beneath it AND is currently rising (vy > 0), we zero
+ * its vertical velocity.  Gravity and damping then bring the body
+ * straight back down within a second or two.  Horizontal velocity is
+ * untouched, so the car still flies forward at speed and lands far
+ * along the track — looks like a heavy thump on an invisible
+ * ceiling, not a teleport.
+ *
+ * The check uses the same `sampleTrackY` we use everywhere else, so
+ * "altitude above track" is computed against the actual hill profile
+ * under the car, not against a flat absolute y=0.
+ */
+function clampAirHeight(car: CarRuntime, track: Track): void {
+  const pos = car.chassis.translation();
+  if (pos.x < 0 || pos.x > track.options.length) return;
+  const trackY = sampleTrackY(track, pos.x);
+  const altitude = pos.y - trackY;
+  if (altitude <= TUNING.safety.maxAirHeight) return;
+  const v = car.chassis.linvel();
+  if (v.y <= 0) return; // already coming down — let gravity finish the job
+  car.chassis.setLinvel({ x: v.x, y: 0 }, true);
 }
 
 function normalizeAngle(a: number): number {

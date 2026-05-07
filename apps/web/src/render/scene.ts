@@ -21,7 +21,13 @@ import { mountMinimap, type MinimapHandle } from './minimap';
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
-const ZOOM = 50;
+/**
+ * Pixels per world-metre.  Lowered 50 → 35 in v0.9.11 by user
+ * request: at 50 the camera felt too tight and you couldn't see the
+ * upcoming terrain or the rest of the population.  35 fits roughly
+ * 40 m of track on a 1400 px screen — plenty of context.
+ */
+const ZOOM = 35;
 const CAMERA_LERP = 0.08;
 
 /** Parallax factors: 1.0 = pinned to camera (foreground), 0 = static. */

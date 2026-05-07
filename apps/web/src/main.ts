@@ -31,7 +31,7 @@
  */
 
 import './styles/global.css';
-import { applyTranslations, bindLanguageToggle, t } from './i18n';
+import { $locale, applyTranslations, bindLanguageToggle, t } from './i18n';
 import {
   createWorld,
   ensureRapier,
@@ -271,11 +271,42 @@ async function bootstrap(): Promise<void> {
     updateTrackButtonText();
   }
 
+  const pauseBtn = document.getElementById('btn-pause');
+  function updatePauseButtonText(): void {
+    if (!(pauseBtn instanceof HTMLButtonElement)) return;
+    pauseBtn.textContent = t(paused ? 'panel.resume' : 'panel.pause');
+  }
+  function togglePause(): void {
+    paused = !paused;
+    updatePauseButtonText();
+  }
+  if (pauseBtn instanceof HTMLButtonElement) {
+    pauseBtn.addEventListener('click', () => {
+      togglePause();
+      pauseBtn.blur();
+    });
+    updatePauseButtonText();
+    // The pause button's text depends on *both* the paused flag and
+    // the current locale, so re-apply on every locale flip.  The
+    // data-i18n flow can't handle this since the key changes with
+    // state.
+    $locale.subscribe(() => updatePauseButtonText());
+  }
+
   const restartBtn = document.getElementById('btn-restart');
+  function confirmAndRestart(): void {
+    // Native confirm is plenty here — short, blocking, and works
+    // identically across browsers.  We only ask once, on the
+    // user-initiated path; programmatic restarts (the inter-gen
+    // tick loop) bypass this entirely.
+    if (!window.confirm(t('panel.restartConfirm'))) return;
+    freshRun();
+    void restart();
+  }
   if (restartBtn instanceof HTMLButtonElement) {
     restartBtn.addEventListener('click', () => {
-      freshRun();
-      void restart();
+      confirmAndRestart();
+      restartBtn.blur();
     });
   }
   window.addEventListener('keydown', (ev) => {
@@ -284,9 +315,12 @@ async function bootstrap(): Promise<void> {
     if (target instanceof HTMLInputElement || target instanceof HTMLButtonElement) return;
     switch (ev.code) {
       case 'Space':
+        // Spacebar = pause/resume.  (Used to fire a new-population
+        // restart, which is too destructive for an unconfirmed
+        // single-key shortcut.  The button still does that, with a
+        // confirmation prompt.)
         ev.preventDefault();
-        freshRun();
-        void restart();
+        togglePause();
         return;
       case 'Digit1':
       case 'Digit2':
@@ -311,8 +345,9 @@ async function bootstrap(): Promise<void> {
         if (charts) charts.setVisible(!charts.isVisible());
         return;
       case 'KeyP':
+        // P kept as an alternative pause hotkey for muscle-memory.
         ev.preventDefault();
-        paused = !paused;
+        togglePause();
         return;
       case 'Escape':
         // Cancel skip and drop to realtime — universal "calm down" hotkey.

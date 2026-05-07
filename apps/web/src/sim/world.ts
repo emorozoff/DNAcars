@@ -192,6 +192,33 @@ export const TUNING = {
      */
     stallSeconds: 5,
     /**
+     * Minimum forward progress (m) that counts as "real" progress —
+     * sub-mm physics noise drift mustn't reset the stall timer.
+     * Without this threshold, an upside-down chassis micro-drifting
+     * forward at ~1 mm/s never stalls (every tick its x grows by
+     * ε > 0, lastProgressTime resets, the timer never accumulates).
+     * v0.9.22 stall worked but couldn't catch this case — see the
+     * gen-2 carIndex-9 timeline that lived 86 sim-seconds with
+     * |v|<0.02 m/s.
+     *
+     * At stallSeconds=5 the implied minimum average speed to stay
+     * alive is `progressEpsilon / stallSeconds` = 2 cm/s.  Any
+     * legitimate driving is *much* faster than that.
+     */
+    progressEpsilon: 0.1,
+    /**
+     * If a car rolls back this far from its peak `maxX` we finish
+     * it on the spot.  Catches the "leader lands upside-down after
+     * a jump" case: tilt-gate disables the motor, gravity then
+     * skids the chassis back down the hill.  Without this, an
+     * elite car can visibly slide 10–20 m back from its high-water
+     * mark before the stall timer fires (looks broken; observed in
+     * the v0.9.22 gen-3 carIndex-55 timeline at +6.7 m of regression
+     * and the gen-4 carIndex-0 timeline at +16 m).  `maxX` is still
+     * what the GA scores on, so fitness is unaffected.
+     */
+    rollbackThreshold: 5,
+    /**
      * Absolute hard cap on a single generation's *simulated* time
      * (s).  Per-car stall detection (above) is the primary mechanism
      * for ending a generation; this cap exists only as a fail-safe
@@ -379,6 +406,13 @@ function chassisVertices(g: Genome): { x: number; y: number }[] {
 
 type WheelRuntime = {
   body: RAPIER.RigidBody;
+  /**
+   * The wheel's ball collider.  Cached so we can ask Rapier directly
+   * "is this collider in contact with anything right now" instead of
+   * approximating with a vertical-distance-to-track formula (which
+   * fails on slopes — see wheelOnGround docs for the geometry).
+   */
+  collider: RAPIER.Collider;
   joint: RAPIER.ImpulseJoint;
   radius: number;
   /** Cached genome power scalar 0..1, surfaced on snapshot for the renderer. */
@@ -437,13 +471,20 @@ type CarRuntime = {
   /** Total simulated time the car has been in the world (s). */
   ageSec: number;
   /**
-   * Sim time (in this car's `ageSec` clock) at which `maxX` last
-   * grew.  Stall = `ageSec - lastProgressTime` exceeds the threshold.
-   * Was a "speed-based" timer in earlier versions but speed-based
-   * fired on cars mid-jump (vy != 0); progress-based correctly
-   * matches the intuition of "stalled = not getting any further".
+   * Sim time (in this car's `ageSec` clock) of the last *meaningful*
+   * forward step — i.e. the last time `lastProgressX` was bumped.
+   * Stall fires when `ageSec - lastProgressTime ≥ stallSeconds`.
    */
   lastProgressTime: number;
+  /**
+   * The chassis x-position at which we last counted real progress.
+   * Updated only when `x ≥ lastProgressX + progressEpsilon`, so
+   * sub-mm drift (e.g. an upside-down chassis sliding forward at
+   * 1 mm/s under gravity) does *not* reset the stall timer.  Note
+   * this is intentionally separate from `maxX`, which still tracks
+   * the absolute high-water mark and feeds the GA fitness.
+   */
+  lastProgressX: number;
   /** Once true, motor is off and bodies are pinned in place forever. */
   finished: boolean;
   /**
@@ -547,7 +588,7 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
             freezeCar(car);
             continue;
           }
-          updateWheelContacts(car, opts.track);
+          updateWheelContacts(car, world);
           updateAirborneDamping(car);
           applyMotor(car);
         }
@@ -566,8 +607,13 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
         if (car.finished) continue;
         car.ageSec += SIM_DT;
         const x = car.chassis.translation().x;
-        if (x > car.maxX) {
-          car.maxX = x;
+        // maxX is the absolute peak — feeds GA fitness, must stay precise.
+        if (x > car.maxX) car.maxX = x;
+        // lastProgressX/Time only advance on a meaningful step (10 cm
+        // by default), so noise-level drift can't keep the stall
+        // timer from accumulating.
+        if (x >= car.lastProgressX + TUNING.lifecycle.progressEpsilon) {
+          car.lastProgressX = x;
           car.lastProgressTime = car.ageSec;
         }
         clampInsaneVelocity(car, opts.track, time);
@@ -725,7 +771,7 @@ function buildCar(
         .setAngularDamping(TUNING.wheel.angularDamping)
         .setCcdEnabled(true),
     );
-    world.createCollider(
+    const wheelCollider = world.createCollider(
       RAPIER.ColliderDesc.ball(wg.radius)
         .setDensity(density)
         .setFriction(TUNING.wheel.friction)
@@ -741,6 +787,7 @@ function buildCar(
     );
     return {
       body: wb,
+      collider: wheelCollider,
       joint,
       radius: wg.radius,
       power: wg.power,
@@ -759,6 +806,7 @@ function buildCar(
     maxX: spawnX,
     ageSec: 0,
     lastProgressTime: 0,
+    lastProgressX: spawnX,
     finished: false,
     // Cars spawn ≈ 1.6 m above the track surface, so they're literally
     // airborne for the first beat.  Initial damping is set to the
@@ -775,9 +823,9 @@ function buildCar(
 
 /* ─── Per-tick logic ───────────────────────────────────────────────────── */
 
-function updateWheelContacts(car: CarRuntime, track: Track): void {
+function updateWheelContacts(car: CarRuntime, world: RAPIER.World): void {
   for (const w of car.wheels) {
-    w.onGround = wheelOnGround(w.body, w.radius, track);
+    w.onGround = wheelOnGround(world, w.collider);
   }
 }
 
@@ -860,12 +908,43 @@ function applyMotor(car: CarRuntime): void {
 
 /* ─── Geometry helpers ─────────────────────────────────────────────────── */
 
-function wheelOnGround(body: RAPIER.RigidBody, radius: number, track: Track): boolean {
-  const t = body.translation();
-  if (t.x < 0 || t.x > track.options.length) return false;
-  const groundY = sampleTrackY(track, t.x);
-  const bottom = t.y - radius;
-  return Math.abs(bottom - groundY) <= TUNING.contact.wheelTolerance;
+/**
+ * "Is this wheel touching the track right now?"
+ *
+ * Asks Rapier's narrow-phase directly — any contact pair that
+ * involves the wheel collider must, by collision-group filtering,
+ * be a track collider (wheels are masked to collide only with
+ * GROUP.TRACK).  We then check that the pair has at least one
+ * actual contact point on its manifold; broad-phase pairs with
+ * separated manifolds get rejected.
+ *
+ * Why not the old geometric "bottom of wheel ≈ sampleTrackY(x)"
+ * test?  On a slope at angle θ a wheel of radius r centred above
+ * the surface has its lowest point at `groundY + r·(1/cos θ - 1)`
+ * vertically — i.e. *above* the surface.  At 30° + r=0.5 m that's
+ * already 7.7 cm, well past our old 6 cm tolerance, so the wheel
+ * is wrongly reported as airborne.  Three player-visible bugs all
+ * traced back to that:
+ *   1. Wheels not turning green on hills (cosmetic).
+ *   2. The motor-gate ("≥2 grounded wheels") refusing to fire on
+ *      crests, so the car loses thrust mid-climb.
+ *   3. Leader cars sliding back several metres from peak position
+ *      because, with no thrust on the climb, gravity wins.
+ *
+ * The contact-query has none of those failure modes — it's the same
+ * information Rapier itself uses to apply collision impulses, so by
+ * construction it agrees with the physics.
+ */
+function wheelOnGround(world: RAPIER.World, collider: RAPIER.Collider): boolean {
+  let touching = false;
+  world.contactPairsWith(collider, (other) => {
+    if (touching) return;
+    world.contactPair(collider, other, (manifold) => {
+      if (touching) return;
+      if (manifold.numContacts() > 0) touching = true;
+    });
+  });
+  return touching;
 }
 
 function totalMassOf(car: CarRuntime): number {
@@ -875,26 +954,29 @@ function totalMassOf(car: CarRuntime): number {
 }
 
 /**
- * Per-tick lifecycle: mark the car finished once it's gone too long
- * without any new forward progress.  `lastProgressTime` was updated
- * by the caller on the same tick whenever `maxX` grew, so the right
- * test here is just "ageSec − lastProgressTime ≥ stallSeconds".
+ * Per-tick lifecycle.  Two ways to be done with a car:
  *
- * Why progress-based instead of speed-based?  A car mid-jump has
- * |v| ≫ 0 but is also gaining no track distance; the previous
- * speed-based test would *not* fire on it (speed was high), so a
- * car launched off a hill could stay airborne for ages without
- * stalling.  Conversely, a car oscillating in place has zero net
- * progress but its instantaneous speed swings well above any
- * sensible threshold.  "Did maxX grow?" cleanly captures both
- * cases — and is exactly what the genome is being selected on
- * anyway.
+ *   1. Rolled back from peak.  If the chassis is now `rollbackThreshold`
+ *      metres or more behind its all-time `maxX`, finish immediately.
+ *      This is the "leader skidding back down the hill" case — the car
+ *      is clearly never reaching its peak again, and dragging it out
+ *      until the stall timer fires looks broken on screen.
+ *
+ *   2. Stalled.  No meaningful forward progress for `stallSeconds`
+ *      (where "meaningful" = at least `progressEpsilon` of x growth
+ *      since the last reset).  Catches both pinned cars and ones
+ *      drifting by sub-mm increments.
  *
  * A short grace period at the very start lets a freshly-spawned
- * car settle under gravity before the test arms.
+ * car settle under gravity before either test arms.
  */
 function updateLifecycle(car: CarRuntime): void {
   if (car.ageSec < TUNING.lifecycle.graceSeconds) return;
+  const x = car.chassis.translation().x;
+  if (car.maxX - x >= TUNING.lifecycle.rollbackThreshold) {
+    car.finished = true;
+    return;
+  }
   if (car.ageSec - car.lastProgressTime >= TUNING.lifecycle.stallSeconds) {
     car.finished = true;
   }

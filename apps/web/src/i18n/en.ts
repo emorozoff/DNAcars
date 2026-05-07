@@ -9,6 +9,9 @@ const enRaw = {
   'panel.mutation': 'Mutation',
   'panel.elite': 'Elite',
   'panel.restart': '↻ New population',
+  'panel.restartConfirm': 'Start a new population?  This wipes every gene of the current run.',
+  'panel.pause': '⏸ Pause',
+  'panel.resume': '⏵ Resume',
   'panel.speedup': '⏵ Realtime',
   'panel.speedup8': '⏵⏵ ×8 speed',
   'panel.speedup32': '⏵⏵⏵ ×32 (no render)',
@@ -19,7 +22,7 @@ const enRaw = {
   'panel.trackSmooth': '🗺 smooth track',
   'panel.trackExtreme': '🗺 extreme track',
   'panel.chartsToggle': '📊 Stats',
-  'panel.hint': 'press space or the button → new population',
+  'panel.hint': 'space → pause · button → new population',
   'legend.wheelAir': 'wheel in air',
   'legend.wheelGround': 'wheel on ground',
   // Chart titles (stats dashboard)

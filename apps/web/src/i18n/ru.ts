@@ -11,6 +11,9 @@ export const ru: Dictionary = {
   'panel.mutation': 'Мутация',
   'panel.elite': 'Элита',
   'panel.restart': '↻ Новая популяция',
+  'panel.restartConfirm': 'Создать новую популяцию?  Это удалит все гены текущего поколения.',
+  'panel.pause': '⏸ Пауза',
+  'panel.resume': '⏵ Продолжить',
   'panel.speedup': '⏵ Норм. скорость',
   'panel.speedup8': '⏵⏵ ×8 скорость',
   'panel.speedup32': '⏵⏵⏵ ×32 (без рендера)',
@@ -21,7 +24,7 @@ export const ru: Dictionary = {
   'panel.trackSmooth': '🗺 ровная',
   'panel.trackExtreme': '🗺 экстрим',
   'panel.chartsToggle': '📊 Статы',
-  'panel.hint': 'пробел или кнопка → новая популяция',
+  'panel.hint': 'пробел → пауза · кнопка → новая популяция',
   'legend.wheelAir': 'в воздухе',
   'legend.wheelGround': 'на земле',
   // Графики (дашборд статистики)

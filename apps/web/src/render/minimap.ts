@@ -24,17 +24,22 @@ export type MinimapHandle = {
   update(snap: WorldSnapshot, cameraX: number, viewportWorldWidth: number): void;
 };
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
 export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
   const trackEl = svg.querySelector<SVGPolylineElement>('.minimap__track');
   const viewportEl = svg.querySelector<SVGRectElement>('.minimap__viewport');
+  const carsGroup = svg.querySelector<SVGGElement>('.minimap__cars');
   const leaderEl = svg.querySelector<SVGCircleElement>('.minimap__leader');
-  if (!trackEl || !viewportEl || !leaderEl) {
+  if (!trackEl || !viewportEl || !carsGroup || !leaderEl) {
     throw new Error('mountMinimap: missing child elements');
   }
 
   let trackLength = 0;
   let trackMinY = 0;
   let trackMaxY = 1;
+  /** Pool of <circle> elements for the population dots, grown on demand. */
+  const carDots: SVGCircleElement[] = [];
 
   return {
     setTrack(points): void {
@@ -68,18 +73,39 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
       viewportEl.setAttribute('x', String(Math.max(0, cx - halfW)));
       viewportEl.setAttribute('width', String(Math.min(VIEW_W, halfW * 2)));
 
-      // Pick the running leader (else any leader) for the dot.
+      // Render every car as a tiny dot AND pick the running leader.
+      const yRange = trackMaxY - trackMinY || 1;
       let leader: { x: number; y: number } | null = null;
       let leaderRunning: { x: number; y: number } | null = null;
-      for (const car of snap.cars) {
+      for (let i = 0; i < snap.cars.length; i++) {
+        const car = snap.cars[i]!;
+        // Grow the dot pool lazily.
+        let dot = carDots[i];
+        if (!dot) {
+          dot = document.createElementNS(SVG_NS, 'circle');
+          dot.setAttribute('r', '1.6');
+          dot.setAttribute('class', 'minimap__car');
+          carsGroup.appendChild(dot);
+          carDots[i] = dot;
+        }
+        const dx = xToView(car.position.x);
+        const dy = VIEW_H - PAD_Y - ((car.position.y - trackMinY) / yRange) * (VIEW_H - 2 * PAD_Y);
+        dot.setAttribute('cx', dx.toFixed(1));
+        dot.setAttribute('cy', dy.toFixed(1));
+        dot.setAttribute('opacity', car.finished ? '0.35' : '0.75');
+
         if (!leader || car.position.x > leader.x) leader = { x: car.position.x, y: car.position.y };
         if (!car.finished && (!leaderRunning || car.position.x > leaderRunning.x)) {
           leaderRunning = { x: car.position.x, y: car.position.y };
         }
       }
+      // Hide any pool entries that are no longer in use (population shrunk).
+      for (let i = snap.cars.length; i < carDots.length; i++) {
+        carDots[i]!.setAttribute('opacity', '0');
+      }
+
       const lead = leaderRunning ?? leader;
       if (lead) {
-        const yRange = trackMaxY - trackMinY || 1;
         const lx = xToView(lead.x);
         const ly = VIEW_H - PAD_Y - ((lead.y - trackMinY) / yRange) * (VIEW_H - 2 * PAD_Y);
         leaderEl.setAttribute('cx', String(lx));

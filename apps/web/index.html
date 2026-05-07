@@ -40,6 +40,7 @@
         >
           <polyline class="minimap__track" id="minimap-track" />
           <rect class="minimap__viewport" id="minimap-viewport" y="0" height="50" />
+          <g class="minimap__cars" id="minimap-cars"></g>
           <circle class="minimap__leader" id="minimap-leader" r="3" />
         </svg>
 
@@ -113,6 +114,9 @@
           </button>
           <button class="btn btn--primary" id="btn-skip" data-i18n="panel.skipTen">
             ⏩ +10 gens
+          </button>
+          <button class="btn btn--primary" id="btn-track" data-i18n="panel.trackRandom">
+            🗺 random track
           </button>
           <button class="btn btn--primary" id="btn-restart" data-i18n="panel.restart">
             ↻ new population

@@ -339,6 +339,10 @@ button {
   fill: var(--color-accent);
 }
 
+.minimap__car {
+  fill: var(--color-fg);
+}
+
 /* ─── Stats / charts panel ──────────────────────────────────────────────── */
 
 .charts-panel {

@@ -74,6 +74,33 @@ const gaParams: GAParams = {
  * Headless = true means we hide the canvas and skip setSnapshot
  * calls; the user watches the stats panel grow instead.
  */
+/**
+ * Pause flag: when true the tick loop skips world.step() entirely.
+ * The renderer still draws the last frame so cars stay visible.
+ * Toggled by the P hotkey.
+ */
+let paused = false;
+
+/**
+ * Track presets — clicking the "🗺" button cycles through them.
+ *
+ *   random   (default)  — fresh random track every generation
+ *                         (favours universal cars across terrains)
+ *   fixed              — pick a seed once at the start of the run
+ *                         and reuse it every generation (evolution
+ *                         converges on this specific track)
+ *   smooth             — random per gen, gentle hills (amplitude 2.0)
+ *   extreme            — random per gen, dramatic hills (amplitude 8.0)
+ *
+ * `fixedTrackSeed` only matters in 'fixed' mode; we capture it at
+ * the moment the user switches into the mode (or at the start of a
+ * fresh run while in fixed mode).
+ */
+type TrackMode = 'random' | 'fixed' | 'smooth' | 'extreme';
+const TRACK_MODES: TrackMode[] = ['random', 'fixed', 'smooth', 'extreme'];
+let trackModeIdx = 0;
+let fixedTrackSeed: number | null = null;
+
 type SpeedState = { multiplier: number; headless: boolean };
 const SPEED_STATES: SpeedState[] = [
   { multiplier: 1, headless: false },
@@ -112,6 +139,24 @@ const MAX_ACC_SEC = 1.0;
 function effectiveSpeed(): SpeedState {
   if (skipUntilGen !== null) return { multiplier: SKIP_SPEED, headless: true };
   return SPEED_STATES[speedIdx] ?? SPEED_STATES[0]!;
+}
+
+/**
+ * Pick the track seed and amplitude for the upcoming generation
+ * based on the current track mode.  In 'fixed' mode the seed is
+ * captured once and reused across generations of the same run; the
+ * `freshRun()` helper resets it so a new run gets a new fixed track.
+ */
+function nextTrackParams(): { seed: number; amplitude?: number } {
+  const mode: TrackMode = TRACK_MODES[trackModeIdx] ?? 'random';
+  if (mode === 'fixed') {
+    if (fixedTrackSeed === null) fixedTrackSeed = (Math.random() * 0xffffffff) >>> 0;
+    return { seed: fixedTrackSeed };
+  }
+  const seed = (Math.random() * 0xffffffff) >>> 0;
+  if (mode === 'smooth') return { seed, amplitude: 2.0 };
+  if (mode === 'extreme') return { seed, amplitude: 8.0 };
+  return { seed }; // 'random' uses default amplitude
 }
 
 type Hud = {
@@ -174,8 +219,36 @@ async function bootstrap(): Promise<void> {
     lastResults = null;
     bestEver = 0;
     history.length = 0;
+    // Drop the cached fixed seed too so a new run picks a fresh track
+    // even if the user is still on the 'fixed' preset.
+    fixedTrackSeed = null;
     hud.best.textContent = '—';
     if (charts) charts.update(history);
+  }
+
+  const trackBtn = document.getElementById('btn-track');
+  function updateTrackButtonText(): void {
+    if (!(trackBtn instanceof HTMLButtonElement)) return;
+    const mode = TRACK_MODES[trackModeIdx] ?? 'random';
+    const key =
+      mode === 'random'
+        ? 'panel.trackRandom'
+        : mode === 'fixed'
+          ? 'panel.trackFixed'
+          : mode === 'smooth'
+            ? 'panel.trackSmooth'
+            : 'panel.trackExtreme';
+    trackBtn.textContent = t(key);
+  }
+  if (trackBtn instanceof HTMLButtonElement) {
+    trackBtn.addEventListener('click', () => {
+      trackModeIdx = (trackModeIdx + 1) % TRACK_MODES.length;
+      // Switching modes invalidates any cached fixed seed so the next
+      // generation picks up the new mode's seed strategy cleanly.
+      fixedTrackSeed = null;
+      updateTrackButtonText();
+    });
+    updateTrackButtonText();
   }
 
   const restartBtn = document.getElementById('btn-restart');
@@ -186,10 +259,48 @@ async function bootstrap(): Promise<void> {
     });
   }
   window.addEventListener('keydown', (ev) => {
-    if (ev.code === 'Space') {
-      ev.preventDefault();
-      freshRun();
-      void restart();
+    // Don't interfere when typing into a slider / button.
+    const target = ev.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLButtonElement) return;
+    switch (ev.code) {
+      case 'Space':
+        ev.preventDefault();
+        freshRun();
+        void restart();
+        return;
+      case 'Digit1':
+      case 'Digit2':
+      case 'Digit3': {
+        // Jump directly to a speed cycle slot.
+        const slot = Number(ev.code.slice(-1)) - 1;
+        if (slot < 0 || slot >= SPEED_STATES.length) return;
+        if (skipUntilGen !== null) skipUntilGen = null;
+        speedIdx = slot;
+        updateSpeedButtonText();
+        applyHeadless();
+        return;
+      }
+      case 'KeyS':
+        ev.preventDefault();
+        skipUntilGen = generation + SKIP_AMOUNT;
+        updateSpeedButtonText();
+        applyHeadless();
+        return;
+      case 'KeyC':
+        ev.preventDefault();
+        if (charts) charts.setVisible(!charts.isVisible());
+        return;
+      case 'KeyP':
+        ev.preventDefault();
+        paused = !paused;
+        return;
+      case 'Escape':
+        // Cancel skip and drop to realtime — universal "calm down" hotkey.
+        if (skipUntilGen !== null) skipUntilGen = null;
+        speedIdx = 0;
+        updateSpeedButtonText();
+        applyHeadless();
+        return;
     }
   });
 
@@ -245,17 +356,21 @@ async function bootstrap(): Promise<void> {
       session.stop();
       session.world.destroy();
     }
-    const trackSeed = (Math.random() * 0xffffffff) >>> 0;
+    const trackParams = nextTrackParams();
+    const trackSeed = trackParams.seed;
 
     // Build the genomes for this generation.  Gen 0 (or "Space"
     // restart) seeds with random genomes; later generations are
     // produced by the GA from the previous gen's fitness vector.
+    // GA RNG uses a separate seed so it doesn't lock-step with the
+    // (possibly fixed) track seed across generations.
     let genomes: Genome[];
+    const gaSeed = (Math.random() * 0xffffffff) >>> 0;
     if (lastResults && generation > 0) {
-      const gaRng = makeRng(trackSeed ^ 0xfeedface);
+      const gaRng = makeRng(gaSeed);
       genomes = nextGeneration(lastResults, gaParams, gaRng);
     } else {
-      const rng = makeRng(trackSeed ^ 0xdeadbeef);
+      const rng = makeRng(gaSeed);
       genomes = [];
       for (let i = 0; i < gaParams.populationSize; i++) genomes.push(randomGenome(rng));
     }
@@ -263,6 +378,7 @@ async function bootstrap(): Promise<void> {
     const sessionStartedAt = performance.now();
     session = await startSession({
       trackSeed,
+      trackAmplitude: trackParams.amplitude,
       generation,
       genomes,
       scene,
@@ -334,6 +450,8 @@ type Session = {
 
 type StartOptions = {
   trackSeed: number;
+  /** Optional override for track amplitude (smooth / extreme presets). */
+  trackAmplitude?: number;
   generation: number;
   genomes: Genome[];
   scene: SceneHandle;
@@ -342,9 +460,12 @@ type StartOptions = {
 };
 
 async function startSession(opts: StartOptions): Promise<Session> {
-  const { trackSeed, generation, genomes, scene, hud, onGenerationEnd } = opts;
+  const { trackSeed, trackAmplitude, generation, genomes, scene, hud, onGenerationEnd } = opts;
 
-  const track = generateTrack(trackSeed);
+  const track = generateTrack(
+    trackSeed,
+    trackAmplitude !== undefined ? { amplitude: trackAmplitude } : {},
+  );
   scene.setTrack(track.points);
 
   const world = await createWorld({ track, genomes, spawnX: 6 });
@@ -396,6 +517,14 @@ async function startSession(opts: StartOptions): Promise<Session> {
     if (!running) return;
     const now = performance.now();
     const eff = effectiveSpeed();
+    // While paused, the accumulator stays empty (no physics steps)
+    // and lastTime is still updated so resuming doesn't dump a huge
+    // backlog of simulated time into the world.
+    if (paused) {
+      lastTime = now;
+      requestAnimationFrame(tick);
+      return;
+    }
     // Multiply real elapsed time by speed multiplier, then feed into
     // the fixed-timestep accumulator.  Cap the accumulator so a long
     // pause (tab hidden) doesn't try to simulate minutes of skipped

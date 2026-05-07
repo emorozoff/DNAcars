@@ -1012,9 +1012,27 @@ function bindSlider(inputId: string, valueId: string, apply: (v: number) => stri
   const sync = (): void => {
     const v = Number(input.value);
     valueEl.textContent = apply(v);
+    updateSliderFill(input);
   };
   input.addEventListener('input', sync);
   sync(); // pull initial state from HTML attrs
+}
+
+/**
+ * Paint the filled portion of a range input by injecting a two-tone
+ * linear-gradient on its background.  Native cross-browser styling
+ * for the *track-up-to-thumb* segment isn't possible without
+ * pseudo-elements that don't accept gradient values consistently —
+ * setting the input's own background works in every modern browser
+ * and keeps the SCSS-free CSS file simple.  The colour stops are
+ * CSS variables so the dark/light themes track automatically.
+ */
+function updateSliderFill(input: HTMLInputElement): void {
+  const min = Number(input.min) || 0;
+  const max = Number(input.max);
+  const value = Number(input.value);
+  const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
+  input.style.background = `linear-gradient(to right, var(--color-panel-accent) 0%, var(--color-panel-accent) ${pct}%, var(--color-surface-2) ${pct}%, var(--color-surface-2) 100%)`;
 }
 
 

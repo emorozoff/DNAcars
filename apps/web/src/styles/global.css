@@ -117,7 +117,7 @@ button {
 
 .btn--primary {
   background: rgba(22, 22, 26, 0.78);
-  color: var(--color-accent);
+  color: var(--color-panel-accent);
   border-color: var(--color-border);
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
@@ -126,18 +126,18 @@ button {
 }
 
 .btn--primary:hover {
-  border-color: var(--color-accent);
+  border-color: var(--color-panel-accent);
 }
 
 .btn--active {
-  background: var(--color-accent);
+  background: var(--color-panel-accent);
   color: rgba(0, 0, 0, 0.9);
-  border-color: var(--color-accent);
+  border-color: var(--color-panel-accent);
 }
 
 .btn--active:hover {
   background: rgba(255, 255, 255, 0.92);
-  border-color: var(--color-accent);
+  border-color: var(--color-panel-accent);
 }
 
 /* ─── Segmented control ─────────────────────────────────────────────────── */
@@ -204,7 +204,7 @@ button {
 }
 
 .segmented__item--active {
-  background: var(--color-accent);
+  background: var(--color-panel-accent);
   color: rgba(0, 0, 0, 0.9);
   font-weight: 600;
 }
@@ -220,8 +220,8 @@ button {
   transform: translateX(-50%);
   z-index: 2;
   background: rgba(22, 22, 26, 0.88);
-  color: var(--color-accent);
-  border: 1px solid var(--color-accent);
+  color: var(--color-panel-accent);
+  border: 1px solid var(--color-panel-accent);
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
   padding: var(--sp-2) var(--sp-4);
@@ -253,7 +253,7 @@ button {
   width: 260px;
   background: rgba(22, 22, 26, 0.95);
   color: var(--color-fg);
-  border: 1px solid var(--color-accent);
+  border: 1px solid var(--color-panel-accent);
   border-radius: var(--r-md);
   padding: var(--sp-3);
   font-size: var(--fs-sm);
@@ -280,9 +280,9 @@ button {
 }
 
 .btn--confirm-yes {
-  background: var(--color-accent);
+  background: var(--color-panel-accent);
   color: rgba(0, 0, 0, 0.85);
-  border: 1px solid var(--color-accent);
+  border: 1px solid var(--color-panel-accent);
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
   padding: var(--sp-1) var(--sp-3);
@@ -427,7 +427,7 @@ button {
 }
 
 .hud-card__value--accent {
-  color: var(--color-accent);
+  color: var(--color-panel-accent);
 }
 
 /* Click-to-copy stat: same monospace look as a regular value but
@@ -450,11 +450,11 @@ button {
 }
 
 .hud-card__value--copyable:hover {
-  color: var(--color-accent);
+  color: var(--color-panel-accent);
 }
 
 .hud-card__value--copied {
-  color: var(--color-accent);
+  color: var(--color-panel-accent);
 }
 
 /* ─── Seed card ─────────────────────────────────────────────────────────── */
@@ -485,7 +485,7 @@ button {
 }
 
 .seed-input:focus {
-  border-color: var(--color-accent);
+  border-color: var(--color-panel-accent);
 }
 
 .seed-input--error {
@@ -831,7 +831,7 @@ button {
 
 .btn--seed-apply {
   background: rgba(22, 22, 26, 0.78);
-  color: var(--color-accent);
+  color: var(--color-panel-accent);
   border: 1px solid var(--color-border);
   border-radius: var(--r-sm);
   font-family: var(--font-mono);
@@ -842,7 +842,7 @@ button {
 }
 
 .btn--seed-apply:hover {
-  border-color: var(--color-accent);
+  border-color: var(--color-panel-accent);
 }
 
 .seed-history {
@@ -873,8 +873,8 @@ button {
 }
 
 .seed-chip--current {
-  color: var(--color-accent);
-  border-color: var(--color-accent);
+  color: var(--color-panel-accent);
+  border-color: var(--color-panel-accent);
 }
 
 .seed-history__empty {
@@ -885,7 +885,7 @@ button {
 }
 
 .hud-card__heading {
-  margin: 0 0 var(--sp-1);
+  margin: 0 0 var(--sp-2);
   font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: 0.08em;
@@ -893,11 +893,42 @@ button {
   color: var(--color-fg-muted);
 }
 
+/* Numbered section headings on the left-side control cards.  A CSS
+   counter on the side container increments per `.hud-card--controls`
+   heading and renders as a "01", "02", … prefix; an extending hairline
+   after the text fills the remaining card width.  The stats card has
+   no `.hud-card--controls` class so it stays unnumbered. */
+.hud-side--left {
+  counter-reset: hud-section;
+}
+
+.hud-card--controls .hud-card__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.hud-card--controls .hud-card__heading::before {
+  counter-increment: hud-section;
+  content: counter(hud-section, decimal-leading-zero);
+  color: var(--color-panel-accent);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  flex: 0 0 auto;
+}
+
+.hud-card--controls .hud-card__heading::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
 /* ─── Sliders ────────────────────────────────────────────────────────────── */
 
 .ctrl {
   display: grid;
-  grid-template-columns: 80px 1fr 36px;
+  grid-template-columns: 80px 1fr 40px;
   align-items: center;
   gap: var(--sp-2);
   cursor: pointer;
@@ -918,34 +949,57 @@ button {
   text-align: right;
 }
 
+/* Slider track shows the current value as a filled left segment +
+   unfilled right segment.  The split is driven by a JS-injected
+   linear-gradient on the input's `background` style attribute (see
+   updateSliderFill in main.ts) — a value of N% paints up to N% in
+   the panel-accent and the remainder in the dark surface tone.
+   accent-color additionally tints the native thumb in browsers
+   that respect it. */
 .ctrl__slider {
   -webkit-appearance: none;
   appearance: none;
   background: var(--color-surface-2);
-  height: 3px;
+  height: 4px;
   border-radius: 2px;
   outline: none;
   margin: 0;
+  accent-color: var(--color-panel-accent);
+}
+
+.ctrl__slider::-webkit-slider-runnable-track {
+  background: transparent;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.ctrl__slider::-moz-range-track {
+  background: transparent;
+  height: 4px;
+  border-radius: 2px;
 }
 
 .ctrl__slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  background: var(--color-accent);
+  background: var(--color-panel-accent);
   cursor: pointer;
   border: none;
+  margin-top: -5px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
 }
 
 .ctrl__slider::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  background: var(--color-accent);
+  background: var(--color-panel-accent);
   cursor: pointer;
   border: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
 }
 
 .ctrl--toggle {
@@ -957,7 +1011,7 @@ button {
   width: 14px;
   height: 14px;
   margin: 0;
-  accent-color: var(--color-accent);
+  accent-color: var(--color-panel-accent);
   cursor: pointer;
 }
 
@@ -991,7 +1045,7 @@ button {
   display: flex;
   flex-direction: column;
   background: rgba(22, 22, 26, 0.96);
-  border: 1px solid var(--color-accent);
+  border: 1px solid var(--color-panel-accent);
   border-radius: var(--r-md);
   padding: var(--sp-3) var(--sp-4);
   backdrop-filter: blur(8px);
@@ -1009,7 +1063,7 @@ button {
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-accent);
+  color: var(--color-panel-accent);
 }
 
 .card-confirm__text {

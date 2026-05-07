@@ -20,6 +20,14 @@
   --color-accent: #a8ff60;
   --color-accent-soft: rgba(168, 255, 96, 0.12);
 
+  /* Panel-UI accent — grayscale fg used by sliders, chips, buttons,
+     and section headings inside the side HUD cards.  Kept distinct
+     from the green --color-accent so the simulation visuals
+     (minimap leader, "wheel on ground" swatch, tutorial elite
+     highlight) keep their meaningful green while the controls stay
+     in a calm black-white-gray palette. */
+  --color-panel-accent: #e6e6e9;
+
   /* Semantic */
   --color-good: #a8ff60;
   --color-warn: #ffd166;
@@ -87,6 +95,7 @@
   --color-fg-dim: #8b8b94;
   --color-accent: #4a8a26;
   --color-accent-soft: rgba(74, 138, 38, 0.12);
+  --color-panel-accent: #0e0e10;
   --color-track: #d6d6dd;
   --color-car-body: #1a1a1f;
   --color-car-wheel: #5a5a63;

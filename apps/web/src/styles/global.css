@@ -6,7 +6,18 @@
   box-sizing: border-box;
 }
 
-html,
+/* Fluid root font-size — every rem-based dimension (font sizes,
+   spacing tokens, radii, layout heights) scales linearly between
+   small laptops and 27"/4K monitors.  Formula picked so:
+   - 1280 px viewport → 15.2 px root  (compact laptop)
+   - 1440 px            → 16.4 px       (13" macbook ≈ baseline)
+   - 1920 px            → 18.8 px       (full HD desktop)
+   - 2560 px            → 22.6 px       (27" 1440p — was way too small)
+   Lower clamp keeps mobile readable, upper avoids absurdity on 8K. */
+html {
+  font-size: clamp(14px, 0.5vw + 8.8px, 26px);
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -150,7 +161,7 @@ button {
 
 .seg-group__label {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 0.6875rem;
   letter-spacing: 0.08em;
   color: var(--color-fg-muted);
   text-transform: uppercase;
@@ -215,7 +226,7 @@ button {
 
 .btn--floating {
   position: absolute;
-  top: calc(var(--sp-4) + 60px);
+  top: calc(var(--sp-4) + 3.75rem);
   left: 50%;
   transform: translateX(-50%);
   z-index: 2;
@@ -250,7 +261,7 @@ button {
   right: 0;
   /* Wider than the trigger button so the body text doesn't wrap into
      unreadable two-character columns. */
-  width: 260px;
+  width: 16.25rem;
   background: rgba(22, 22, 26, 0.95);
   color: var(--color-fg);
   border: 1px solid var(--color-panel-accent);
@@ -364,7 +375,7 @@ button {
 }
 
 .ribbon__stats {
-  height: 36px;
+  height: 2.25rem;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -385,7 +396,7 @@ button {
 }
 
 .ribbon__label {
-  font-size: 10px;
+  font-size: 0.625rem;
   letter-spacing: 0.1em;
   color: var(--color-fg-muted);
   text-transform: uppercase;
@@ -500,7 +511,7 @@ button {
 }
 
 .dock__toggle-chevron {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: var(--color-fg-muted);
   transition: transform var(--dur-fast) var(--ease-out);
 }
@@ -517,7 +528,7 @@ button {
   position: absolute;
   bottom: calc(100% + var(--sp-3));
   left: 0;
-  min-width: 280px;
+  min-width: 17.5rem;
   background: rgba(22, 22, 26, 0.96);
   border: 1px solid var(--color-border);
   border-radius: var(--r-md);
@@ -536,11 +547,11 @@ button {
 }
 
 .dock-drawer--seed {
-  width: 280px;
+  width: 17.5rem;
 }
 
 .dock-drawer--wide {
-  width: 600px;
+  width: 37.5rem;
 }
 
 .dock-drawer__head {
@@ -563,7 +574,7 @@ button {
   left: var(--sp-4);
   display: flex;
   gap: var(--sp-4);
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: var(--color-fg-muted);
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -646,7 +657,7 @@ button {
   background: rgba(18, 18, 22, 0.96);
   border: 1px solid var(--color-border);
   border-radius: var(--r-md);
-  width: min(960px, 100%);
+  width: min(60rem, 100%);
   max-height: 90vh;
   display: flex;
   flex-direction: column;
@@ -673,7 +684,7 @@ button {
 
 .tutorial__step-label {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 0.6875rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--color-fg-muted);
@@ -841,7 +852,7 @@ button {
 
 .tutorial-stage2 {
   display: grid;
-  grid-template-columns: 1fr 240px;
+  grid-template-columns: 1fr 15rem;
   gap: var(--sp-4);
   align-items: start;
 }
@@ -897,7 +908,7 @@ button {
 
 .tutorial-stats__label {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 0.6875rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--color-fg-muted);
@@ -923,7 +934,7 @@ button {
   background: rgba(168, 255, 96, 0.06);
   border-left: 2px solid var(--color-accent);
   padding: var(--sp-2) var(--sp-3);
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.5;
   color: var(--color-fg);
   border-radius: 0 var(--r-sm) var(--r-sm) 0;
@@ -931,7 +942,7 @@ button {
 }
 
 .tutorial-note {
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: var(--color-fg-muted);
   font-style: italic;
   margin-top: var(--sp-2);
@@ -967,7 +978,7 @@ button {
   border-radius: var(--r-sm);
   padding: 2px var(--sp-2);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 0.6875rem;
   cursor: pointer;
   letter-spacing: 0.04em;
   transition:
@@ -987,7 +998,7 @@ button {
 
 .seed-history__empty {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: var(--color-fg-muted);
   letter-spacing: 0.04em;
 }
@@ -996,7 +1007,7 @@ button {
 
 .ctrl {
   display: grid;
-  grid-template-columns: 80px 1fr 40px;
+  grid-template-columns: 5rem 1fr 2.5rem;
   align-items: center;
   gap: var(--sp-2);
   cursor: pointer;
@@ -1028,8 +1039,8 @@ button {
   -webkit-appearance: none;
   appearance: none;
   background: var(--color-surface-2);
-  height: 4px;
-  border-radius: 2px;
+  height: 0.25rem;
+  border-radius: 0.125rem;
   outline: none;
   margin: 0;
   accent-color: var(--color-panel-accent);
@@ -1037,32 +1048,32 @@ button {
 
 .ctrl__slider::-webkit-slider-runnable-track {
   background: transparent;
-  height: 4px;
-  border-radius: 2px;
+  height: 0.25rem;
+  border-radius: 0.125rem;
 }
 
 .ctrl__slider::-moz-range-track {
   background: transparent;
-  height: 4px;
-  border-radius: 2px;
+  height: 0.25rem;
+  border-radius: 0.125rem;
 }
 
 .ctrl__slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 0.875rem;
+  height: 0.875rem;
   border-radius: 50%;
   background: var(--color-panel-accent);
   cursor: pointer;
   border: none;
-  margin-top: -5px;
+  margin-top: -0.3125rem;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
 }
 
 .ctrl__slider::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
+  width: 0.875rem;
+  height: 0.875rem;
   border-radius: 50%;
   background: var(--color-panel-accent);
   cursor: pointer;
@@ -1071,13 +1082,13 @@ button {
 }
 
 .ctrl--toggle {
-  grid-template-columns: 16px 1fr;
+  grid-template-columns: 1rem 1fr;
   margin-top: var(--sp-2);
 }
 
 .ctrl__checkbox {
-  width: 14px;
-  height: 14px;
+  width: 0.875rem;
+  height: 0.875rem;
   margin: 0;
   accent-color: var(--color-panel-accent);
   cursor: pointer;
@@ -1085,7 +1096,7 @@ button {
 
 .ctrl__hint {
   margin: 4px 0 0;
-  font-size: 11px;
+  font-size: 0.6875rem;
   line-height: 1.4;
   color: var(--color-fg-muted);
   letter-spacing: 0.02em;
@@ -1127,7 +1138,7 @@ button {
 
 .card-confirm__text {
   margin: 0 0 var(--sp-3);
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.45;
   color: var(--color-fg);
   white-space: pre-line;
@@ -1165,7 +1176,7 @@ button {
      horizontal space after the stats card.  Height tracks the
      ribbon's height (36 px in normal mode, 60vh in headless). */
   flex: 1 1 auto;
-  height: 36px;
+  height: 2.25rem;
   background: rgba(22, 22, 26, 0.78);
   border: 1px solid var(--color-border);
   border-radius: var(--r-md);
@@ -1192,7 +1203,7 @@ button {
    The dock + ribbon stats stay anchored as in normal mode; only
    the minimap's height changes. */
 .mode-headless .minimap {
-  height: calc(100vh - var(--topbar-h) - 160px);
+  height: calc(100vh - var(--topbar-h) - 10rem);
 }
 
 /* Big "headless" hint just below the enlarged minimap so the player
@@ -1200,7 +1211,7 @@ button {
    visible when .mode-headless is active. */
 .headless-banner {
   position: absolute;
-  bottom: calc(var(--sp-3) + 84px);
+  bottom: calc(var(--sp-3) + 5.25rem);
   left: 50%;
   transform: translateX(-50%);
   font-family: var(--font-mono);
@@ -1265,9 +1276,9 @@ button {
   position: absolute;
   right: var(--sp-4);
   /* Clear the dock at the bottom (~52 px tall + 12 px gap). */
-  bottom: calc(var(--sp-3) + 76px);
-  width: min(640px, calc(100vw - 2 * var(--sp-4)));
-  max-height: calc(100vh - var(--topbar-h) - 160px);
+  bottom: calc(var(--sp-3) + 4.75rem);
+  width: min(40rem, calc(100vw - 2 * var(--sp-4)));
+  max-height: calc(100vh - var(--topbar-h) - 10rem);
   overflow-y: auto;
   background: rgba(22, 22, 26, 0.86);
   border: 1px solid var(--color-border);
@@ -1287,7 +1298,7 @@ button {
 
 .charts-panel__label {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 0.6875rem;
   letter-spacing: 0.08em;
   color: var(--color-fg-muted);
   text-transform: uppercase;
@@ -1304,7 +1315,7 @@ button {
 
 .charts-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
   gap: var(--sp-3);
 }
 

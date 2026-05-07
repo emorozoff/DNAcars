@@ -44,7 +44,6 @@ const COLORS = {
   wheel: 0x8b8b94,
   wheelGround: 0xa8ff60,
   highlight: 0xffd166,
-  leaderRing: 0xa8ff60,
 } as const;
 
 const HIGHLIGHT_MS = 1500;
@@ -56,6 +55,12 @@ export type SceneHandle = {
   setSnapshot(s: WorldSnapshot): void;
   /** Register (or clear) the callback fired when the user clicks a car. */
   onCarClick(handler: CarClickHandler | null): void;
+  /**
+   * Pin the minimap's red record marker at this world-x.  Pass null
+   * to hide it (e.g. when the track changes every gen and "record on
+   * this track" isn't meaningful).
+   */
+  setRecordPosition(worldX: number | null): void;
   destroy(): void;
 };
 
@@ -92,14 +97,11 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   const carsLayer = new Container();
   world.addChild(carsLayer);
 
-  // Soft pulsing ring around whoever the camera is following.  Drawn
-  // in *world* space so it tracks the leader at the right radius.
-  const leaderRing = new Graphics();
-  world.addChild(leaderRing);
-
   let trackPoints: { x: number; y: number }[] | null = null;
   const carViews = new Map<number, CarView>();
   let onCarClickHandler: CarClickHandler | null = null;
+  /** Most recent record-marker world-x (null = hide marker). */
+  let recordX: number | null = null;
 
   // Optional minimap: if the SVG element is in the DOM at mount-time,
   // wire it up so it gets updated alongside the main scene.
@@ -194,18 +196,13 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     }
 
     const followed = runningLead ?? anyLead;
-    if (followed) {
-      cameraTarget = { x: followed.position.x, y: followed.position.y };
-      drawLeaderRing(leaderRing, followed);
-    } else {
-      leaderRing.clear();
-    }
+    if (followed) cameraTarget = { x: followed.position.x, y: followed.position.y };
 
     // Minimap: snapshot positions + camera viewport in world units.
     if (minimap) {
       const dpr = window.devicePixelRatio || 1;
       const viewportWorldWidth = app.renderer.width / dpr / ZOOM;
-      minimap.update(snap, camera.x, viewportWorldWidth);
+      minimap.update(snap, camera.x, viewportWorldWidth, recordX);
     }
   }
 
@@ -233,6 +230,9 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     setSnapshot,
     onCarClick(handler): void {
       onCarClickHandler = handler;
+    },
+    setRecordPosition(x): void {
+      recordX = x;
     },
     destroy(): void {
       ro.disconnect();
@@ -341,34 +341,6 @@ function sampleTrackY(points: { x: number; y: number }[], x: number): number {
  * `freq` is rad/m; `amp` is the hill height amplitude in metres;
  * `phase` shifts the profile so the two layers don't align perfectly.
  */
-/**
- * Soft pulsing ring under the camera-followed leader.  The radius
- * breathes 1.0 → 1.25 → 1.0 over ~1.4 s using performance.now() so
- * the pulse animates whether or not snapshots are arriving (they
- * pause at the end of a generation).
- */
-function drawLeaderRing(g: Graphics, car: CarSnapshot): void {
-  g.clear();
-  const t = (performance.now() / 700) % (Math.PI * 2);
-  const pulse = 1.05 + Math.sin(t) * 0.12;
-  // Radius based on the chassis bounding circle — the largest
-  // distance from chassis centre to any vertex.
-  let r = 0;
-  for (const v of car.vertices) {
-    const d = Math.hypot(v.x, v.y);
-    if (d > r) r = d;
-  }
-  // Plus the largest wheel sticking out.
-  for (const w of car.wheels) {
-    const d = Math.hypot(w.position.x - car.position.x, w.position.y - car.position.y) + w.radius;
-    if (d > r) r = d;
-  }
-  r = (r + 0.25) * pulse;
-  g.position.set(car.position.x, car.position.y);
-  g.circle(0, 0, r);
-  g.stroke({ color: 0xa8ff60, width: 0.04, alpha: 0.5 });
-}
-
 function drawParallaxLayer(
   g: Graphics,
   length: number,

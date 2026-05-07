@@ -20,8 +20,19 @@ const PAD_Y = 6;
 
 export type MinimapHandle = {
   setTrack(points: { x: number; y: number }[]): void;
-  /** Tell the minimap where the camera is currently centred. */
-  update(snap: WorldSnapshot, cameraX: number, viewportWorldWidth: number): void;
+  /**
+   * Tell the minimap where the camera is currently centred.  The
+   * optional `recordX` parameter pins a small red dot at that world-x
+   * to indicate the all-time best run on the current track; pass null
+   * (or omit) to hide it (e.g. when the track changes every gen and
+   * "record on this track" isn't meaningful).
+   */
+  update(
+    snap: WorldSnapshot,
+    cameraX: number,
+    viewportWorldWidth: number,
+    recordX?: number | null,
+  ): void;
 };
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -31,19 +42,27 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
   const viewportEl = svg.querySelector<SVGRectElement>('.minimap__viewport');
   const carsGroup = svg.querySelector<SVGGElement>('.minimap__cars');
   const leaderEl = svg.querySelector<SVGCircleElement>('.minimap__leader');
-  if (!trackEl || !viewportEl || !carsGroup || !leaderEl) {
+  const recordEl = svg.querySelector<SVGCircleElement>('.minimap__record');
+  if (!trackEl || !viewportEl || !carsGroup || !leaderEl || !recordEl) {
     throw new Error('mountMinimap: missing child elements');
   }
 
   let trackLength = 0;
   let trackMinY = 0;
   let trackMaxY = 1;
+  /**
+   * Cached track points so we can sample the surface y at any world-x
+   * for the record marker.  Stored once in setTrack and never written
+   * to from update().
+   */
+  let trackSamples: { x: number; y: number }[] = [];
   /** Pool of <circle> elements for the population dots, grown on demand. */
   const carDots: SVGCircleElement[] = [];
 
   return {
     setTrack(points): void {
       if (points.length < 2) return;
+      trackSamples = points;
       trackLength = points[points.length - 1]!.x;
       let minY = Infinity;
       let maxY = -Infinity;
@@ -65,7 +84,7 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
       }
       trackEl.setAttribute('points', pts.trim());
     },
-    update(snap, cameraX, viewportWorldWidth): void {
+    update(snap, cameraX, viewportWorldWidth, recordX): void {
       if (trackLength === 0) return;
       const xToView = (worldX: number): number => (worldX / trackLength) * VIEW_W;
       const halfW = (viewportWorldWidth / trackLength) * VIEW_W * 0.5;
@@ -114,6 +133,39 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
       } else {
         leaderEl.setAttribute('opacity', '0');
       }
+
+      // Record marker — only shown when caller passes a non-null x
+      // (i.e. we're on a fixed-track preset and there's a meaningful
+      // record to display).  Pin to the actual track surface y at
+      // that x so the dot sits on the curve, not in the air.
+      if (recordX !== null && recordX !== undefined) {
+        const rx = xToView(recordX);
+        const ry =
+          VIEW_H -
+          PAD_Y -
+          ((sampleY(trackSamples, recordX) - trackMinY) / yRange) * (VIEW_H - 2 * PAD_Y);
+        recordEl.setAttribute('cx', String(rx));
+        recordEl.setAttribute('cy', String(ry));
+        recordEl.setAttribute('opacity', '1');
+      } else {
+        recordEl.setAttribute('opacity', '0');
+      }
     },
   };
+}
+
+/** Linear-interpolated track y at a given world x (matches sim/world.ts:sampleTrackY). */
+function sampleY(points: { x: number; y: number }[], x: number): number {
+  if (points.length === 0) return 0;
+  if (x <= points[0]!.x) return points[0]!.y;
+  const last = points[points.length - 1]!;
+  if (x >= last.x) return last.y;
+  const step = points.length > 1 ? points[1]!.x - points[0]!.x : 1;
+  const i = Math.floor(x / step);
+  const a = points[i];
+  const b = points[i + 1];
+  if (!a) return 0;
+  if (!b) return a.y;
+  const t = (x - a.x) / (b.x - a.x);
+  return a.y + (b.y - a.y) * t;
 }

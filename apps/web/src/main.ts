@@ -54,6 +54,13 @@ import { mountCharts, type ChartsHandle } from './stats/charts';
 const GENERATION_PAUSE_MS = 600;
 
 /**
+ * World-x where every car spawns (in metres).  Travel distance is
+ * computed as `maxX - SPAWN_X`, so the world-x of a car that earned
+ * `travel` metres is `SPAWN_X + travel`.  Used by the record marker.
+ */
+const SPAWN_X = 6;
+
+/**
  * Live evolution parameters.  Mutated in place by the sidebar
  * sliders; the next generation reads whatever is current here.  The
  * defaults match Genetic Cars 2's typical knobs.
@@ -213,6 +220,13 @@ async function bootstrap(): Promise<void> {
   let generation = 0;
   let lastResults: Scored[] | null = null;
   let bestEver = 0;
+  /**
+   * World-x of the all-time best run on the *current* track.  Only
+   * meaningful in 'fixed' track mode (where the same track is reused
+   * across generations); in any other mode we keep this null and the
+   * minimap hides the marker.
+   */
+  let trackRecordX: number | null = null;
 
   function freshRun(): void {
     generation = 0;
@@ -222,6 +236,8 @@ async function bootstrap(): Promise<void> {
     // Drop the cached fixed seed too so a new run picks a fresh track
     // even if the user is still on the 'fixed' preset.
     fixedTrackSeed = null;
+    trackRecordX = null;
+    scene.setRecordPosition(null);
     hud.best.textContent = '—';
     if (charts) charts.update(history);
   }
@@ -245,7 +261,11 @@ async function bootstrap(): Promise<void> {
       trackModeIdx = (trackModeIdx + 1) % TRACK_MODES.length;
       // Switching modes invalidates any cached fixed seed so the next
       // generation picks up the new mode's seed strategy cleanly.
+      // The "record on this track" marker only makes sense in fixed
+      // mode, so clear it on mode change.
       fixedTrackSeed = null;
+      trackRecordX = null;
+      scene.setRecordPosition(null);
       updateTrackButtonText();
     });
     updateTrackButtonText();
@@ -390,6 +410,19 @@ async function bootstrap(): Promise<void> {
           bestEver = genBest;
           hud.best.textContent = `${bestEver.toFixed(1)} m`;
         }
+        // In 'fixed' track mode, "best on this track" is meaningful;
+        // every generation runs on the same seed, so we accumulate
+        // the all-time max across them and pin a red dot on the
+        // minimap there.  Other modes pick a fresh track per gen so
+        // a "record" on the previous track no longer applies.
+        if (TRACK_MODES[trackModeIdx] === 'fixed') {
+          const candidate = SPAWN_X + genBest;
+          trackRecordX = trackRecordX === null ? candidate : Math.max(trackRecordX, candidate);
+          scene.setRecordPosition(trackRecordX);
+        } else {
+          trackRecordX = null;
+          scene.setRecordPosition(null);
+        }
         // Record summary stats and refresh sparklines.
         const durationSec = (performance.now() - sessionStartedAt) / 1000;
         history.push(collectStats(generation, durationSec, results));
@@ -468,7 +501,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
   );
   scene.setTrack(track.points);
 
-  const world = await createWorld({ track, genomes, spawnX: 6 });
+  const world = await createWorld({ track, genomes, spawnX: SPAWN_X });
 
   hud.total.textContent = String(genomes.length);
   hud.seed.textContent = trackSeed.toString(16).padStart(8, '0');

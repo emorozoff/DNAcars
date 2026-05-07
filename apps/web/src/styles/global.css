@@ -116,12 +116,13 @@ button {
 }
 
 .btn--primary {
-  background: var(--color-surface);
+  background: rgba(22, 22, 26, 0.78);
   color: var(--color-accent);
   border-color: var(--color-border);
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
   padding: var(--sp-2) var(--sp-4);
+  backdrop-filter: blur(8px);
 }
 
 .btn--primary:hover {
@@ -147,37 +148,51 @@ button {
   height: 100%;
 }
 
+/* ─── Side stacks (left: stats+controls, right: actions) ─────────────────── */
+
+.hud-side {
+  position: absolute;
+  top: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  z-index: 1;
+}
+
+.hud-side--left {
+  left: var(--sp-4);
+  width: 240px;
+}
+
+.hud-side--right {
+  right: var(--sp-4);
+  align-items: stretch;
+}
+
 /* ─── Floating HUD cards ─────────────────────────────────────────────────── */
 
 .hud-card {
-  position: absolute;
   background: rgba(22, 22, 26, 0.78);
   border: 1px solid var(--color-border);
   border-radius: var(--r-md);
   padding: var(--sp-3) var(--sp-4);
   backdrop-filter: blur(8px);
-  z-index: 1;
 }
 
 .hud-card--stats {
-  top: var(--sp-4);
-  left: var(--sp-4);
   display: grid;
   grid-template-columns: auto auto;
   gap: var(--sp-1) var(--sp-5);
-  min-width: 180px;
 }
 
-.hud-card--actions {
-  top: var(--sp-4);
-  right: var(--sp-4);
-  padding: 0;
-  background: transparent;
-  border: none;
-  backdrop-filter: none;
+.hud-card--controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
 }
 
 .hud-card--legend {
+  position: absolute;
   bottom: var(--sp-4);
   left: var(--sp-4);
   display: flex;
@@ -185,6 +200,7 @@ button {
   font-size: var(--fs-xs);
   color: var(--color-fg-muted);
   letter-spacing: 0.04em;
+  z-index: 1;
 }
 
 .hud-card__label {
@@ -206,6 +222,70 @@ button {
   color: var(--color-accent);
 }
 
+.hud-card__heading {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-muted);
+}
+
+/* ─── Sliders ────────────────────────────────────────────────────────────── */
+
+.ctrl {
+  display: grid;
+  grid-template-columns: 80px 1fr 36px;
+  align-items: center;
+  gap: var(--sp-2);
+  cursor: pointer;
+}
+
+.ctrl__label {
+  font-size: var(--fs-xs);
+  color: var(--color-fg-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ctrl__value {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg);
+  text-align: right;
+}
+
+.ctrl__slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--color-surface-2);
+  height: 3px;
+  border-radius: 2px;
+  outline: none;
+  margin: 0;
+}
+
+.ctrl__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  cursor: pointer;
+  border: none;
+}
+
+.ctrl__slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  cursor: pointer;
+  border: none;
+}
+
 .swatch {
   display: inline-block;
   width: 8px;
@@ -223,15 +303,15 @@ button {
   background: var(--color-accent);
 }
 
-/* ─── Mobile (collapse hint, shrink overlays) ────────────────────────────── */
+/* ─── Mobile ─────────────────────────────────────────────────────────────── */
 
 @media (max-width: 720px) {
   .topbar__hint {
     display: none;
   }
 
-  .hud-card--stats {
-    min-width: auto;
-    font-size: var(--fs-xs);
+  .hud-side--left {
+    width: calc(100vw - 2 * var(--sp-4));
+    max-width: 280px;
   }
 }

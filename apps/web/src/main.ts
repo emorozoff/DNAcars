@@ -11,7 +11,8 @@
  *   3. GA — apps/web/src/ga/.  Selection / crossover / mutation that
  *      turns the *previous* generation's fitness vector into the
  *      *next* generation's genomes.
- *   4. UI — index.html.  Sidebar for stats, restart button, EN/RU.
+ *   4. UI — index.html.  HUD overlays: stats card, controls card with
+ *      sliders, restart + speedup buttons.
  *
  * Generation lifecycle:
  *
@@ -30,7 +31,7 @@
  */
 
 import './styles/global.css';
-import { applyTranslations, bindLanguageToggle } from './i18n';
+import { applyTranslations, bindLanguageToggle, t } from './i18n';
 import {
   createWorld,
   ensureRapier,
@@ -47,21 +48,31 @@ import {
 import { mountScene, type SceneHandle } from './render/scene';
 import { nextGeneration, type GAParams, type Scored } from './ga/population';
 
-const CAR_COUNT = 24;
 /** Short visual pause between generations so the eye registers the new batch. */
 const GENERATION_PAUSE_MS = 600;
 
-// GA parameters are hardcoded for v0.9.3.  v0.9.4 will surface them
-// as user-adjustable sliders in the sidebar.
-const GA_DEFAULTS: GAParams = {
-  populationSize: CAR_COUNT,
+/**
+ * Live evolution parameters.  Mutated in place by the sidebar
+ * sliders; the next generation reads whatever is current here.  The
+ * defaults match Genetic Cars 2's typical knobs.
+ */
+const gaParams: GAParams = {
+  populationSize: 24,
   eliteCount: 2,
   mutationRate: 0.15,
 };
 
+/**
+ * Real-time speed multiplier.  1 = realtime; 8 = "speed up", physics
+ * advances 8× faster but rendering still runs every frame so the
+ * generations whip through visibly.  Toggled by the speed-up button.
+ */
+let speedMultiplier = 1;
+
 type Hud = {
   total: HTMLElement;
   lead: HTMLElement;
+  best: HTMLElement;
   seed: HTMLElement;
   generation: HTMLElement;
   version: HTMLElement;
@@ -83,21 +94,27 @@ async function bootstrap(): Promise<void> {
   const hud: Hud = {
     total: requireEl('stat-total'),
     lead: requireEl('stat-lead'),
+    best: requireEl('stat-best'),
     seed: requireEl('stat-seed'),
     generation: requireEl('stat-generation'),
     version: requireEl('app-version'),
   };
   hud.version.textContent = `v${__APP_VERSION__}`;
 
+  bindControls();
+
   // Cross-session evolution state.
   let generation = 0;
   let lastResults: Scored[] | null = null;
+  let bestEver = 0;
 
   const restartBtn = document.getElementById('btn-restart');
   if (restartBtn instanceof HTMLButtonElement) {
     restartBtn.addEventListener('click', () => {
       generation = 0;
       lastResults = null;
+      bestEver = 0;
+      hud.best.textContent = '—';
       void restart();
     });
   }
@@ -106,9 +123,19 @@ async function bootstrap(): Promise<void> {
       ev.preventDefault();
       generation = 0;
       lastResults = null;
+      bestEver = 0;
+      hud.best.textContent = '—';
       void restart();
     }
   });
+
+  const speedBtn = document.getElementById('btn-speedup');
+  if (speedBtn instanceof HTMLButtonElement) {
+    speedBtn.addEventListener('click', () => {
+      speedMultiplier = speedMultiplier === 1 ? 8 : 1;
+      speedBtn.textContent = speedMultiplier === 1 ? t('panel.speedup') : t('panel.speedupOn');
+    });
+  }
 
   let session: Session | null = null;
 
@@ -125,11 +152,11 @@ async function bootstrap(): Promise<void> {
     let genomes: Genome[];
     if (lastResults && generation > 0) {
       const gaRng = makeRng(trackSeed ^ 0xfeedface);
-      genomes = nextGeneration(lastResults, GA_DEFAULTS, gaRng);
+      genomes = nextGeneration(lastResults, gaParams, gaRng);
     } else {
       const rng = makeRng(trackSeed ^ 0xdeadbeef);
       genomes = [];
-      for (let i = 0; i < CAR_COUNT; i++) genomes.push(randomGenome(rng));
+      for (let i = 0; i < gaParams.populationSize; i++) genomes.push(randomGenome(rng));
     }
 
     session = await startSession({
@@ -140,13 +167,50 @@ async function bootstrap(): Promise<void> {
       hud,
       onGenerationEnd: (results) => {
         lastResults = results;
+        const genBest = results.reduce((m, r) => (r.fitness > m ? r.fitness : m), 0);
+        if (genBest > bestEver) {
+          bestEver = genBest;
+          hud.best.textContent = `${bestEver.toFixed(1)} m`;
+        }
         generation += 1;
-        setTimeout(() => void restart(), GENERATION_PAUSE_MS);
+        setTimeout(() => void restart(), GENERATION_PAUSE_MS / speedMultiplier);
       },
     });
   }
 
   await restart();
+}
+
+/**
+ * Wire the three GA sliders + their value labels.  The sliders mutate
+ * `gaParams` in place; the change takes effect at the *next* generation
+ * (the current run uses whatever was set when it started).
+ */
+function bindControls(): void {
+  bindSlider('ctrl-population', 'ctrl-population-val', (v) => {
+    gaParams.populationSize = v;
+    return String(v);
+  });
+  bindSlider('ctrl-mutation', 'ctrl-mutation-val', (v) => {
+    gaParams.mutationRate = v / 100;
+    return `${v}%`;
+  });
+  bindSlider('ctrl-elite', 'ctrl-elite-val', (v) => {
+    gaParams.eliteCount = v;
+    return String(v);
+  });
+}
+
+function bindSlider(inputId: string, valueId: string, apply: (v: number) => string): void {
+  const input = document.getElementById(inputId);
+  const valueEl = document.getElementById(valueId);
+  if (!(input instanceof HTMLInputElement) || !(valueEl instanceof HTMLElement)) return;
+  const sync = (): void => {
+    const v = Number(input.value);
+    valueEl.textContent = apply(v);
+  };
+  input.addEventListener('input', sync);
+  sync(); // pull initial state from HTML attrs
 }
 
 type Session = {
@@ -183,11 +247,6 @@ async function startSession(opts: StartOptions): Promise<Session> {
     const snap = world.snapshot();
     const carSnap = snap.cars.find((c) => c.index === carIndex);
     if (!genome || !carSnap) return;
-    // Compose a debug bundle rich enough to reason about "why is this
-    // car doing X" off-line.  In particular we expose the velocity
-    // vector and the *altitude above the track surface at this x*: a
-    // high value is the tell that a car launched off a hill instead
-    // of just rolling fast.
     const trackY = sampleTrackY(track, carSnap.position.x);
     const bundle = {
       version: __APP_VERSION__,
@@ -222,7 +281,11 @@ async function startSession(opts: StartOptions): Promise<Session> {
   function tick(): void {
     if (!running) return;
     const now = performance.now();
-    const dt = Math.min((now - lastTime) / 1000, 0.25);
+    // Multiply real elapsed time by speed multiplier, then feed into
+    // the fixed-timestep accumulator.  At ×1 the world ticks at real
+    // time; at ×8 the same wall second produces 8 s of simulated time
+    // (the inner while loop just runs more world.step()s).
+    const dt = Math.min((now - lastTime) / 1000, 0.25) * speedMultiplier;
     lastTime = now;
     acc += dt;
     while (acc >= SIM_DT) {
@@ -230,9 +293,6 @@ async function startSession(opts: StartOptions): Promise<Session> {
       acc -= SIM_DT;
       elapsed += SIM_DT;
     }
-    // Hard cap so a degenerate seed where everyone keeps drifting can't
-    // pin evolution forever.  After the cap, force-finish remaining
-    // cars and let the all-finished branch trigger the next generation.
     if (elapsed >= TUNING.lifecycle.maxGenerationSec) {
       world.forceFinishAll();
     }
@@ -243,8 +303,6 @@ async function startSession(opts: StartOptions): Promise<Session> {
     if (!endNotified && world.allFinished()) {
       endNotified = true;
       running = false;
-      // Pair every genome with the fitness it ended up with — travel
-      // distance from spawn — so the GA can pick parents next round.
       const results: Scored[] = genomes.map((genome, i) => ({
         genome,
         fitness: snap.cars[i]?.travel ?? 0,

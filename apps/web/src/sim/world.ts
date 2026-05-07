@@ -970,27 +970,77 @@ export type CreateWorldOptions = {
   track: Track;
   genomes: Genome[];
   spawnX?: number;
+  /**
+   * Strict-determinism mode: give each car its own isolated Rapier
+   * world (with its own copy of all track colliders) so the same seed
+   * produces bit-identical results across runs.
+   *
+   * Why this matters: Rapier's broadphase iterates contact pairs in
+   * an order that depends on body insertion sequence and the current
+   * position of every body in the world.  With 60 cars sharing one
+   * world the FP paths of pairwise contact tests subtly diverge from
+   * run to run — even though chassis-vs-chassis contacts are filtered
+   * out by collision groups, each car's contact-with-track resolution
+   * still observes a slightly different float graph.  The leader of
+   * gen 5 can travel 200 m one run and 65 m the next on the same
+   * (trackSeed, generation, gaSeed) inputs.
+   *
+   * Per-car worlds break that coupling: each car sees only its own
+   * bodies + the track, so its trajectory is purely a function of its
+   * genome.  Determinism becomes complete.
+   *
+   * Cost: ~60× the track colliders (still small in absolute terms —
+   * ≈ 36 MB at 600 colliders × 60 cars), and 1.5–2× CPU per game tick
+   * (each world has its own broadphase + integrator).  Default OFF;
+   * the player toggles it via the UI when they want repeatable runs.
+   */
+  isolated?: boolean;
 };
 
 export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle> {
   await ensureRapier();
-  const world = new RAPIER.World({ x: 0, y: -GRAVITY });
-  // Each physics call advances by SIM_DT / SUBSTEPS so the per-game-
-  // tick total is still SIM_DT, just split across multiple solver
-  // passes for smoother contact resolution.
-  world.timestep = SIM_DT / PHYSICS_SUBSTEPS;
-  // More iterations than the default 4: a stiff scene of heavy
-  // chassis + heavy wheels + revolute joints needs the extra passes
-  // to converge each step and avoid the explosive ejections that
-  // launch cars to the moon.
-  world.integrationParameters.numSolverIterations = TUNING.solver.numIterations;
+  const isolated = opts.isolated ?? false;
 
-  buildTrackColliders(world, opts.track);
+  // `worlds` is the set of unique Rapier worlds we own (1 in shared
+  // mode, N in isolated mode).  `carWorld[i]` maps each car index
+  // to its world — same reference for every i in shared mode, a
+  // distinct world per i in isolated mode.  Step / contact / destroy
+  // all key off these two arrays so the rest of the code path is
+  // mode-agnostic.
+  const worlds: RAPIER.World[] = [];
+  const carWorld: RAPIER.World[] = [];
+
+  const makeWorld = (): RAPIER.World => {
+    const w = new RAPIER.World({ x: 0, y: -GRAVITY });
+    // Each physics call advances by SIM_DT / SUBSTEPS so the per-game-
+    // tick total is still SIM_DT, just split across multiple solver
+    // passes for smoother contact resolution.
+    w.timestep = SIM_DT / PHYSICS_SUBSTEPS;
+    // More iterations than the default 4: a stiff scene of heavy
+    // chassis + heavy wheels + revolute joints needs the extra passes
+    // to converge each step and avoid the explosive ejections that
+    // launch cars to the moon.
+    w.integrationParameters.numSolverIterations = TUNING.solver.numIterations;
+    buildTrackColliders(w, opts.track);
+    return w;
+  };
+
+  if (isolated) {
+    for (let i = 0; i < opts.genomes.length; i++) {
+      const w = makeWorld();
+      worlds.push(w);
+      carWorld.push(w);
+    }
+  } else {
+    const w = makeWorld();
+    worlds.push(w);
+    for (let i = 0; i < opts.genomes.length; i++) carWorld.push(w);
+  }
 
   const sx = opts.spawnX ?? 8;
   const sy = sampleTrackY(opts.track, sx) + 1.6;
 
-  const cars: CarRuntime[] = opts.genomes.map((g, i) => buildCar(world, g, i, sx, sy));
+  const cars: CarRuntime[] = opts.genomes.map((g, i) => buildCar(carWorld[i]!, g, i, sx, sy));
 
   let time = 0;
 
@@ -1001,7 +1051,8 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
       // gets properly integrated over the smaller dt, instead of
       // applying one frame's worth of torque to one of two sub-steps.
       for (let s = 0; s < PHYSICS_SUBSTEPS; s++) {
-        for (const car of cars) {
+        for (let i = 0; i < cars.length; i++) {
+          const car = cars[i]!;
           if (car.finished) {
             // freezeCar is a one-shot — first call after `finished`
             // flips to true does the setBodyType conversion; later
@@ -1009,11 +1060,11 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
             freezeCar(car);
             continue;
           }
-          updateWheelContacts(car, world);
+          updateWheelContacts(car, carWorld[i]!);
           updateAirborneDamping(car);
           applyMotor(car);
         }
-        world.step();
+        for (const w of worlds) w.step();
         // Detect explosive impulses INSIDE the substep loop so the
         // clipped velocity feeds back into the next substep — if we
         // only checked once per game-tick, the spike could propagate
@@ -1080,7 +1131,7 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
       return cars[idx]?.eventCounts ?? { velClamp: 0, spike: 0 };
     },
     destroy(): void {
-      world.free();
+      for (const w of worlds) w.free();
     },
   };
 }

@@ -7,12 +7,12 @@ describe('i18n', () => {
   });
 
   it('returns english by default', () => {
-    expect(t('panel.cars')).toBe('Cars');
+    expect(t('panel.cars')).toBe('Population');
   });
 
   it('switches to russian', () => {
     setLocale('ru');
-    expect(t('panel.cars')).toBe('Машин');
+    expect(t('panel.cars')).toBe('Популяция');
     expect($locale.get()).toBe('ru');
   });
 
@@ -21,7 +21,7 @@ describe('i18n', () => {
     setLocale('en');
     applyTranslations();
     const el = document.querySelector<HTMLElement>('[data-i18n="panel.lead"]');
-    expect(el?.textContent).toBe('Lead');
+    expect(el?.textContent).toBe('Leader');
 
     setLocale('ru');
     applyTranslations();

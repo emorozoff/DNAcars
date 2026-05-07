@@ -154,6 +154,31 @@ let fixedTrackSeed: number | null = null;
 const SEED_HISTORY_KEY = 'dnacars.seedHistory';
 const SEED_HISTORY_MAX = 8;
 
+/**
+ * Strict-determinism mode — when on, every car gets its own
+ * isolated Rapier world for true repeatability across runs at the
+ * cost of ~2× CPU.  Persisted to localStorage so the player's
+ * choice survives a reload.  Takes effect on the *next* generation
+ * (the in-flight world is created with whatever the value was at
+ * its start).  See CreateWorldOptions.isolated for the rationale.
+ */
+const STRICT_DETERMINISM_KEY = 'dnacars.strictDeterminism';
+function loadStrictDeterminism(): boolean {
+  try {
+    return localStorage.getItem(STRICT_DETERMINISM_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function saveStrictDeterminism(on: boolean): void {
+  try {
+    localStorage.setItem(STRICT_DETERMINISM_KEY, on ? '1' : '0');
+  } catch {
+    /* localStorage might be disabled (private mode etc.); ignore */
+  }
+}
+let strictDeterminism = loadStrictDeterminism();
+
 function loadSeedHistory(): number[] {
   try {
     const raw = localStorage.getItem(SEED_HISTORY_KEY);
@@ -288,6 +313,10 @@ const VERIFY_MAX_STEPS = 60 * 600;
  * the multi-body world is well-behaved on this genome.
  */
 async function verifyEliteAlone(genome: Genome, track: Track): Promise<number> {
+  // Side-world always uses an isolated single-car world by
+  // construction (genomes.length === 1), so the `isolated` flag
+  // doesn't change anything here — we leave it default-off to
+  // skip the per-car book-keeping path.
   const sideWorld = await createWorld({ track, genomes: [genome], spawnX: SPAWN_X });
   let steps = 0;
   while (!sideWorld.allFinished() && steps < VERIFY_MAX_STEPS) {
@@ -892,6 +921,7 @@ function bindControls(): void {
     gaParams.eliteCount = v;
     return String(v);
   });
+  bindStrictDeterminismToggle();
   // Track-tuning sliders.  Difficulty drives the procedural
   // amplitude in nextTrackParams; the rest are 0..1 obstacle
   // intensities.  Length is in metres directly.  All take
@@ -935,6 +965,32 @@ function bindSlider(inputId: string, valueId: string, apply: (v: number) => stri
   sync(); // pull initial state from HTML attrs
 }
 
+/**
+ * Wire the strict-determinism checkbox.  Default value comes from
+ * localStorage so the player's choice survives reloads.  Turning it
+ * ON pops a confirm() prompt with the CPU-cost warning — the toggle
+ * is reverted if the user cancels.  Turning it OFF is silent.
+ */
+function bindStrictDeterminismToggle(): void {
+  const input = document.getElementById('ctrl-strict-determinism');
+  if (!(input instanceof HTMLInputElement)) return;
+  input.checked = strictDeterminism;
+  input.addEventListener('change', () => {
+    if (input.checked && !strictDeterminism) {
+      const ok = window.confirm(t('panel.strictDeterminismWarning'));
+      if (!ok) {
+        input.checked = false;
+        return;
+      }
+      strictDeterminism = true;
+      saveStrictDeterminism(true);
+    } else if (!input.checked && strictDeterminism) {
+      strictDeterminism = false;
+      saveStrictDeterminism(false);
+    }
+  });
+}
+
 type Session = {
   world: WorldHandle;
   stop(): void;
@@ -961,7 +1017,12 @@ async function startSession(opts: StartOptions): Promise<Session> {
   const track = generateTrack(trackSeed, trackOpts ?? {});
   scene.setTrack(track.points, track.physicalObstacles);
 
-  const world = await createWorld({ track, genomes, spawnX: SPAWN_X });
+  const world = await createWorld({
+    track,
+    genomes,
+    spawnX: SPAWN_X,
+    isolated: strictDeterminism,
+  });
 
   hud.total.textContent = String(genomes.length);
   hud.seed.textContent = trackSeed.toString(16).padStart(8, '0');

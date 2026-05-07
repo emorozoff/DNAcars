@@ -948,6 +948,27 @@ button {
   border: none;
 }
 
+.ctrl--toggle {
+  grid-template-columns: 16px 1fr;
+  margin-top: var(--sp-2);
+}
+
+.ctrl__checkbox {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.ctrl__hint {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-fg-muted);
+  letter-spacing: 0.02em;
+}
+
 .swatch {
   display: inline-block;
   width: 8px;

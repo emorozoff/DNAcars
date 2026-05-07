@@ -40,6 +40,10 @@ export const ru: Dictionary = {
   'panel.headlessBanner': 'Без рендера · скорость ×32',
   'panel.hint': 'Пробел — пауза   ·   кнопка — новая популяция',
   'panel.tutorialOpen': 'Учебник',
+  'panel.strictDeterminism': 'Строгий детерминизм',
+  'panel.strictDeterminismHint': 'Тот же сид → точно такой же заезд. Стоит ≈2× CPU.',
+  'panel.strictDeterminismWarning':
+    'Строгий детерминизм запускает каждую машину в собственном физическом мире.\nС одним и тем же сидом получится в точности тот же заезд, но симуляция станет работать ≈2× медленнее.\n\nВключить?',
   'tutorial.close': 'Закрыть',
   'tutorial.next': 'Дальше',
   'tutorial.back': 'Назад',

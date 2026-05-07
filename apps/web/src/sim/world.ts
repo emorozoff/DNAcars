@@ -435,6 +435,25 @@ const SHARPNESS_START = 80;
  * fair shot at building speed before facing local hazards.
  */
 const OBSTACLE_START = 80;
+/**
+ * Length (m) of the ascending-peak ramp at the end of every track.
+ * Inside this region the surface y rises polynomially to the
+ * configured PEAK_HEIGHT — gentle at the start of the ramp,
+ * unclimbable (≥ 45° slope, motor tilt-gate kicks in) at the very
+ * end.  This is the game's "you've gone as far as anything can"
+ * boundary; no falling, no portals, just an honest mountain.
+ */
+const PEAK_LENGTH = 200;
+/** Vertical height of the peak above the ambient surface (m). */
+const PEAK_HEIGHT = 50;
+/**
+ * Polynomial exponent for the peak ramp.  Slope at the very top
+ * is `PEAK_HEIGHT * PEAK_POWER / PEAK_LENGTH`; with the chosen
+ * 50/4/200 that's exactly 1.0 (= 100 % = 45°), matching the
+ * motor's tilt-gate so the final stretch is physically
+ * unclimbable.
+ */
+const PEAK_POWER = 4;
 
 /**
  * One placed terrain obstacle.  Pits and bumps are symmetric
@@ -657,8 +676,12 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
   // Obstacle list is built from the same RNG stream so placement is
   // a pure function of the seed.  This is intentional: a fixed-track
   // run reproduces the exact same hazard layout every generation,
-  // which is how the GA gets to optimise against them.
-  const placed = placeObstacles(rng, o.obstacles, o.length);
+  // which is how the GA gets to optimise against them.  Cap the
+  // upper bound at `peakStart` so no obstacles spawn inside the
+  // ascending peak — at 45 ° slope they'd be unintelligible (a
+  // wall on a wall, a pit on a pit, etc.).
+  const peakStart = o.length - PEAK_LENGTH;
+  const placed = placeObstacles(rng, o.obstacles, peakStart);
   const obstacles = placed.terrain;
   const physicalObstacles = placed.physical;
 
@@ -725,6 +748,17 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
         }
       }
       y += obstacleDelta * baseRamp;
+    }
+    // Ascending peak — adds a polynomial ramp on top of everything
+    // else over the last PEAK_LENGTH metres of track.  Slope grows
+    // with the (PEAK_POWER-1)th power of the normalised distance
+    // through the ramp, hitting 45° (= motor tilt-gate) right at
+    // the end.  No obstacles spawn here (placeObstacles cap), no
+    // amplitude scaling — this is a rigid game boundary, not part
+    // of the procedural terrain.
+    if (x > peakStart) {
+      const t = Math.min(1, (x - peakStart) / PEAK_LENGTH);
+      y += PEAK_HEIGHT * Math.pow(t, PEAK_POWER);
     }
     points.push({ x, y });
   }

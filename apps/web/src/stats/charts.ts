@@ -16,6 +16,14 @@
  * at; the histogram always shows the *current* generation only.
  *
  * Adding a new genome-trend chart is one line in `GENOME_DEFS`.
+ *
+ * Layout note: axis labels live in HTML (positioned absolutely over
+ * the SVG) rather than inside the SVG.  Reason: the SVGs use
+ * `preserveAspectRatio="none"` so polylines + bars stretch to fill
+ * card width, but that scaling would distort `<text>` elements
+ * (visible as the "horizontally stretched" labels in v1.15.x).  HTML
+ * text stays at its CSS-controlled font-size regardless of the SVG's
+ * non-uniform stretch.
  */
 
 import { t, type TranslationKey } from '../i18n';
@@ -61,12 +69,16 @@ const GENOME_DEFS: GenomeDef[] = [
 
 /* ─── Layout constants ─────────────────────────────────────────────── */
 
+// Internal viewBox sizes — actual on-screen width/height comes from
+// the CSS (`max-width` + aspect-ratio).  Keep these proportional to
+// the rendered aspect so the polyline/bar geometry doesn't get
+// stretched too far in either direction even before CSS clamps width.
 const HERO_W = 600;
-const HERO_H = 160;
+const HERO_H = 200;
 const HIST_W = 600;
-const HIST_H = 100;
-const SPARK_W = 130;
-const SPARK_H = 36;
+const HIST_H = 200;
+const SPARK_W = 160;
+const SPARK_H = 44;
 const HIST_BINS = 16;
 
 /* ─── Public API ───────────────────────────────────────────────────── */
@@ -132,20 +144,20 @@ export function mountCharts(host: HTMLElement): ChartsHandle {
   header.appendChild(seg);
   host.appendChild(header);
 
-  /* ── Section 1: Progress hero ─────────────────────────────────── */
+  /* ── Body grid (hero + hist side-by-side, genome below) ───────── */
+
+  const body = document.createElement('div');
+  body.className = 'stats-panel__body';
+  host.appendChild(body);
 
   const hero = buildHero();
-  host.appendChild(hero.el);
-
-  /* ── Section 2: Distribution histogram ────────────────────────── */
+  body.appendChild(hero.el);
 
   const histogram = buildHistogram();
-  host.appendChild(histogram.el);
-
-  /* ── Section 3: Genome trend sparklines ───────────────────────── */
+  body.appendChild(histogram.el);
 
   const genome = buildGenomeGrid();
-  host.appendChild(genome.el);
+  body.appendChild(genome.el);
 
   /* ── Render dispatch ──────────────────────────────────────────── */
 
@@ -214,6 +226,13 @@ function buildHero(): Hero {
   valueRow.appendChild(meanVal.el);
   card.appendChild(valueRow);
 
+  // Chart wrap: SVG + DOM-positioned axis labels.  The SVG stretches
+  // freely (`preserveAspectRatio="none"`) so the polyline always fits
+  // the card width; the labels are CSS-positioned HTML so their text
+  // stays crisp regardless of the stretch.
+  const wrap = document.createElement('div');
+  wrap.className = 'stats-hero__wrap';
+
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('class', 'stats-hero__chart');
   svg.setAttribute('viewBox', `0 0 ${HERO_W} ${HERO_H}`);
@@ -236,6 +255,7 @@ function buildHero(): Hero {
   meanLine.setAttribute('fill', 'none');
   meanLine.setAttribute('stroke', 'var(--color-fg-muted)');
   meanLine.setAttribute('stroke-width', '1.4');
+  meanLine.setAttribute('vector-effect', 'non-scaling-stroke');
   meanLine.setAttribute('stroke-linecap', 'round');
   meanLine.setAttribute('stroke-linejoin', 'round');
   svg.appendChild(meanLine);
@@ -244,33 +264,25 @@ function buildHero(): Hero {
   bestLine.setAttribute('class', 'stats-hero__line stats-hero__line--best');
   bestLine.setAttribute('fill', 'none');
   bestLine.setAttribute('stroke', '#a8ff60');
-  bestLine.setAttribute('stroke-width', '1.8');
+  bestLine.setAttribute('stroke-width', '2');
+  bestLine.setAttribute('vector-effect', 'non-scaling-stroke');
   bestLine.setAttribute('stroke-linecap', 'round');
   bestLine.setAttribute('stroke-linejoin', 'round');
   svg.appendChild(bestLine);
 
-  // Y-axis labels: max + min at the corners.
-  const yMaxLabel = document.createElementNS(SVG_NS, 'text');
-  yMaxLabel.setAttribute('class', 'stats-hero__axis');
-  yMaxLabel.setAttribute('x', '4');
-  yMaxLabel.setAttribute('y', '12');
-  svg.appendChild(yMaxLabel);
+  wrap.appendChild(svg);
 
-  const yMinLabel = document.createElementNS(SVG_NS, 'text');
-  yMinLabel.setAttribute('class', 'stats-hero__axis');
-  yMinLabel.setAttribute('x', '4');
-  yMinLabel.setAttribute('y', String(HERO_H - 4));
-  svg.appendChild(yMinLabel);
+  // HTML axis labels — positioned absolute over the SVG, so they
+  // never inherit the SVG's stretch.  yMax sits top-left, yMin
+  // bottom-left, gen-range bottom-right.
+  const yMaxLabel = makeAxisLabel('stats-hero__axis stats-hero__axis--y-top');
+  const yMinLabel = makeAxisLabel('stats-hero__axis stats-hero__axis--y-bot');
+  const genLabel = makeAxisLabel('stats-hero__axis stats-hero__axis--x-end');
+  wrap.appendChild(yMaxLabel);
+  wrap.appendChild(yMinLabel);
+  wrap.appendChild(genLabel);
 
-  // Gen-range label (bottom-right)
-  const genLabel = document.createElementNS(SVG_NS, 'text');
-  genLabel.setAttribute('class', 'stats-hero__axis');
-  genLabel.setAttribute('x', String(HERO_W - 4));
-  genLabel.setAttribute('y', String(HERO_H - 4));
-  genLabel.setAttribute('text-anchor', 'end');
-  svg.appendChild(genLabel);
-
-  card.appendChild(svg);
+  card.appendChild(wrap);
 
   function clear(): void {
     bestVal.value.textContent = '—';
@@ -288,8 +300,8 @@ function buildHero(): Hero {
       return;
     }
     const latest = history[history.length - 1]!;
-    bestVal.value.textContent = `${latest.best.toFixed(1)} m`;
-    meanVal.value.textContent = `${latest.mean.toFixed(1)} m`;
+    bestVal.value.textContent = `${latest.best.toFixed(1)} м`;
+    meanVal.value.textContent = `${latest.mean.toFixed(1)} м`;
 
     // Shared Y-range across both series so they're visually
     // comparable.  Always anchor min at 0 so "improvement" reads as
@@ -313,12 +325,12 @@ function buildHero(): Hero {
     bestLine.setAttribute('points', bestPts.trim());
     meanLine.setAttribute('points', meanPts.trim());
 
-    yMaxLabel.textContent = `${max.toFixed(0)}m`;
+    yMaxLabel.textContent = `${max.toFixed(0)}м`;
     yMinLabel.textContent = '0';
     const firstGen = history[0]!.generation;
     const lastGen = latest.generation;
     genLabel.textContent =
-      firstGen === lastGen ? `gen ${lastGen}` : `gen ${firstGen}–${lastGen}`;
+      firstGen === lastGen ? `пок. ${lastGen}` : `пок. ${firstGen}–${lastGen}`;
   }
 
   return { el: card, update, clear };
@@ -344,6 +356,12 @@ function makeBigStat(
   return { el, value };
 }
 
+function makeAxisLabel(className: string): HTMLSpanElement {
+  const span = document.createElement('span');
+  span.className = className;
+  return span;
+}
+
 /* ─── Section 2: Distribution histogram ────────────────────────────── */
 
 type Histogram = {
@@ -356,14 +374,15 @@ function buildHistogram(): Histogram {
   const card = document.createElement('div');
   card.className = 'stats-card stats-card--hist';
 
-  const head = document.createElement('div');
-  head.className = 'stats-card__head';
   const title = document.createElement('h4');
   title.className = 'stats-card__title';
   title.setAttribute('data-i18n', 'stats.distribution');
   title.textContent = t('stats.distribution');
-  head.appendChild(title);
-  card.appendChild(head);
+  card.appendChild(title);
+
+  // Same wrap-with-DOM-labels pattern as the hero chart.
+  const wrap = document.createElement('div');
+  wrap.className = 'stats-hist__wrap';
 
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('class', 'stats-hist');
@@ -371,33 +390,42 @@ function buildHistogram(): Histogram {
   svg.setAttribute('preserveAspectRatio', 'none');
 
   const bars: SVGRectElement[] = [];
-  const barW = HIST_W / HIST_BINS;
+  // Each bin gets a small horizontal gap so adjacent bars read as
+  // discrete columns instead of a single banded slab.
+  const slot = HIST_W / HIST_BINS;
+  const gap = slot * 0.18;
   for (let i = 0; i < HIST_BINS; i++) {
     const r = document.createElementNS(SVG_NS, 'rect');
     r.setAttribute('class', 'stats-hist__bar');
-    r.setAttribute('x', String(i * barW + 1));
-    r.setAttribute('width', String(barW - 2));
+    r.setAttribute('x', String(i * slot + gap / 2));
+    r.setAttribute('width', String(slot - gap));
     r.setAttribute('y', String(HIST_H));
     r.setAttribute('height', '0');
     svg.appendChild(r);
     bars.push(r);
   }
 
-  // X-axis labels: 0 on the left, max on the right
-  const xMin = document.createElementNS(SVG_NS, 'text');
-  xMin.setAttribute('class', 'stats-hist__axis');
-  xMin.setAttribute('x', '4');
-  xMin.setAttribute('y', String(HIST_H - 4));
-  svg.appendChild(xMin);
+  // Baseline along the bottom so an all-zero histogram still has a
+  // visible axis to anchor the eye.
+  const baseline = document.createElementNS(SVG_NS, 'line');
+  baseline.setAttribute('class', 'stats-hist__baseline');
+  baseline.setAttribute('x1', '0');
+  baseline.setAttribute('x2', String(HIST_W));
+  baseline.setAttribute('y1', String(HIST_H - 1));
+  baseline.setAttribute('y2', String(HIST_H - 1));
+  baseline.setAttribute('vector-effect', 'non-scaling-stroke');
+  svg.appendChild(baseline);
 
-  const xMax = document.createElementNS(SVG_NS, 'text');
-  xMax.setAttribute('class', 'stats-hist__axis');
-  xMax.setAttribute('x', String(HIST_W - 4));
-  xMax.setAttribute('y', String(HIST_H - 4));
-  xMax.setAttribute('text-anchor', 'end');
-  svg.appendChild(xMax);
+  wrap.appendChild(svg);
 
-  card.appendChild(svg);
+  const xMin = makeAxisLabel('stats-hist__axis stats-hist__axis--left');
+  const xMax = makeAxisLabel('stats-hist__axis stats-hist__axis--right');
+  const peakLabel = makeAxisLabel('stats-hist__axis stats-hist__axis--peak');
+  wrap.appendChild(xMin);
+  wrap.appendChild(xMax);
+  wrap.appendChild(peakLabel);
+
+  card.appendChild(wrap);
 
   function clear(): void {
     for (const r of bars) {
@@ -406,6 +434,7 @@ function buildHistogram(): Histogram {
     }
     xMin.textContent = '';
     xMax.textContent = '';
+    peakLabel.textContent = '';
   }
 
   function update(results: Scored[] | null): void {
@@ -428,12 +457,13 @@ function buildHistogram(): Histogram {
     for (const c of bins) if (c > peak) peak = c;
     for (let i = 0; i < HIST_BINS; i++) {
       const count = bins[i] ?? 0;
-      const h = (count / peak) * (HIST_H - 14);
+      const h = (count / peak) * (HIST_H - 4);
       bars[i]!.setAttribute('y', String(HIST_H - h));
       bars[i]!.setAttribute('height', String(h));
     }
     xMin.textContent = '0';
-    xMax.textContent = `${niceMax.toFixed(0)}m`;
+    xMax.textContent = `${niceMax.toFixed(0)}м`;
+    peakLabel.textContent = `пик ${peak} маш.`;
   }
 
   return { el: card, update, clear };
@@ -491,6 +521,7 @@ function buildGenomeGrid(): GenomeGrid {
     polyline.setAttribute('fill', 'none');
     polyline.setAttribute('stroke', 'var(--color-fg-muted)');
     polyline.setAttribute('stroke-width', '1.4');
+    polyline.setAttribute('vector-effect', 'non-scaling-stroke');
     polyline.setAttribute('stroke-linecap', 'round');
     polyline.setAttribute('stroke-linejoin', 'round');
     svg.appendChild(polyline);

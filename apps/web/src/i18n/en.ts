@@ -3,6 +3,7 @@ const enRaw = {
   'panel.cars': 'Cars',
   'panel.lead': 'Lead',
   'panel.bestEver': 'Best',
+  'panel.eliteSolo': 'Elite·solo',
   'panel.seed': 'Seed',
   'panel.evolution': 'Evolution',
   'panel.population': 'Population',

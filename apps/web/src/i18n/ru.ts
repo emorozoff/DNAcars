@@ -5,6 +5,7 @@ export const ru: Dictionary = {
   'panel.cars': 'Машин',
   'panel.lead': 'Лидер',
   'panel.bestEver': 'Рекорд',
+  'panel.eliteSolo': 'Элита·соло',
   'panel.seed': 'Сид',
   'panel.evolution': 'Эволюция',
   'panel.population': 'Популяция',

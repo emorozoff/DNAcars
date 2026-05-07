@@ -43,6 +43,7 @@ import {
   TUNING,
   type Genome,
   type ObstacleConfig,
+  type Track,
   type TrackOptions,
   type WorldHandle,
   type WorldSnapshot,
@@ -161,6 +162,61 @@ const STEP_DEADLINE_MS = 25;
 const MAX_ACC_SEC = 1.0;
 
 /**
+ * Derive a stable 32-bit GA seed from the track seed + generation
+ * number.  Standard 32-bit avalanche mix (Murmur3 finalizer style):
+ * any pair of inputs produces a well-distributed output, and the
+ * function is pure so the same (trackSeed, generation) always
+ * yields the same gaSeed.
+ *
+ * Used to replace the previous `Math.random()`-based seed.  The
+ * goal is *reproducibility* — fixed-track + the same starting
+ * conditions should always evolve identically, so a player can
+ * share a track seed and have somebody else recreate the run.
+ */
+function deriveGaSeed(trackSeed: number, generation: number): number {
+  let h = (trackSeed >>> 0) ^ ((generation * 0x9e3779b9) >>> 0);
+  h = Math.imul(h, 0x85ebca6b) >>> 0;
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35) >>> 0;
+  h ^= h >>> 16;
+  return h >>> 0;
+}
+
+/**
+ * Hard cap on side-world simulation steps so a buggy / never-
+ * stalling elite can't lock up the verification pass.  At 60 sim
+ * Hz this is 600 s = 10 min, matching TUNING.lifecycle.maxGenerationSec.
+ */
+const VERIFY_MAX_STEPS = 60 * 600;
+
+/**
+ * Run a single genome alone in its own freshly-built Rapier world
+ * on the same track, simulating until it finishes (stalls, rolls
+ * back past threshold, hits a kill-zone, or maxes out the step
+ * cap).  Returns the travel distance.
+ *
+ * "Solo verification" — a diagnostic for the multi-body world's
+ * subtle non-determinism.  When the main world reports the elite
+ * doing 300 m, we re-run that same genome alone here; if the solo
+ * result differs, we know the elite's 300 m run was sensitive to
+ * the *other* cars sharing its Rapier world (FP noise from
+ * broadphase / solver iteration order).  Identical results mean
+ * the multi-body world is well-behaved on this genome.
+ */
+async function verifyEliteAlone(genome: Genome, track: Track): Promise<number> {
+  const sideWorld = await createWorld({ track, genomes: [genome], spawnX: SPAWN_X });
+  let steps = 0;
+  while (!sideWorld.allFinished() && steps < VERIFY_MAX_STEPS) {
+    sideWorld.step();
+    steps++;
+  }
+  const snap = sideWorld.snapshot();
+  const travel = snap.cars[0]?.travel ?? 0;
+  sideWorld.destroy();
+  return travel;
+}
+
+/**
  * Resolve the multiplier and headless flag the tick loop should use
  * *right now*, taking the skip-N-gens override into account.
  */
@@ -200,6 +256,8 @@ type Hud = {
   seed: HTMLElement;
   generation: HTMLElement;
   version: HTMLElement;
+  /** Solo-verified elite distance (top-1 re-run alone). */
+  eliteSolo: HTMLElement;
 };
 
 async function bootstrap(): Promise<void> {
@@ -222,6 +280,7 @@ async function bootstrap(): Promise<void> {
     seed: requireEl('stat-seed'),
     generation: requireEl('stat-generation'),
     version: requireEl('app-version'),
+    eliteSolo: requireEl('stat-elite-solo'),
   };
   hud.version.textContent = `v${__APP_VERSION__}`;
 
@@ -275,6 +334,7 @@ async function bootstrap(): Promise<void> {
     trackRecordHistory.length = 0;
     scene.setRecordHistory([]);
     hud.best.textContent = '—';
+    hud.eliteSolo.textContent = '—';
     if (charts) charts.update(history);
   }
 
@@ -512,10 +572,18 @@ async function bootstrap(): Promise<void> {
     // Build the genomes for this generation.  Gen 0 (or "Space"
     // restart) seeds with random genomes; later generations are
     // produced by the GA from the previous gen's fitness vector.
-    // GA RNG uses a separate seed so it doesn't lock-step with the
-    // (possibly fixed) track seed across generations.
+    //
+    // GA seed is *derived deterministically* from the (trackSeed,
+    // generation) pair.  In fixed-track mode this means rerunning
+    // the same fixed seed always produces the same evolution path
+    // — necessary if the player wants to share a track and have
+    // others reproduce their results, or to compare two tweaks
+    // of the GA params on identical conditions.  In random/smooth/
+    // extreme modes the trackSeed itself is fresh per gen, so the
+    // GA still appears random — but the relationship is now
+    // pure-functional, no Math.random() in the seed pipeline.
     let genomes: Genome[];
-    const gaSeed = (Math.random() * 0xffffffff) >>> 0;
+    const gaSeed = deriveGaSeed(trackSeed, generation);
     if (lastResults && generation > 0) {
       const gaRng = makeRng(gaSeed);
       genomes = nextGeneration(lastResults, gaParams, gaRng);
@@ -782,6 +850,17 @@ async function startSession(opts: StartOptions): Promise<Session> {
         fitness: snap.cars[i]?.travel ?? 0,
       }));
       onGenerationEnd(results);
+      // Solo-verify the top-1 elite in a side-world.  Skipped while
+      // skip-N-gens is active (extra ~50–150 ms per gen times N
+      // would noticeably slow the skip).  Runs in the background;
+      // the next generation starts immediately, the verified-elite
+      // HUD just updates whenever this resolves.
+      if (skipUntilGen === null) {
+        const top = results.reduce((a, b) => (b.fitness > a.fitness ? b : a));
+        void verifyEliteAlone(top.genome, track).then((solo) => {
+          hud.eliteSolo.textContent = `${solo.toFixed(1)} m`;
+        });
+      }
       return;
     }
     requestAnimationFrame(tick);

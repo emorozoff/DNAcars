@@ -273,6 +273,22 @@ export type TrackOptions = {
   step: number;
   warmup: number;
   amplitude: number;
+  /**
+   * Distance (m) over which the track ramps from "easy" (low
+   * amplitude, no high-freq chatter) to its full configured
+   * difficulty.  Lets the population earn fitness even from
+   * mediocre genomes early in the run, while still presenting
+   * brutal terrain to whatever survives long enough to reach it.
+   *
+   * Inside this window:
+   *   - Overall amplitude scales linearly from 25 % to 100 %.
+   *   - The two highest-frequency octaves (sharp bumps) are
+   *     gated entirely to 0 until x = 80 m, then ramp up.
+   *
+   * Beyond `warmup + difficultyDistance` the track plays at full
+   * specced amplitude and full chaos.
+   */
+  difficultyDistance: number;
 };
 
 export type Track = {
@@ -291,7 +307,19 @@ const DEFAULT_TRACK: TrackOptions = {
    * the world looks more alive.
    */
   amplitude: 5.0,
+  /**
+   * 250 m ramp.  Picked so the visible "this is getting harder"
+   * progression matches the timescale of an evolved population's
+   * peak distance: gen-0 random cars die in ≈ 30–80 m, evolved
+   * cars push past 200 m.  By the time evolution is doing its
+   * job, cars start hitting full-amplitude terrain — exactly
+   * when the player wants to see the harder challenges.
+   */
+  difficultyDistance: 250,
 };
+
+/** Frequency where the high-frequency "sharpness" octaves wake up (m). */
+const SHARPNESS_START = 80;
 
 export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): Track {
   const o: TrackOptions = { ...DEFAULT_TRACK, ...opts };
@@ -309,12 +337,32 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
   const drift = { freq: 0.018, phase: rng() * Math.PI * 2, weight: 0.85 };
 
   const points: { x: number; y: number }[] = [];
+  const difficultyEnd = o.warmup + o.difficultyDistance;
   for (let x = 0; x <= o.length + 1e-4; x += o.step) {
-    const ramp = smoothstep(0, o.warmup, x);
+    // Spawn-pad: 0 → 1 over warmup.  Guarantees the first 25 m is
+    // perfectly flat for the cars to settle on under gravity.
+    const baseRamp = smoothstep(0, o.warmup, x);
+    // Difficulty ramp: 0.25 → 1.0 of the configured amplitude over
+    // `difficultyDistance` past the spawn-pad.  Even the "easy"
+    // floor of 0.25 isn't trivial — bad genomes still fail it, but
+    // mediocre ones can get a few hundred metres before the terrain
+    // hits full chaos.
+    const difficulty = smoothstep(o.warmup, difficultyEnd, x);
+    const ampScale = lerp(0.25, 1.0, difficulty);
+    // Sharpness ramp: the two highest octaves (sharp local bumps)
+    // are gated off entirely until x = SHARPNESS_START, then fade
+    // in over the rest of the difficulty window.  The result is
+    // smooth, long-period hills early on; sharper terrain only
+    // emerges once the cars have already proven they can handle
+    // the basics.
+    const sharpness = smoothstep(SHARPNESS_START, difficultyEnd, x);
     let y = 0;
-    for (const l of layers) y += Math.sin(x * l.freq + l.phase) * l.weight;
+    y += Math.sin(x * layers[0]!.freq + layers[0]!.phase) * layers[0]!.weight;
+    y += Math.sin(x * layers[1]!.freq + layers[1]!.phase) * layers[1]!.weight;
+    y += Math.sin(x * layers[2]!.freq + layers[2]!.phase) * layers[2]!.weight * sharpness;
+    y += Math.sin(x * layers[3]!.freq + layers[3]!.phase) * layers[3]!.weight * sharpness;
     y += Math.sin(x * drift.freq + drift.phase) * drift.weight;
-    y *= ramp * o.amplitude;
+    y *= baseRamp * ampScale * o.amplitude;
     points.push({ x, y });
   }
   if (points[0]) points[0].y = 0;

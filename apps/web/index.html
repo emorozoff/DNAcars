@@ -23,7 +23,7 @@
           <span class="brand__version" id="app-version">v—</span>
         </div>
         <div class="topbar__hint" data-i18n="panel.hint">
-          space → pause · button → new population
+          Space — pause &nbsp;·&nbsp; button — new population
         </div>
         <button class="btn btn--ghost" id="lang-toggle" aria-label="Toggle language">EN</button>
       </header>
@@ -220,12 +220,12 @@
 
         <aside class="hud-side hud-side--right">
           <button class="btn btn--primary" id="btn-charts" data-i18n="panel.chartsToggle">
-            📊 stats
+            Stats
           </button>
-          <button class="btn btn--primary" id="btn-pause">⏸ pause</button>
+          <button class="btn btn--primary" id="btn-pause">Pause</button>
 
           <div class="seg-group">
-            <span class="seg-group__label" data-i18n="panel.speedLabel">speed</span>
+            <span class="seg-group__label" data-i18n="panel.speedLabel">Speed</span>
             <div class="segmented" id="seg-speed" role="radiogroup">
               <button class="segmented__item" data-speed-idx="0" type="button">×1</button>
               <button class="segmented__item" data-speed-idx="1" type="button">×8</button>
@@ -234,25 +234,25 @@
           </div>
 
           <div class="seg-group">
-            <span class="seg-group__label" data-i18n="panel.trackLabel">track</span>
-            <div class="segmented" id="seg-track" role="radiogroup">
+            <span class="seg-group__label" data-i18n="panel.trackLabel">Track preset</span>
+            <div class="segmented segmented--stack" id="seg-track" role="radiogroup">
               <button class="segmented__item" data-track-mode="random" type="button">
-                <span data-i18n="panel.trackShortRandom">🎲 rand</span>
+                <span data-i18n="panel.trackShortRandom">Random</span>
               </button>
               <button class="segmented__item" data-track-mode="fixed" type="button">
-                <span data-i18n="panel.trackShortFixed">📌 fix</span>
+                <span data-i18n="panel.trackShortFixed">Fixed</span>
               </button>
               <button class="segmented__item" data-track-mode="smooth" type="button">
-                <span data-i18n="panel.trackShortSmooth">〰 smooth</span>
+                <span data-i18n="panel.trackShortSmooth">Smooth</span>
               </button>
               <button class="segmented__item" data-track-mode="extreme" type="button">
-                <span data-i18n="panel.trackShortExtreme">⛰ hard</span>
+                <span data-i18n="panel.trackShortExtreme">Hard</span>
               </button>
             </div>
           </div>
           <div class="confirm-anchor">
             <button class="btn btn--primary" id="btn-restart" data-i18n="panel.restart">
-              ↻ new population
+              New population
             </button>
             <div class="confirm-popover" id="restart-confirm" hidden>
               <p class="confirm-popover__text" data-i18n="panel.restartConfirm">
@@ -278,7 +278,9 @@
           </div>
         </aside>
 
-        <button class="btn btn--floating" id="btn-camera-leader" hidden>📍 leader</button>
+        <button class="btn btn--floating" id="btn-camera-leader" hidden>Follow leader</button>
+
+        <div class="headless-banner" data-i18n="panel.headlessBanner">Render off · ×32 speed</div>
 
         <aside class="charts-panel" id="charts-panel" hidden></aside>
 

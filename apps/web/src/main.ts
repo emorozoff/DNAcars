@@ -519,6 +519,17 @@ async function bootstrap(): Promise<void> {
     if (host instanceof HTMLElement) {
       host.style.visibility = headless ? 'hidden' : '';
     }
+    // body.mode-headless drives the ×32 layout: minimap fills the
+    // canvas area, charts pin to the lower right, and a "render off"
+    // banner appears so the player understands why the world view
+    // is blank.
+    document.body.classList.toggle('mode-headless', headless);
+    // Auto-open the charts panel when entering headless — there's
+    // nothing else interesting to look at, and live stats are the
+    // whole point of skipping the render.
+    if (headless && charts && !charts.isVisible()) {
+      charts.setVisible(true);
+    }
   }
 
   speedSegItems.forEach((el) => {

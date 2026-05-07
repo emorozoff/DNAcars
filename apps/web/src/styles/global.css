@@ -167,6 +167,13 @@ button {
   backdrop-filter: blur(8px);
 }
 
+/* Vertical-stack variant — used for the four-option track preset
+   selector where horizontal labels would make the right sidebar
+   unmanageably wide.  Each segment becomes a full-width row. */
+.segmented--stack {
+  flex-direction: column;
+}
+
 .segmented__item {
   flex: 1;
   background: transparent;
@@ -184,6 +191,12 @@ button {
   /* Compact text — segments need to fit four labels in a stack
      where a single button used to live. */
   min-width: 0;
+  text-align: center;
+}
+
+.segmented--stack .segmented__item {
+  text-align: left;
+  padding-left: var(--sp-3);
 }
 
 .segmented__item:hover {
@@ -346,7 +359,9 @@ button {
 
 .hud-side--left {
   left: var(--sp-4);
-  width: 240px;
+  /* 260 px (was 240) gives full-word Russian labels like
+     "Поколение" / "Популяция" room without crowding the values. */
+  width: 260px;
 }
 
 .hud-side--right {
@@ -366,8 +381,16 @@ button {
 
 .hud-card--stats {
   display: grid;
-  grid-template-columns: auto auto;
-  gap: var(--sp-1) var(--sp-5);
+  /* Two-column auto-fit: label hugs left, value hugs right.  The
+     min-content + 1fr split lets labels stay compact (no wasted
+     gutter) while values still right-align with the card edge. */
+  grid-template-columns: max-content 1fr;
+  gap: var(--sp-1) var(--sp-3);
+  align-items: baseline;
+}
+
+.hud-card--stats .hud-card__value {
+  text-align: right;
 }
 
 .hud-card--controls {
@@ -517,6 +540,51 @@ button {
 
 .minimap--dragging {
   cursor: grabbing;
+}
+
+/* ─── Headless / ×32 layout ─────────────────────────────────────────────── */
+
+/* When the canvas is hidden (×32 speed mode), the minimap takes
+   over: it grows to fill most of the empty stage area so the
+   player can still watch the population's progress at a glance,
+   and the charts panel auto-opens to fill the rest of the lower
+   half.  Sidebars remain in place — sliders and stats are still
+   useful in this mode. */
+.mode-headless .minimap {
+  height: calc(60vh - var(--sp-4));
+  /* Wider too — no canvas to leave room for, just the sidebars. */
+  width: min(1700px, calc(100vw - 540px));
+}
+
+.mode-headless .charts-panel {
+  /* Anchor lower-right, taller, so it fills the stretch under the
+     enlarged minimap.  Width matches the previous default
+     (640 px max) so the side panels stay readable. */
+  bottom: var(--sp-4);
+  right: var(--sp-4);
+  max-height: 35vh;
+}
+
+/* Big "headless" hint top-centre so the player understands why
+   their canvas is blank.  Hidden by default, only visible when
+   .mode-headless is active. */
+.headless-banner {
+  position: absolute;
+  top: calc(60vh + var(--sp-2));
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-fg-muted);
+  pointer-events: none;
+  z-index: 1;
+  display: none;
+}
+
+.mode-headless .headless-banner {
+  display: block;
 }
 
 .minimap__track {

@@ -41,7 +41,7 @@ const enRaw = {
   'panel.strictDeterminism': 'Strict determinism',
   'panel.strictDeterminismHint': 'Same seed → identical run, every time. Costs ≈2× CPU.',
   'panel.strictDeterminismWarning':
-    'Strict determinism gives every car its own physics world.\nThe same seed will produce a bit-identical run every time, but the simulation runs ≈2× slower.\n\nTurn it on?',
+    'Strict determinism gives every car its own physics world.\nThe same seed will produce a bit-identical run every time, but the simulation runs ≈2× slower.\n\nIf you do not understand what this is about — turn it on only if you have a powerful computer. Otherwise leave it off.\n\nTurn it on?',
   'tutorial.close': 'Close',
   'tutorial.next': 'Next',
   'tutorial.back': 'Back',

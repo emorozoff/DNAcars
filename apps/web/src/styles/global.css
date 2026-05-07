@@ -1276,35 +1276,45 @@ button {
 
 /* ─── Headless / ×32 layout ─────────────────────────────────────────────── */
 
-/* When the canvas is hidden (×32 speed mode), the minimap takes
-   over: it grows to fill most of the empty stage area so the
-   player can still watch the population's progress at a glance.
-   The dock + ribbon stats stay anchored as in normal mode; only
-   the minimap's height changes. */
+/* ×32 speed-mode layout:
+   - Ribbon stacks vertically: stats card on top, minimap underneath.
+     The stats card stays its normal compact size; the minimap grows
+     to a "useful but not dominant" height so the player can still
+     scan car positions at a glance.
+   - Charts panel auto-opens (driven from main.ts) and takes the
+     remaining vertical space between the ribbon and the dock —
+     stats are the main attraction in this mode.
+   - The headless banner is hidden; the dock's highlighted ×32
+     button + the auto-opened stats panel are sufficient cues that
+     rendering is off. */
+.mode-headless .ribbon {
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.mode-headless .ribbon__stats {
+  align-self: flex-start;
+}
+
 .mode-headless .minimap {
-  height: calc(100vh - var(--topbar-h) - 10rem);
+  height: 8rem;
+  width: 100%;
 }
 
-/* Big "headless" hint just below the enlarged minimap so the player
-   understands why their canvas is blank.  Hidden by default, only
-   visible when .mode-headless is active. */
+.mode-headless .charts-panel {
+  /* Stretch to fill the canvas area: from below the ribbon down to
+     just above the dock, full width. */
+  top: calc(var(--sp-3) + 2.25rem + var(--sp-2) + 8rem + var(--sp-3));
+  left: var(--sp-4);
+  right: var(--sp-4);
+  bottom: calc(var(--sp-3) + 7.5rem);
+  width: auto;
+  max-width: none;
+  max-height: none;
+}
+
 .headless-banner {
-  position: absolute;
-  bottom: calc(var(--sp-3) + 8rem);
-  left: 50%;
-  transform: translateX(-50%);
-  font-family: var(--font-mono);
-  font-size: var(--fs-sm);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-fg-muted);
-  pointer-events: none;
-  z-index: 1;
   display: none;
-}
-
-.mode-headless .headless-banner {
-  display: block;
 }
 
 .minimap__track {

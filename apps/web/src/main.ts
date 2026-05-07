@@ -792,6 +792,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
   let lastTime = performance.now();
   let acc = 0;
   let elapsed = 0;
+  let frameCount = 0;
 
   function tick(): void {
     if (!running) return;
@@ -826,11 +827,21 @@ async function startSession(opts: StartOptions): Promise<Session> {
       world.forceFinishAll();
     }
     const snap = world.snapshot();
-    // Always push the snapshot.  Scene's setSnapshot keeps the
-    // minimap + camera target updated unconditionally (cheap SVG
-    // writes); in headless mode (×32 or skip) we tell it to skip
-    // the per-car Pixi work since the canvas is invisible anyway.
-    scene.setSnapshot(snap, { renderCars: !eff.headless });
+    // Pick the render tier from speedIdx:
+    //   ×1   → 'full' — wheel tints, all visual fidelity
+    //   ×8   → 'lite' — skip wheel tints, also throttle to every
+    //          other RAF frame (cars zoom faster than the eye
+    //          can track anyway, and this halves per-car Pixi
+    //          attribute writes — main perf bottleneck on busy
+    //          first generations with 60 cars).
+    //   ×32  → 'none' — canvas hidden, only camera + minimap
+    //          update.
+    let tier: 'full' | 'lite' | 'none' = 'full';
+    if (eff.headless) tier = 'none';
+    else if (speedIdx === 1) tier = 'lite';
+    frameCount++;
+    const skipPixiThisFrame = tier === 'lite' && (frameCount & 1) === 1;
+    scene.setSnapshot(snap, { tier: skipPixiThisFrame ? 'none' : tier });
     updateHud(hud, snap);
 
     if (!endNotified && world.allFinished()) {

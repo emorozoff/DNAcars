@@ -73,6 +73,12 @@ const HIGHLIGHT_MS = 1500;
 export type CarClickHandler = (carIndex: number) => void;
 
 /**
+ * How much rendering work to do per frame.  Mapped from the host's
+ * speed setting in main.ts: ×1 → 'full', ×8 → 'lite', ×32 → 'none'.
+ */
+export type RenderTier = 'full' | 'lite' | 'none';
+
+/**
  * What the camera is currently locked onto.
  *
  *   leader  default — the running leader, falling back to whatever
@@ -100,13 +106,23 @@ export type SceneHandle = {
     physicalObstacles?: readonly PhysicalObstacle[],
   ): void;
   /**
-   * Apply a new world snapshot.  Camera target + minimap always
-   * update; the per-car Pixi rendering updates only when
-   * `renderCars` is true (default).  Pass `renderCars: false` in
-   * headless modes (×32 / skip-N-gens) so we save the per-frame
-   * Pixi work but the minimap still moves.
+   * Apply a new world snapshot.
+   *
+   * `tier` controls how much per-car work the renderer does:
+   *
+   *   'full' (×1) — full quality.  Drop shadows under each
+   *                  chassis, wheel-on-ground green tint, full
+   *                  spoke detail.  All ×1 effects are tier-
+   *                  gated to avoid wasted work at higher speeds.
+   *   'lite' (×8) — minimal.  No shadows, no wheel tint, no
+   *                  spoke updates.  Cars zooming at 8× real-time
+   *                  blur into colour anyway; skipping these
+   *                  per-frame attribute writes is 60 cars × 4
+   *                  wheels × ~3 properties = ~720 writes saved.
+   *   'none' (×32) — headless.  Camera + minimap still update;
+   *                   no per-car Pixi work at all.
    */
-  setSnapshot(s: WorldSnapshot, opts?: { renderCars?: boolean }): void;
+  setSnapshot(s: WorldSnapshot, opts?: { tier?: RenderTier }): void;
   /** Register (or clear) the callback fired when the user clicks a car. */
   onCarClick(handler: CarClickHandler | null): void;
   /**
@@ -170,6 +186,12 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   // against the grey surface.
   const obstaclesGfx = new Graphics();
   world.addChild(obstaclesGfx);
+
+  // Shadows go on their own layer, between obstacles and cars,
+  // so dark elliptical drops don't fight with the chassis fill.
+  // Only populated at tier === 'full'.
+  const shadowsLayer = new Container();
+  world.addChild(shadowsLayer);
 
   const carsLayer = new Container();
   world.addChild(carsLayer);
@@ -452,10 +474,11 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     drawParallaxLayer(bgNearGfx, last.x, 0.09, 1.0, 0.4, COLORS.bgNear);
   }
 
-  function setSnapshot(snap: WorldSnapshot, opts: { renderCars?: boolean } = {}): void {
-    const renderCars = opts.renderCars !== false;
+  function setSnapshot(snap: WorldSnapshot, opts: { tier?: RenderTier } = {}): void {
+    const tier: RenderTier = opts.tier ?? 'full';
+    const renderCars = tier !== 'none';
 
-    // ── Always run, regardless of headless mode ────────────────────
+    // ── Always run, regardless of tier ────────────────────────────
     // Pick the leader (still-running preferred) and look up the
     // explicitly-followed car (if any) in a single pass.  Cheap:
     // O(N) with no Pixi side effects.
@@ -507,15 +530,18 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       if (!view) {
         view = makeCarView(car, (idx) => onCarClickHandler?.(idx));
         carsLayer.addChild(view.container);
+        shadowsLayer.addChild(view.shadow);
         carViews.set(car.index, view);
       }
-      updateCarView(view, car);
+      updateCarView(view, car, tier, trackPoints);
     }
 
     for (const [k, v] of carViews) {
       if (!seen.has(k)) {
         carsLayer.removeChild(v.container);
+        shadowsLayer.removeChild(v.shadow);
         v.container.destroy({ children: true });
+        v.shadow.destroy();
         carViews.delete(k);
       }
     }
@@ -536,7 +562,9 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       // "the physics is broken on every restart but the first".
       for (const v of carViews.values()) {
         carsLayer.removeChild(v.container);
+        shadowsLayer.removeChild(v.shadow);
         v.container.destroy({ children: true });
+        v.shadow.destroy();
       }
       carViews.clear();
       camera.x = points[0]?.x ?? 0;
@@ -598,8 +626,20 @@ type CarView = {
   container: Container;
   body: Graphics;
   wheels: Graphics[];
+  /**
+   * Soft drop-shadow ellipse pinned to the local track surface
+   * directly under the chassis.  Only shown at tier === 'full';
+   * hidden (visible=false) at lite/none.
+   */
+  shadow: Graphics;
   /** When > performance.now(), the chassis tints highlight-yellow (post-click). */
   highlightUntil: number;
+  /**
+   * True once the car has been drawn in its post-finish pose at
+   * least once.  Prevents per-frame Pixi attribute writes for a
+   * dead car that physics has already pinned in place.
+   */
+  finalDrawn: boolean;
 };
 
 function makeCarView(car: CarSnapshot, onClick: ((idx: number) => void) | null): CarView {
@@ -629,7 +669,23 @@ function makeCarView(car: CarSnapshot, onClick: ((idx: number) => void) | null):
     container.addChild(g);
   }
 
-  const view: CarView = { container, body, wheels, highlightUntil: 0 };
+  // Drop shadow — a single dark ellipse, pre-drawn once.  Width
+  // scales with the chassis bounding radius so big cars cast big
+  // shadows.  alpha 0.45 reads clearly against the track without
+  // muddying the chassis polygon above.
+  const chassisRadius = car.vertices.reduce((m, v) => Math.max(m, Math.hypot(v.x, v.y)), 0) || 0.5;
+  const shadow = new Graphics();
+  shadow.ellipse(0, 0, chassisRadius * 1.0, chassisRadius * 0.18);
+  shadow.fill({ color: 0x000000, alpha: 0.45 });
+
+  const view: CarView = {
+    container,
+    body,
+    wheels,
+    shadow,
+    highlightUntil: 0,
+    finalDrawn: false,
+  };
 
   // Click on a car: flash chassis yellow for 1.5 s and fire the
   // external handler so the host can dump a debug bundle to the
@@ -645,7 +701,19 @@ function makeCarView(car: CarSnapshot, onClick: ((idx: number) => void) | null):
   return view;
 }
 
-function updateCarView(view: CarView, car: CarSnapshot): void {
+function updateCarView(
+  view: CarView,
+  car: CarSnapshot,
+  tier: RenderTier,
+  trackPoints: { x: number; y: number }[] | null,
+): void {
+  // Skip the entire per-car update once a finished car has been
+  // rendered in its final pose at least once — the body is fixed
+  // in world.ts so its position will never change again.  Saves
+  // a Container.position/rotation write + per-wheel updates for
+  // every dead car still on screen.
+  if (car.finished && view.finalDrawn) return;
+
   view.container.position.set(car.position.x, car.position.y);
   view.container.rotation = car.angle;
   // Finished cars dim out so the eye is drawn to whoever is still
@@ -656,8 +724,28 @@ function updateCarView(view: CarView, car: CarSnapshot): void {
   // expires, then snaps back to the default body colour.
   view.body.tint = performance.now() < view.highlightUntil ? COLORS.highlight : COLORS.body;
 
+  // Drop shadow — only at tier 'full'.  Pinned to the local track
+  // surface y at the car's x, so the shadow stays "on the ground"
+  // even when the chassis is mid-jump (looks natural — the car
+  // casts a smaller shadow far below it).  alpha drops with the
+  // car's height above the surface so the shadow softens as the
+  // chassis flies.
+  if (tier === 'full' && trackPoints) {
+    const surfaceY = sampleTrackY(trackPoints, car.position.x);
+    const heightAboveSurface = Math.max(0, car.position.y - surfaceY);
+    view.shadow.visible = true;
+    view.shadow.position.set(car.position.x, surfaceY);
+    view.shadow.alpha = (car.finished ? 0.3 : 1) * Math.max(0.15, 1 - heightAboveSurface * 0.15);
+  } else {
+    view.shadow.visible = false;
+  }
+
   const cos = Math.cos(-car.angle);
   const sin = Math.sin(-car.angle);
+  // ×8 ('lite') skips per-wheel tinting to save 60 cars × 4 wheels
+  // worth of property writes per frame.  At that speed the wheel-
+  // grounded green flash is visually unreadable anyway.
+  const updateTints = tier === 'full';
   for (let i = 0; i < view.wheels.length; i++) {
     const wg = view.wheels[i]!;
     const ws = car.wheels[i];
@@ -666,8 +754,11 @@ function updateCarView(view: CarView, car: CarSnapshot): void {
     const dy = ws.position.y - car.position.y;
     wg.position.set(dx * cos - dy * sin, dx * sin + dy * cos);
     wg.rotation = ws.angle - car.angle;
-    wg.tint = ws.onGround && !car.finished ? COLORS.wheelGround : COLORS.wheel;
+    if (updateTints) {
+      wg.tint = ws.onGround && !car.finished ? COLORS.wheelGround : COLORS.wheel;
+    }
   }
+  if (car.finished) view.finalDrawn = true;
 }
 
 /* ─── Helpers ──────────────────────────────────────────────────────────── */

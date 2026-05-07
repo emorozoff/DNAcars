@@ -890,6 +890,13 @@ type CarRuntime = {
   /** Once true, motor is off and bodies are pinned in place forever. */
   finished: boolean;
   /**
+   * True after the chassis + wheels have been converted to Fixed
+   * bodies (one-shot transition, see freezeCar).  Lets the per-
+   * substep loop detect "already frozen" without re-issuing the
+   * Rapier setBodyType calls.
+   */
+  frozen: boolean;
+  /**
    * True when no wheel was grounded the last tick.  Used to switch
    * the chassis between "ground" damping (low) and "air" damping
    * (high) on transition, instead of writing damping every tick.
@@ -987,6 +994,9 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
       for (let s = 0; s < PHYSICS_SUBSTEPS; s++) {
         for (const car of cars) {
           if (car.finished) {
+            // freezeCar is a one-shot — first call after `finished`
+            // flips to true does the setBodyType conversion; later
+            // calls return immediately on the `frozen` guard.
             freezeCar(car);
             continue;
           }
@@ -1279,6 +1289,7 @@ function buildCar(
     lastProgressTime: 0,
     lastProgressX: spawnX,
     finished: false,
+    frozen: false,
     // Cars spawn ≈ 1.6 m above the track surface, so they're literally
     // airborne for the first beat.  Initial damping is set to the
     // airborne values below in buildCar so the spawn drop is gentle;
@@ -1454,18 +1465,24 @@ function updateLifecycle(car: CarRuntime): void {
 }
 
 /**
- * Pin a finished car in place so its bodies don't drift on slopes.
- * We zero linear+angular velocity every tick instead of converting
- * the bodies to kinematic so neighbouring still-running cars can
- * still bump into them.
+ * Convert a finished car's bodies to Fixed so Rapier excludes
+ * them from the dynamic solver entirely.  One-shot — guards on
+ * `frozen` so repeated calls (the per-substep loop checks every
+ * finished car) cost only a flag read.  v1.6 perf fix: previously
+ * we zeroed linvel/angvel on every substep × every wheel × every
+ * finished car, which was hundreds of API calls per game tick;
+ * Fixed bodies need none of that.
+ *
+ * Cars don't collide with each other anyway (group filter limits
+ * chassis/wheel contacts to TRACK only), so leaving them dynamic
+ * vs fixed has no gameplay effect on still-running neighbours.
  */
 function freezeCar(car: CarRuntime): void {
-  const z = { x: 0, y: 0 };
-  car.chassis.setLinvel(z, true);
-  car.chassis.setAngvel(0, true);
+  if (car.frozen) return;
+  car.frozen = true;
+  car.chassis.setBodyType(RAPIER.RigidBodyType.Fixed, true);
   for (const w of car.wheels) {
-    w.body.setLinvel(z, true);
-    w.body.setAngvel(0, true);
+    w.body.setBodyType(RAPIER.RigidBodyType.Fixed, true);
   }
 }
 

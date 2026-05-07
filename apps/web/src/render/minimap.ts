@@ -17,16 +17,17 @@
 import type { WorldSnapshot } from '../sim/world';
 
 /**
- * SVG viewBox: 1500×50.  At our typical display size (≈1260×44) this
- * gives an x-scale of 0.84 and a y-scale of 0.88 — close to uniform,
- * so strokes and dots aren't visibly stretched horizontally.  Was
- * 600×50 in v0.9.10 which looked OK at 420 px wide but became
- * obviously stretched once the user bumped the minimap to 1260 px.
+ * SVG viewBox: 1500×86.  At our typical display size (≈1400×80) this
+ * gives an x-scale of 0.93 and a y-scale of 0.93 — uniform, so
+ * strokes and dots don't stretch.  The taller box (was 50 in
+ * v0.9.20) lets vertical track features actually read on the
+ * minimap; the previous height squished hills into a near-flat
+ * line.
  */
 const VIEW_W = 1500;
-const VIEW_H = 50;
+const VIEW_H = 86;
 /** Vertical padding inside the viewBox so the track polyline doesn't kiss the edges. */
-const PAD_Y = 6;
+const PAD_Y = 12;
 /** Stride target — keep one polyline node per ≈ 6 viewBox units. */
 const STRIDE_TARGET = 6;
 /**

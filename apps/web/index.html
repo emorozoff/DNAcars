@@ -31,9 +31,9 @@
       <main class="stage">
         <div id="pixi-root" class="stage__canvas"></div>
 
-        <svg class="minimap" id="minimap" viewBox="0 0 1500 50" preserveAspectRatio="none">
+        <svg class="minimap" id="minimap" viewBox="0 0 1500 86" preserveAspectRatio="none">
           <polyline class="minimap__track" id="minimap-track" />
-          <rect class="minimap__viewport" id="minimap-viewport" y="0" height="50" />
+          <rect class="minimap__viewport" id="minimap-viewport" y="0" height="86" />
           <g class="minimap__cars" id="minimap-cars"></g>
           <circle class="minimap__leader" id="minimap-leader" r="4" />
           <g class="minimap__records" id="minimap-records"></g>
@@ -230,9 +230,32 @@
           <button class="btn btn--primary" id="btn-track" data-i18n="panel.trackRandom">
             🗺 random track
           </button>
-          <button class="btn btn--primary" id="btn-restart" data-i18n="panel.restart">
-            ↻ new population
-          </button>
+          <div class="confirm-anchor">
+            <button class="btn btn--primary" id="btn-restart" data-i18n="panel.restart">
+              ↻ new population
+            </button>
+            <div class="confirm-popover" id="restart-confirm" hidden>
+              <p class="confirm-popover__text" data-i18n="panel.restartConfirm">
+                Start a new population?
+              </p>
+              <div class="confirm-popover__actions">
+                <button
+                  class="btn btn--confirm-yes"
+                  id="restart-confirm-yes"
+                  data-i18n="panel.confirmYes"
+                >
+                  Confirm
+                </button>
+                <button
+                  class="btn btn--confirm-no"
+                  id="restart-confirm-no"
+                  data-i18n="panel.confirmNo"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
         </aside>
 
         <button class="btn btn--floating" id="btn-camera-leader" hidden>📍 leader</button>

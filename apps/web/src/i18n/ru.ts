@@ -21,6 +21,8 @@ export const ru: Dictionary = {
   'panel.bouncy': 'Батуты',
   'panel.restart': '↻ Новая популяция',
   'panel.restartConfirm': 'Создать новую популяцию?  Это удалит все гены текущего поколения.',
+  'panel.confirmYes': 'Подтвердить',
+  'panel.confirmNo': 'Отмена',
   'panel.pause': '⏸ Пауза',
   'panel.resume': '⏵ Продолжить',
   'panel.cameraLeader': '📍 К лидеру',

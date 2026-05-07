@@ -19,6 +19,8 @@ const enRaw = {
   'panel.bouncy': 'Bouncy',
   'panel.restart': '↻ New population',
   'panel.restartConfirm': 'Start a new population?  This wipes every gene of the current run.',
+  'panel.confirmYes': 'Confirm',
+  'panel.confirmNo': 'Cancel',
   'panel.pause': '⏸ Pause',
   'panel.resume': '⏵ Resume',
   'panel.cameraLeader': '📍 Back to leader',

@@ -358,19 +358,37 @@ async function bootstrap(): Promise<void> {
   $locale.subscribe(() => updateCameraButton());
 
   const restartBtn = document.getElementById('btn-restart');
-  function confirmAndRestart(): void {
-    // Native confirm is plenty here — short, blocking, and works
-    // identically across browsers.  We only ask once, on the
-    // user-initiated path; programmatic restarts (the inter-gen
-    // tick loop) bypass this entirely.
-    if (!window.confirm(t('panel.restartConfirm'))) return;
-    freshRun();
-    void restart();
+  const restartConfirm = document.getElementById('restart-confirm');
+  const restartConfirmYes = document.getElementById('restart-confirm-yes');
+  const restartConfirmNo = document.getElementById('restart-confirm-no');
+  function isConfirmOpen(): boolean {
+    return restartConfirm instanceof HTMLElement && !restartConfirm.hasAttribute('hidden');
+  }
+  function setConfirmOpen(open: boolean): void {
+    if (!(restartConfirm instanceof HTMLElement)) return;
+    if (open) restartConfirm.removeAttribute('hidden');
+    else restartConfirm.setAttribute('hidden', '');
   }
   if (restartBtn instanceof HTMLButtonElement) {
+    // Click on the trigger toggles the inline popover instead of
+    // showing a modal — the popover's "Confirm" button is what
+    // actually wipes the run.  Toggle (not always-open) so a second
+    // click on the trigger dismisses without firing.
     restartBtn.addEventListener('click', () => {
-      confirmAndRestart();
+      setConfirmOpen(!isConfirmOpen());
       restartBtn.blur();
+    });
+  }
+  if (restartConfirmYes instanceof HTMLButtonElement) {
+    restartConfirmYes.addEventListener('click', () => {
+      setConfirmOpen(false);
+      freshRun();
+      void restart();
+    });
+  }
+  if (restartConfirmNo instanceof HTMLButtonElement) {
+    restartConfirmNo.addEventListener('click', () => {
+      setConfirmOpen(false);
     });
   }
   window.addEventListener('keydown', (ev) => {
@@ -420,7 +438,13 @@ async function bootstrap(): Promise<void> {
         scene.followLeader();
         return;
       case 'Escape':
-        // Cancel skip and drop to realtime — universal "calm down" hotkey.
+        // If the inline confirm popover is open, Esc dismisses it
+        // first.  Otherwise it's the "calm down" hotkey: cancel any
+        // skip-N-gens job and drop the speed back to realtime.
+        if (isConfirmOpen()) {
+          setConfirmOpen(false);
+          return;
+        }
         if (skipUntilGen !== null) skipUntilGen = null;
         speedIdx = 0;
         updateSpeedButtonText();

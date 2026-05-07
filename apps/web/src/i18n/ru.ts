@@ -17,4 +17,18 @@ export const ru: Dictionary = {
   'panel.hint': 'пробел или кнопка → новая популяция',
   'legend.wheelAir': 'в воздухе',
   'legend.wheelGround': 'на земле',
+  // Графики (дашборд статистики)
+  'chart.best': 'Лучший фитнес',
+  'chart.mean': 'Средний фитнес',
+  'chart.median': 'Медианный фитнес',
+  'chart.worst': 'Худший фитнес',
+  'chart.stdev': 'Разнообразие (σ)',
+  'chart.alive': 'Машин поехало',
+  'chart.avgVerts': 'Ср. вершин корпуса',
+  'chart.avgWheels': 'Ср. колёс',
+  'chart.avgWheelPower': 'Ср. мощность колёс',
+  'chart.avgMotorSpeed': 'Ср. скорость мотора',
+  'chart.avgChassisDensity': 'Ср. плотность корпуса',
+  'chart.avgChassisSize': 'Ср. размер корпуса',
+  'chart.duration': 'Время поколения',
 };

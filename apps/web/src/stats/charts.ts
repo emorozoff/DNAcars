@@ -12,13 +12,15 @@
  * Adding a new chart is one line in `CHART_DEFS`.
  */
 
+import { t, type TranslationKey } from '../i18n';
 import type { GenerationStats } from './collector';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 type ChartDef = {
   key: keyof GenerationStats;
-  label: string;
+  /** i18n key for the title — wired through data-i18n so EN/RU toggle works. */
+  i18nKey: TranslationKey;
   /** Renders the latest value as a string (e.g. "12.3 m"). */
   format: (v: number) => string;
   /** Optional override stroke colour; defaults to muted grey. */
@@ -26,43 +28,36 @@ type ChartDef = {
 };
 
 const CHART_DEFS: ChartDef[] = [
-  { key: 'best', label: 'Best fitness', format: (v) => `${v.toFixed(1)} m`, color: '#a8ff60' },
-  { key: 'mean', label: 'Mean fitness', format: (v) => `${v.toFixed(1)} m` },
-  { key: 'median', label: 'Median fitness', format: (v) => `${v.toFixed(1)} m` },
-  { key: 'worst', label: 'Worst fitness', format: (v) => `${v.toFixed(1)} m` },
-  { key: 'stdev', label: 'Diversity (σ)', format: (v) => `${v.toFixed(1)} m` },
-  { key: 'alive', label: 'Cars that moved', format: (v) => v.toFixed(0) },
   {
-    key: 'avgVertexCount',
-    label: 'Avg chassis verts',
-    format: (v) => v.toFixed(1),
+    key: 'best',
+    i18nKey: 'chart.best',
+    format: (v) => `${v.toFixed(1)} m`,
+    color: '#a8ff60',
   },
-  { key: 'avgWheelCount', label: 'Avg wheels', format: (v) => v.toFixed(2) },
-  {
-    key: 'avgWheelPower',
-    label: 'Avg wheel power',
-    format: (v) => v.toFixed(2),
-  },
+  { key: 'mean', i18nKey: 'chart.mean', format: (v) => `${v.toFixed(1)} m` },
+  { key: 'median', i18nKey: 'chart.median', format: (v) => `${v.toFixed(1)} m` },
+  { key: 'worst', i18nKey: 'chart.worst', format: (v) => `${v.toFixed(1)} m` },
+  { key: 'stdev', i18nKey: 'chart.stdev', format: (v) => `${v.toFixed(1)} m` },
+  { key: 'alive', i18nKey: 'chart.alive', format: (v) => v.toFixed(0) },
+  { key: 'avgVertexCount', i18nKey: 'chart.avgVerts', format: (v) => v.toFixed(1) },
+  { key: 'avgWheelCount', i18nKey: 'chart.avgWheels', format: (v) => v.toFixed(2) },
+  { key: 'avgWheelPower', i18nKey: 'chart.avgWheelPower', format: (v) => v.toFixed(2) },
   {
     key: 'avgMotorSpeed',
-    label: 'Avg motor speed',
+    i18nKey: 'chart.avgMotorSpeed',
     format: (v) => `${v.toFixed(1)} rad/s`,
   },
   {
     key: 'avgChassisDensity',
-    label: 'Avg chassis density',
+    i18nKey: 'chart.avgChassisDensity',
     format: (v) => v.toFixed(0),
   },
   {
     key: 'avgChassisRadius',
-    label: 'Avg chassis size',
+    i18nKey: 'chart.avgChassisSize',
     format: (v) => v.toFixed(2),
   },
-  {
-    key: 'durationSec',
-    label: 'Generation time',
-    format: (v) => `${v.toFixed(1)} s`,
-  },
+  { key: 'durationSec', i18nKey: 'chart.duration', format: (v) => `${v.toFixed(1)} s` },
 ];
 
 const SPARK_W = 160;
@@ -118,7 +113,10 @@ function buildCell(def: ChartDef, host: HTMLElement): Cell {
   head.className = 'chart-card__head';
   const title = document.createElement('span');
   title.className = 'chart-card__title';
-  title.textContent = def.label;
+  // data-i18n lets the existing applyTranslations() pick this up and
+  // re-translate the title when the user toggles the language button.
+  title.setAttribute('data-i18n', def.i18nKey);
+  title.textContent = t(def.i18nKey);
   const value = document.createElement('span');
   value.className = 'chart-card__value';
   value.textContent = '—';

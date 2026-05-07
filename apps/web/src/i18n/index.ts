@@ -2,6 +2,8 @@ import { atom } from 'nanostores';
 import { en, type Dictionary, type TranslationKey } from './en';
 import { ru } from './ru';
 
+export type { TranslationKey };
+
 export type Locale = 'en' | 'ru';
 
 const dictionaries: Record<Locale, Dictionary> = { en, ru };

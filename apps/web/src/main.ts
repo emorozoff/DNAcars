@@ -47,6 +47,8 @@ import {
 } from './sim/world';
 import { mountScene, type SceneHandle } from './render/scene';
 import { nextGeneration, type GAParams, type Scored } from './ga/population';
+import { collectStats, type GenerationStats } from './stats/collector';
+import { mountCharts, type ChartsHandle } from './stats/charts';
 
 /** Short visual pause between generations so the eye registers the new batch. */
 const GENERATION_PAUSE_MS = 600;
@@ -103,28 +105,47 @@ async function bootstrap(): Promise<void> {
 
   bindControls();
 
+  // Stats dashboard: a grid of sparklines that grows one column per
+  // generation.  Hidden by default — toggle via the "📊 stats" button.
+  const chartsHost = document.getElementById('charts-panel');
+  let charts: ChartsHandle | null = null;
+  if (chartsHost instanceof HTMLElement) {
+    charts = mountCharts(chartsHost);
+    const chartsBtn = document.getElementById('btn-charts');
+    if (chartsBtn instanceof HTMLButtonElement) {
+      chartsBtn.addEventListener('click', () => {
+        if (!charts) return;
+        charts.setVisible(!charts.isVisible());
+      });
+    }
+  }
+  const history: GenerationStats[] = [];
+
   // Cross-session evolution state.
   let generation = 0;
   let lastResults: Scored[] | null = null;
   let bestEver = 0;
 
+  function freshRun(): void {
+    generation = 0;
+    lastResults = null;
+    bestEver = 0;
+    history.length = 0;
+    hud.best.textContent = '—';
+    if (charts) charts.update(history);
+  }
+
   const restartBtn = document.getElementById('btn-restart');
   if (restartBtn instanceof HTMLButtonElement) {
     restartBtn.addEventListener('click', () => {
-      generation = 0;
-      lastResults = null;
-      bestEver = 0;
-      hud.best.textContent = '—';
+      freshRun();
       void restart();
     });
   }
   window.addEventListener('keydown', (ev) => {
     if (ev.code === 'Space') {
       ev.preventDefault();
-      generation = 0;
-      lastResults = null;
-      bestEver = 0;
-      hud.best.textContent = '—';
+      freshRun();
       void restart();
     }
   });
@@ -159,6 +180,7 @@ async function bootstrap(): Promise<void> {
       for (let i = 0; i < gaParams.populationSize; i++) genomes.push(randomGenome(rng));
     }
 
+    const sessionStartedAt = performance.now();
     session = await startSession({
       trackSeed,
       generation,
@@ -172,6 +194,10 @@ async function bootstrap(): Promise<void> {
           bestEver = genBest;
           hud.best.textContent = `${bestEver.toFixed(1)} m`;
         }
+        // Record summary stats and refresh sparklines.
+        const durationSec = (performance.now() - sessionStartedAt) / 1000;
+        history.push(collectStats(generation, durationSec, results));
+        if (charts) charts.update(history);
         generation += 1;
         setTimeout(() => void restart(), GENERATION_PAUSE_MS / speedMultiplier);
       },

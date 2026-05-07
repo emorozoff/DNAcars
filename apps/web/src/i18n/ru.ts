@@ -13,6 +13,7 @@ export const ru: Dictionary = {
   'panel.restart': '↻ Новая популяция',
   'panel.speedup': '⏵ Норм. скорость',
   'panel.speedupOn': '⏵⏵ ×8 скорость',
+  'panel.chartsToggle': '📊 Статы',
   'panel.hint': 'пробел или кнопка → новая популяция',
   'legend.wheelAir': 'в воздухе',
   'legend.wheelGround': 'на земле',

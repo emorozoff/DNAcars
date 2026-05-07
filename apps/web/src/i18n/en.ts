@@ -11,6 +11,7 @@ const enRaw = {
   'panel.restart': '↻ New population',
   'panel.speedup': '⏵ Realtime',
   'panel.speedupOn': '⏵⏵ ×8 speed',
+  'panel.chartsToggle': '📊 Stats',
   'panel.hint': 'press space or the button → new population',
   'legend.wheelAir': 'wheel in air',
   'legend.wheelGround': 'wheel on ground',

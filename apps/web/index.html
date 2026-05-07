@@ -31,6 +31,18 @@
       <main class="stage">
         <div id="pixi-root" class="stage__canvas"></div>
 
+        <svg
+          class="minimap"
+          id="minimap"
+          viewBox="0 0 600 50"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <polyline class="minimap__track" id="minimap-track" />
+          <rect class="minimap__viewport" id="minimap-viewport" y="0" height="50" />
+          <circle class="minimap__leader" id="minimap-leader" r="3" />
+        </svg>
+
         <aside class="hud-side hud-side--left">
           <section class="hud-card hud-card--stats">
             <span class="hud-card__label" data-i18n="panel.generation">gen</span>

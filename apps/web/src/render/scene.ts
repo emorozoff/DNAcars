@@ -363,15 +363,19 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   function applyTransform(): void {
     const w = app.renderer.width / (window.devicePixelRatio || 1);
     const h = app.renderer.height / (window.devicePixelRatio || 1);
-    // Foreground (cars + track) — full camera follow.
-    world.position.set(w / 2 - camera.x * zoom, h * 0.6 + camera.y * zoom);
+    // World vertical anchor — chosen so the track sits roughly mid-
+    // frame with extra "sky" above the cars (the part of the canvas
+    // we actually paint).  Bumped 0.6 → 0.72 in v1.12.2 by player
+    // request: at 0.6 the cars sat near the top third of the canvas
+    // and the lower half was empty dark space.
+    world.position.set(w / 2 - camera.x * zoom, h * 0.72 + camera.y * zoom);
     world.scale.set(zoom, -zoom);
     // Parallax silhouettes — partial camera follow so they appear
     // farther away.  Each layer has its own ZOOM so the same world
     // coordinates produce different on-screen positions.
-    bgFar.position.set(w / 2 - camera.x * PARALLAX_FAR * zoom, h * 0.62 + camera.y * 0.05 * zoom);
+    bgFar.position.set(w / 2 - camera.x * PARALLAX_FAR * zoom, h * 0.74 + camera.y * 0.05 * zoom);
     bgFar.scale.set(zoom, -zoom);
-    bgNear.position.set(w / 2 - camera.x * PARALLAX_NEAR * zoom, h * 0.62 + camera.y * 0.1 * zoom);
+    bgNear.position.set(w / 2 - camera.x * PARALLAX_NEAR * zoom, h * 0.74 + camera.y * 0.1 * zoom);
     bgNear.scale.set(zoom, -zoom);
   }
 

@@ -52,6 +52,7 @@ import { mountScene, type SceneHandle } from './render/scene';
 import { nextGeneration, type GAParams, type Scored } from './ga/population';
 import { collectStats, type GenerationStats } from './stats/collector';
 import { mountCharts, type ChartsHandle } from './stats/charts';
+import { mountTutorial } from './tutorial';
 
 /** Short visual pause between generations so the eye registers the new batch. */
 const GENERATION_PAUSE_MS = 600;
@@ -402,6 +403,21 @@ async function bootstrap(): Promise<void> {
       chartsBtn.addEventListener('click', () => {
         if (!charts) return;
         charts.setVisible(!charts.isVisible());
+      });
+    }
+  }
+
+  // Tutorial overlay (modal that explains how the GA works).  The
+  // panel itself is dormant until the user clicks the topbar
+  // "Tutorial" button.
+  const tutorialHost = document.getElementById('tutorial');
+  if (tutorialHost instanceof HTMLElement) {
+    const tutorial = mountTutorial(tutorialHost);
+    const tutBtn = document.getElementById('btn-tutorial');
+    if (tutBtn instanceof HTMLButtonElement) {
+      tutBtn.addEventListener('click', () => {
+        tutorial.open();
+        tutBtn.blur();
       });
     }
   }

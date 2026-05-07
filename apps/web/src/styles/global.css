@@ -506,6 +506,329 @@ button {
   }
 }
 
+/* ─── Tutorial modal ───────────────────────────────────────────────────── */
+
+.tutorial {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 8, 10, 0.92);
+  backdrop-filter: blur(6px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  animation: tutorial-fade 0.18s ease-out;
+}
+
+.tutorial[hidden] {
+  display: none;
+}
+
+@keyframes tutorial-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.tutorial__panel {
+  background: rgba(18, 18, 22, 0.96);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-md);
+  width: min(960px, 100%);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+
+.tutorial__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tutorial__title {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--color-fg);
+  letter-spacing: 0.01em;
+}
+
+.tutorial__step-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-muted);
+}
+
+.tutorial__close {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-fg-muted);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tutorial__close:hover {
+  color: var(--color-fg);
+  border-color: var(--color-border);
+}
+
+.tutorial__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--sp-5) var(--sp-5) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.tutorial__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.tutorial__foot .btn {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  padding: var(--sp-2) var(--sp-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  background: transparent;
+  color: var(--color-fg-muted);
+}
+
+.tutorial__foot .btn:hover {
+  color: var(--color-fg);
+  border-color: var(--color-fg-muted);
+}
+
+.tutorial__foot .btn--primary {
+  background: var(--color-accent);
+  color: rgba(0, 0, 0, 0.9);
+  border-color: var(--color-accent);
+}
+
+.tutorial__foot .btn--primary:hover {
+  background: rgba(255, 255, 255, 0.92);
+  color: rgba(0, 0, 0, 0.9);
+}
+
+.tutorial__foot .btn[disabled] {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ── Stage 1 — guided generation ──────────────────────────────────────── */
+
+.tutorial-step__heading {
+  font-size: var(--fs-md);
+  font-weight: 500;
+  margin: 0 0 var(--sp-2);
+  color: var(--color-accent);
+}
+
+.tutorial-step__body {
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--color-fg);
+  margin: 0 0 var(--sp-3);
+  max-width: 720px;
+}
+
+.tutorial-step__visual {
+  background: rgba(8, 8, 10, 0.6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+}
+
+.tutorial-step__visual svg {
+  width: 100%;
+  height: 100%;
+}
+
+.tutorial-step__action {
+  align-self: flex-start;
+  background: var(--color-accent);
+  color: rgba(0, 0, 0, 0.9);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.tutorial-step__action:hover {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.tutorial-step__action[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* SVG car icon used inside Stage 1 visuals — chassis polygon + wheels. */
+.tut-car__chassis {
+  fill: rgba(230, 230, 233, 0.9);
+  stroke: rgba(230, 230, 233, 0.95);
+  stroke-width: 1.5;
+}
+
+.tut-car__wheel {
+  fill: rgba(0, 0, 0, 0.4);
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 1.5;
+}
+
+.tut-car--top {
+  filter: drop-shadow(0 0 6px var(--color-accent));
+}
+
+.tut-car--top .tut-car__chassis {
+  stroke: var(--color-accent);
+}
+
+.tut-car--top .tut-car__wheel {
+  stroke: var(--color-accent);
+}
+
+.tut-car--dim {
+  opacity: 0.35;
+}
+
+.tut-arrow {
+  stroke: var(--color-accent);
+  stroke-width: 2;
+  fill: none;
+  marker-end: url(#tut-arrowhead);
+}
+
+/* ── Stage 2 — lineage tree + sliders ─────────────────────────────────── */
+
+.tutorial-stage2 {
+  display: grid;
+  grid-template-columns: 1fr 240px;
+  gap: var(--sp-4);
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .tutorial-stage2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tutorial-tree {
+  background: rgba(8, 8, 10, 0.6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2);
+  height: 280px;
+  position: relative;
+}
+
+.tutorial-tree svg {
+  width: 100%;
+  height: 100%;
+}
+
+.tutorial-tree__line {
+  stroke: rgba(140, 140, 150, 0.4);
+  stroke-width: 1;
+  fill: none;
+}
+
+.tutorial-tree__line--elite {
+  stroke: var(--color-accent);
+  stroke-opacity: 0.8;
+}
+
+.tutorial-tree__node {
+  stroke: rgba(0, 0, 0, 0.8);
+  stroke-width: 0.8;
+}
+
+.tutorial-stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.tutorial-stats__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.tutorial-stats__label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-fg-muted);
+}
+
+.tutorial-stats__value {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--color-fg);
+}
+
+.tutorial-controls {
+  background: rgba(8, 8, 10, 0.6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.tutorial-hint {
+  background: rgba(168, 255, 96, 0.06);
+  border-left: 2px solid var(--color-accent);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-fg);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  min-height: 48px;
+}
+
+.tutorial-note {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  font-style: italic;
+  margin-top: var(--sp-2);
+}
+
 .btn--seed-apply {
   background: rgba(22, 22, 26, 0.78);
   color: var(--color-accent);

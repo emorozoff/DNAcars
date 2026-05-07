@@ -52,7 +52,14 @@ export type CarClickHandler = (carIndex: number) => void;
 
 export type SceneHandle = {
   setTrack(points: { x: number; y: number }[]): void;
-  setSnapshot(s: WorldSnapshot): void;
+  /**
+   * Apply a new world snapshot.  Camera target + minimap always
+   * update; the per-car Pixi rendering updates only when
+   * `renderCars` is true (default).  Pass `renderCars: false` in
+   * headless modes (×32 / skip-N-gens) so we save the per-frame
+   * Pixi work but the minimap still moves.
+   */
+  setSnapshot(s: WorldSnapshot, opts?: { renderCars?: boolean }): void;
   /** Register (or clear) the callback fired when the user clicks a car. */
   onCarClick(handler: CarClickHandler | null): void;
   /**
@@ -163,15 +170,42 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     drawParallaxLayer(bgNearGfx, last.x, 0.09, 1.0, 0.4, COLORS.bgNear);
   }
 
-  function setSnapshot(snap: WorldSnapshot): void {
-    const seen = new Set<number>();
-    // Camera prefers the furthest *still-running* car so it doesn't park
-    // on a finished leader while the rest of the population is still
-    // moving along behind it.  Falls back to the furthest finished car
-    // if no one is still running (end of generation).
+  function setSnapshot(snap: WorldSnapshot, opts: { renderCars?: boolean } = {}): void {
+    const renderCars = opts.renderCars !== false;
+
+    // ── Always run, regardless of headless mode ────────────────────
+    // Pick the leader (still-running preferred) for the camera target
+    // and the minimap dot.  Cheap: one pass through snap.cars with no
+    // Pixi side effects.
     let runningLead: CarSnapshot | null = null;
     let anyLead: CarSnapshot | null = null;
+    for (const car of snap.cars) {
+      if (!anyLead || car.position.x > anyLead.position.x) anyLead = car;
+      if (!car.finished && (!runningLead || car.position.x > runningLead.position.x)) {
+        runningLead = car;
+      }
+    }
+    const followed = runningLead ?? anyLead;
+    if (followed) cameraTarget = { x: followed.position.x, y: followed.position.y };
 
+    // Minimap is SVG and ~30–50 attribute writes per call; cheap
+    // enough that we keep updating it even when the main canvas is
+    // hidden in ×32/skip mode.  The user can still see the population
+    // crawling along the track up there.
+    if (minimap) {
+      const dpr = window.devicePixelRatio || 1;
+      const viewportWorldWidth = app.renderer.width / dpr / ZOOM;
+      minimap.update(snap, camera.x, viewportWorldWidth, recordX);
+    }
+
+    // ── Heavy work, skipped when canvas is hidden ──────────────────
+    // updateCarView is the per-car Pixi position/rotation/tint write.
+    // At 24 cars × N wheels per car this is the bulk of render cost.
+    // In headless mode (×32, skip-N-gens) we just don't do it — the
+    // canvas is already invisible, so nobody sees the stale views.
+    if (!renderCars) return;
+
+    const seen = new Set<number>();
     for (const car of snap.cars) {
       seen.add(car.index);
       let view = carViews.get(car.index);
@@ -181,10 +215,6 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         carViews.set(car.index, view);
       }
       updateCarView(view, car);
-      if (!anyLead || car.position.x > anyLead.position.x) anyLead = car;
-      if (!car.finished && (!runningLead || car.position.x > runningLead.position.x)) {
-        runningLead = car;
-      }
     }
 
     for (const [k, v] of carViews) {
@@ -193,16 +223,6 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         v.container.destroy({ children: true });
         carViews.delete(k);
       }
-    }
-
-    const followed = runningLead ?? anyLead;
-    if (followed) cameraTarget = { x: followed.position.x, y: followed.position.y };
-
-    // Minimap: snapshot positions + camera viewport in world units.
-    if (minimap) {
-      const dpr = window.devicePixelRatio || 1;
-      const viewportWorldWidth = app.renderer.width / dpr / ZOOM;
-      minimap.update(snap, camera.x, viewportWorldWidth, recordX);
     }
   }
 

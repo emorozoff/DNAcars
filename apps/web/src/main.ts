@@ -589,10 +589,11 @@ async function startSession(opts: StartOptions): Promise<Session> {
       world.forceFinishAll();
     }
     const snap = world.snapshot();
-    // In headless mode (×32 or skip) we don't push snapshots to the
-    // Pixi scene at all — saves the per-frame render cost so physics
-    // gets the full CPU budget.  HUD numbers and stats still update.
-    if (!eff.headless) scene.setSnapshot(snap);
+    // Always push the snapshot.  Scene's setSnapshot keeps the
+    // minimap + camera target updated unconditionally (cheap SVG
+    // writes); in headless mode (×32 or skip) we tell it to skip
+    // the per-car Pixi work since the canvas is invisible anyway.
+    scene.setSnapshot(snap, { renderCars: !eff.headless });
     updateHud(hud, snap);
 
     if (!endNotified && world.allFinished()) {

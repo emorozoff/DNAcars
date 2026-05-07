@@ -40,6 +40,12 @@ export const ru: Dictionary = {
   'panel.headlessBanner': 'Без рендера · скорость ×32',
   'panel.hint': 'Пробел — пауза   ·   кнопка — новая популяция',
   'panel.tutorialOpen': 'Учебник',
+  'ribbon.gen': 'ПОК',
+  'ribbon.pop': 'ПОП',
+  'ribbon.lead': 'ЛИДЕР',
+  'ribbon.best': 'РЕКОРД',
+  'ribbon.solo': 'СОЛО',
+  'ribbon.seed': 'СИД',
   'panel.strictDeterminism': 'Строгий детерминизм',
   'panel.strictDeterminismHint': 'Тот же сид → точно такой же заезд. Стоит ≈2× CPU.',
   'panel.strictDeterminismWarning':

@@ -34,248 +34,61 @@
       <main class="stage">
         <div id="pixi-root" class="stage__canvas"></div>
 
-        <svg class="minimap" id="minimap" viewBox="0 0 1500 86" preserveAspectRatio="none">
-          <polyline class="minimap__track" id="minimap-track" />
-          <rect class="minimap__viewport" id="minimap-viewport" y="0" height="86" />
-          <g class="minimap__cars" id="minimap-cars"></g>
-          <line class="minimap__leader" id="minimap-leader" vector-effect="non-scaling-stroke" />
-          <g class="minimap__records" id="minimap-records"></g>
-        </svg>
-
-        <aside class="hud-side hud-side--left">
-          <section class="hud-card hud-card--stats">
-            <span class="hud-card__label" data-i18n="panel.generation">gen</span>
-            <span class="hud-card__value hud-card__value--accent" id="stat-generation">—</span>
-            <span class="hud-card__label" data-i18n="panel.cars">cars</span>
-            <span class="hud-card__value" id="stat-total">—</span>
-            <span class="hud-card__label" data-i18n="panel.lead">lead</span>
-            <span class="hud-card__value" id="stat-lead">—</span>
-            <span class="hud-card__label" data-i18n="panel.bestEver">best</span>
-            <span class="hud-card__value" id="stat-best">—</span>
-            <span class="hud-card__label" data-i18n="panel.eliteSolo">elite·solo</span>
-            <span class="hud-card__value" id="stat-elite-solo">—</span>
-            <span class="hud-card__label" data-i18n="panel.seed">seed</span>
-            <button
-              class="hud-card__value hud-card__value--copyable"
-              id="stat-seed"
-              type="button"
-              title=""
-              data-i18n-title="panel.seedCopyHint"
-            >
-              —
-            </button>
-          </section>
-
-          <section class="hud-card hud-card--controls hud-card--seed">
-            <h3 class="hud-card__heading" data-i18n="panel.seedSection">Seed</h3>
-            <div class="seed-input-row">
-              <input
-                class="seed-input"
-                id="seed-input"
-                type="text"
-                maxlength="8"
-                spellcheck="false"
-                autocomplete="off"
-                placeholder="hex"
-              />
+        <!-- Top ribbon: inline live stats + full-width minimap.  Replaces
+             the old left-stack stats card; the minimap stretches the
+             ribbon's right side at all viewport widths. -->
+        <div class="ribbon">
+          <div class="ribbon__stats">
+            <span class="ribbon__stat">
+              <span class="ribbon__label" data-i18n="ribbon.gen">GEN</span>
+              <span class="ribbon__value ribbon__value--accent" id="stat-generation">—</span>
+            </span>
+            <span class="ribbon__stat">
+              <span class="ribbon__label" data-i18n="ribbon.pop">POP</span>
+              <span class="ribbon__value" id="stat-total">—</span>
+            </span>
+            <span class="ribbon__stat">
+              <span class="ribbon__label" data-i18n="ribbon.lead">LEAD</span>
+              <span class="ribbon__value" id="stat-lead">—</span>
+            </span>
+            <span class="ribbon__stat">
+              <span class="ribbon__label" data-i18n="ribbon.best">BEST</span>
+              <span class="ribbon__value" id="stat-best">—</span>
+            </span>
+            <span class="ribbon__stat ribbon__stat--secondary">
+              <span class="ribbon__label" data-i18n="ribbon.solo">SOLO</span>
+              <span class="ribbon__value" id="stat-elite-solo">—</span>
+            </span>
+            <span class="ribbon__stat ribbon__stat--secondary">
+              <span class="ribbon__label" data-i18n="ribbon.seed">SEED</span>
               <button
-                class="btn btn--seed-apply"
-                id="seed-apply"
+                class="ribbon__value ribbon__value--copyable"
+                id="stat-seed"
                 type="button"
-                data-i18n="panel.seedApply"
+                title=""
+                data-i18n-title="panel.seedCopyHint"
               >
-                Apply
+                —
               </button>
-            </div>
-            <div class="seed-history" id="seed-history"></div>
-          </section>
+            </span>
+          </div>
+          <svg class="minimap" id="minimap" viewBox="0 0 1500 86" preserveAspectRatio="none">
+            <polyline class="minimap__track" id="minimap-track" />
+            <rect class="minimap__viewport" id="minimap-viewport" y="0" height="86" />
+            <g class="minimap__cars" id="minimap-cars"></g>
+            <line class="minimap__leader" id="minimap-leader" vector-effect="non-scaling-stroke" />
+            <g class="minimap__records" id="minimap-records"></g>
+          </svg>
+        </div>
 
-          <section class="hud-card hud-card--controls hud-card--evolution">
-            <h3 class="hud-card__heading" data-i18n="panel.evolution">evolution</h3>
-
-            <label class="ctrl">
-              <span class="ctrl__label" data-i18n="panel.population">population</span>
-              <input
-                class="ctrl__slider"
-                type="range"
-                id="ctrl-population"
-                min="8"
-                max="60"
-                step="1"
-                value="24"
-              />
-              <span class="ctrl__value" id="ctrl-population-val">24</span>
-            </label>
-
-            <label class="ctrl">
-              <span class="ctrl__label" data-i18n="panel.mutation">mutation</span>
-              <input
-                class="ctrl__slider"
-                type="range"
-                id="ctrl-mutation"
-                min="0"
-                max="75"
-                step="1"
-                value="15"
-              />
-              <span class="ctrl__value" id="ctrl-mutation-val">15%</span>
-            </label>
-
-            <label class="ctrl">
-              <span class="ctrl__label" data-i18n="panel.elite">elite</span>
-              <input
-                class="ctrl__slider"
-                type="range"
-                id="ctrl-elite"
-                min="0"
-                max="6"
-                step="1"
-                value="2"
-              />
-              <span class="ctrl__value" id="ctrl-elite-val">2</span>
-            </label>
-
-            <label class="ctrl ctrl--toggle">
-              <input class="ctrl__checkbox" type="checkbox" id="ctrl-strict-determinism" />
-              <span class="ctrl__label" data-i18n="panel.strictDeterminism">
-                Strict determinism
-              </span>
-            </label>
-            <p
-              class="ctrl__hint"
-              id="ctrl-strict-determinism-hint"
-              data-i18n="panel.strictDeterminismHint"
-            >
-              Same seed → identical run, every time. Costs ≈2× CPU.
-            </p>
-
-            <div class="card-confirm" id="strict-determinism-confirm" hidden>
-              <h3 class="card-confirm__heading" data-i18n="panel.strictDeterminism">
-                Strict determinism
-              </h3>
-              <p
-                class="card-confirm__text"
-                id="strict-determinism-confirm-text"
-                data-i18n="panel.strictDeterminismWarning"
-              ></p>
-              <div class="card-confirm__actions">
-                <button
-                  class="btn btn--confirm-no"
-                  id="strict-determinism-confirm-no"
-                  type="button"
-                  data-i18n="panel.confirmNo"
-                >
-                  Cancel
-                </button>
-                <button
-                  class="btn btn--confirm-yes"
-                  id="strict-determinism-confirm-yes"
-                  type="button"
-                  data-i18n="panel.confirmYes"
-                >
-                  Confirm
-                </button>
-              </div>
-            </div>
-          </section>
-
-          <section class="hud-card hud-card--controls">
-            <h3 class="hud-card__heading" data-i18n="panel.trackTuning">track</h3>
-
-            <label class="ctrl">
-              <span class="ctrl__label" data-i18n="panel.trackLength">length</span>
-              <input
-                class="ctrl__slider"
-                type="range"
-                id="ctrl-length"
-                min="200"
-                max="3000"
-                step="50"
-                value="500"
-              />
-              <span class="ctrl__value" id="ctrl-length-val">500m</span>
-            </label>
-
-            <label class="ctrl">
-              <span class="ctrl__label" data-i18n="panel.difficulty">difficulty</span>
-              <input
-                class="ctrl__slider"
-                type="range"
-                id="ctrl-difficulty"
-                min="1"
-                max="100"
-                step="1"
-                value="40"
-              />
-              <span class="ctrl__value" id="ctrl-difficulty-val">40%</span>
-            </label>
-
-            <label class="ctrl">
-              <span class="ctrl__label" data-i18n="panel.walls">walls</span>
-              <input
-                class="ctrl__slider"
-                type="range"
-                id="ctrl-walls"
-                min="0"
-                max="100"
-                step="1"
-                value="0"
-              />
-              <span class="ctrl__value" id="ctrl-walls-val">0%</span>
-            </label>
-
-            <label class="ctrl">
-              <span class="ctrl__label" data-i18n="panel.ceilings">ceilings</span>
-              <input
-                class="ctrl__slider"
-                type="range"
-                id="ctrl-ceilings"
-                min="0"
-                max="100"
-                step="1"
-                value="0"
-              />
-              <span class="ctrl__value" id="ctrl-ceilings-val">0%</span>
-            </label>
-
-            <label class="ctrl">
-              <span class="ctrl__label" data-i18n="panel.cliffs">cliffs</span>
-              <input
-                class="ctrl__slider"
-                type="range"
-                id="ctrl-cliffs"
-                min="0"
-                max="100"
-                step="1"
-                value="0"
-              />
-              <span class="ctrl__value" id="ctrl-cliffs-val">0%</span>
-            </label>
-
-            <label class="ctrl">
-              <span class="ctrl__label" data-i18n="panel.slick">slick</span>
-              <input
-                class="ctrl__slider"
-                type="range"
-                id="ctrl-slick"
-                min="0"
-                max="100"
-                step="1"
-                value="0"
-              />
-              <span class="ctrl__value" id="ctrl-slick-val">0%</span>
-            </label>
-          </section>
-        </aside>
-
-        <aside class="hud-side hud-side--right">
-          <button class="btn btn--primary" id="btn-charts" data-i18n="panel.chartsToggle">
-            Stats
-          </button>
-          <button class="btn btn--primary" id="btn-pause">Pause</button>
-
-          <div class="seg-group">
-            <span class="seg-group__label" data-i18n="panel.speedLabel">Speed</span>
+        <!-- Bottom dock: transport (always visible) + seed/evolution/track
+             drawers (collapsed by default, expand upward as popovers) +
+             new-population + charts toggle.  Centred horizontally, stays
+             within the canvas at any width — leaves clean canvas space
+             above for the simulation. -->
+        <div class="dock">
+          <div class="dock__section">
+            <button class="btn btn--primary" id="btn-pause">Pause</button>
             <div class="segmented" id="seg-speed" role="radiogroup">
               <button class="segmented__item" data-speed-idx="0" type="button">×1</button>
               <button class="segmented__item" data-speed-idx="1" type="button">×8</button>
@@ -283,44 +96,280 @@
             </div>
           </div>
 
-          <div class="seg-group">
-            <span class="seg-group__label" data-i18n="panel.trackLabel">Track preset</span>
-            <div class="segmented" id="seg-track" role="radiogroup">
-              <button class="segmented__item" data-track-mode="random" type="button">
-                <span data-i18n="panel.trackShortRandom">Random</span>
-              </button>
-              <button class="segmented__item" data-track-mode="fixed" type="button">
-                <span data-i18n="panel.trackShortFixed">Fixed</span>
-              </button>
+          <div class="dock__sep"></div>
+
+          <div class="dock__section dock__section--has-drawer">
+            <button
+              class="dock__toggle"
+              id="dock-toggle-seed"
+              type="button"
+              aria-expanded="false"
+              aria-controls="dock-drawer-seed"
+            >
+              <span class="dock__toggle-num">01</span>
+              <span class="dock__toggle-label" data-i18n="ribbon.seed">SEED</span>
+              <span class="dock__toggle-chevron" aria-hidden="true">▾</span>
+            </button>
+            <div class="dock-drawer dock-drawer--seed" id="dock-drawer-seed" hidden>
+              <div class="seed-input-row">
+                <input
+                  class="seed-input"
+                  id="seed-input"
+                  type="text"
+                  maxlength="8"
+                  spellcheck="false"
+                  autocomplete="off"
+                  placeholder="hex"
+                />
+                <button
+                  class="btn btn--seed-apply"
+                  id="seed-apply"
+                  type="button"
+                  data-i18n="panel.seedApply"
+                >
+                  Apply
+                </button>
+              </div>
+              <div class="seed-history" id="seed-history"></div>
             </div>
           </div>
-          <div class="confirm-anchor">
-            <button class="btn btn--primary" id="btn-restart" data-i18n="panel.restart">
-              New population
+
+          <div class="dock__section dock__section--has-drawer">
+            <button
+              class="dock__toggle"
+              id="dock-toggle-evolution"
+              type="button"
+              aria-expanded="false"
+              aria-controls="dock-drawer-evolution"
+            >
+              <span class="dock__toggle-num">02</span>
+              <span class="dock__toggle-label" data-i18n="panel.evolution">EVOLUTION</span>
+              <span class="dock__toggle-chevron" aria-hidden="true">▾</span>
             </button>
-            <div class="confirm-popover" id="restart-confirm" hidden>
-              <p class="confirm-popover__text" data-i18n="panel.restartConfirm">
-                Start a new population?
+            <div class="dock-drawer" id="dock-drawer-evolution" hidden>
+              <label class="ctrl">
+                <span class="ctrl__label" data-i18n="panel.population">population</span>
+                <input
+                  class="ctrl__slider"
+                  type="range"
+                  id="ctrl-population"
+                  min="8"
+                  max="60"
+                  step="1"
+                  value="24"
+                />
+                <span class="ctrl__value" id="ctrl-population-val">24</span>
+              </label>
+
+              <label class="ctrl">
+                <span class="ctrl__label" data-i18n="panel.mutation">mutation</span>
+                <input
+                  class="ctrl__slider"
+                  type="range"
+                  id="ctrl-mutation"
+                  min="0"
+                  max="75"
+                  step="1"
+                  value="15"
+                />
+                <span class="ctrl__value" id="ctrl-mutation-val">15%</span>
+              </label>
+
+              <label class="ctrl">
+                <span class="ctrl__label" data-i18n="panel.elite">elite</span>
+                <input
+                  class="ctrl__slider"
+                  type="range"
+                  id="ctrl-elite"
+                  min="0"
+                  max="6"
+                  step="1"
+                  value="2"
+                />
+                <span class="ctrl__value" id="ctrl-elite-val">2</span>
+              </label>
+
+              <label class="ctrl ctrl--toggle">
+                <input class="ctrl__checkbox" type="checkbox" id="ctrl-strict-determinism" />
+                <span class="ctrl__label" data-i18n="panel.strictDeterminism">
+                  Strict determinism
+                </span>
+              </label>
+              <p class="ctrl__hint" data-i18n="panel.strictDeterminismHint">
+                Same seed → identical run, every time. Costs ≈2× CPU.
               </p>
-              <div class="confirm-popover__actions">
-                <button
-                  class="btn btn--confirm-yes"
-                  id="restart-confirm-yes"
-                  data-i18n="panel.confirmYes"
-                >
-                  Confirm
-                </button>
-                <button
-                  class="btn btn--confirm-no"
-                  id="restart-confirm-no"
-                  data-i18n="panel.confirmNo"
-                >
-                  Cancel
-                </button>
+
+              <div class="card-confirm" id="strict-determinism-confirm" hidden>
+                <h3 class="card-confirm__heading" data-i18n="panel.strictDeterminism">
+                  Strict determinism
+                </h3>
+                <p
+                  class="card-confirm__text"
+                  id="strict-determinism-confirm-text"
+                  data-i18n="panel.strictDeterminismWarning"
+                ></p>
+                <div class="card-confirm__actions">
+                  <button
+                    class="btn btn--confirm-no"
+                    id="strict-determinism-confirm-no"
+                    type="button"
+                    data-i18n="panel.confirmNo"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    class="btn btn--confirm-yes"
+                    id="strict-determinism-confirm-yes"
+                    type="button"
+                    data-i18n="panel.confirmYes"
+                  >
+                    Confirm
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </aside>
+
+          <div class="dock__section dock__section--has-drawer">
+            <button
+              class="dock__toggle"
+              id="dock-toggle-track"
+              type="button"
+              aria-expanded="false"
+              aria-controls="dock-drawer-track"
+            >
+              <span class="dock__toggle-num">03</span>
+              <span class="dock__toggle-label" data-i18n="panel.trackTuning">TRACK</span>
+              <span class="dock__toggle-chevron" aria-hidden="true">▾</span>
+            </button>
+            <div class="dock-drawer dock-drawer--wide" id="dock-drawer-track" hidden>
+              <div class="dock-drawer__head">
+                <div class="segmented" id="seg-track" role="radiogroup">
+                  <button class="segmented__item" data-track-mode="random" type="button">
+                    <span data-i18n="panel.trackShortRandom">Random</span>
+                  </button>
+                  <button class="segmented__item" data-track-mode="fixed" type="button">
+                    <span data-i18n="panel.trackShortFixed">Fixed</span>
+                  </button>
+                </div>
+              </div>
+              <div class="dock-drawer__grid">
+                <label class="ctrl">
+                  <span class="ctrl__label" data-i18n="panel.trackLength">length</span>
+                  <input
+                    class="ctrl__slider"
+                    type="range"
+                    id="ctrl-length"
+                    min="200"
+                    max="3000"
+                    step="50"
+                    value="500"
+                  />
+                  <span class="ctrl__value" id="ctrl-length-val">500m</span>
+                </label>
+                <label class="ctrl">
+                  <span class="ctrl__label" data-i18n="panel.difficulty">difficulty</span>
+                  <input
+                    class="ctrl__slider"
+                    type="range"
+                    id="ctrl-difficulty"
+                    min="1"
+                    max="100"
+                    step="1"
+                    value="40"
+                  />
+                  <span class="ctrl__value" id="ctrl-difficulty-val">40%</span>
+                </label>
+                <label class="ctrl">
+                  <span class="ctrl__label" data-i18n="panel.walls">walls</span>
+                  <input
+                    class="ctrl__slider"
+                    type="range"
+                    id="ctrl-walls"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value="0"
+                  />
+                  <span class="ctrl__value" id="ctrl-walls-val">0%</span>
+                </label>
+                <label class="ctrl">
+                  <span class="ctrl__label" data-i18n="panel.ceilings">ceilings</span>
+                  <input
+                    class="ctrl__slider"
+                    type="range"
+                    id="ctrl-ceilings"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value="0"
+                  />
+                  <span class="ctrl__value" id="ctrl-ceilings-val">0%</span>
+                </label>
+                <label class="ctrl">
+                  <span class="ctrl__label" data-i18n="panel.cliffs">cliffs</span>
+                  <input
+                    class="ctrl__slider"
+                    type="range"
+                    id="ctrl-cliffs"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value="0"
+                  />
+                  <span class="ctrl__value" id="ctrl-cliffs-val">0%</span>
+                </label>
+                <label class="ctrl">
+                  <span class="ctrl__label" data-i18n="panel.slick">slick</span>
+                  <input
+                    class="ctrl__slider"
+                    type="range"
+                    id="ctrl-slick"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value="0"
+                  />
+                  <span class="ctrl__value" id="ctrl-slick-val">0%</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="dock__sep"></div>
+
+          <div class="dock__section">
+            <div class="confirm-anchor">
+              <button class="btn btn--primary" id="btn-restart" data-i18n="panel.restart">
+                New population
+              </button>
+              <div class="confirm-popover" id="restart-confirm" hidden>
+                <p class="confirm-popover__text" data-i18n="panel.restartConfirm">
+                  Start a new population?
+                </p>
+                <div class="confirm-popover__actions">
+                  <button
+                    class="btn btn--confirm-yes"
+                    id="restart-confirm-yes"
+                    data-i18n="panel.confirmYes"
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    class="btn btn--confirm-no"
+                    id="restart-confirm-no"
+                    data-i18n="panel.confirmNo"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+            <button class="btn btn--primary" id="btn-charts" data-i18n="panel.chartsToggle">
+              Stats
+            </button>
+          </div>
+        </div>
 
         <button class="btn btn--floating" id="btn-camera-leader" hidden>Follow leader</button>
 
@@ -328,7 +377,7 @@
 
         <aside class="charts-panel" id="charts-panel" hidden></aside>
 
-        <div class="hud-card hud-card--legend">
+        <div class="legend">
           <span
             ><span class="swatch swatch--grey"></span
             ><span data-i18n="legend.wheelAir">wheel in air</span></span

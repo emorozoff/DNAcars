@@ -38,6 +38,12 @@ const enRaw = {
   'panel.headlessBanner': 'Render off · ×32 speed',
   'panel.hint': 'Space — pause   ·   button — new population',
   'panel.tutorialOpen': 'Tutorial',
+  'ribbon.gen': 'GEN',
+  'ribbon.pop': 'POP',
+  'ribbon.lead': 'LEAD',
+  'ribbon.best': 'BEST',
+  'ribbon.solo': 'SOLO',
+  'ribbon.seed': 'SEED',
   'panel.strictDeterminism': 'Strict determinism',
   'panel.strictDeterminismHint': 'Same seed → identical run, every time. Costs ≈2× CPU.',
   'panel.strictDeterminismWarning':

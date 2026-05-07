@@ -346,152 +346,229 @@ button {
   height: 100%;
 }
 
-/* ─── Side stacks (left: stats+controls, right: actions) ─────────────────── */
+/* ─── Top ribbon: live stats + full-width minimap ───────────────────────── */
 
-.hud-side {
+.ribbon {
   position: absolute;
-  top: var(--sp-4);
-  /* Bound to the visible viewport so the stack never spills off
-     screen on short displays (≤ 900 px tall — typical 13" laptop).
-     Content beyond what fits scrolls inside the panel.  Bottom
-     padding leaves room for the legend strip pinned to the canvas
-     bottom. */
-  bottom: calc(var(--sp-4) + 36px);
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  z-index: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  /* Hide the scrollbar gutter so the panel width doesn't shift
-     between "fits" and "scrolls" states. */
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
-}
-
-.hud-side::-webkit-scrollbar {
-  width: 6px;
-}
-
-.hud-side::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.hud-side::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 3px;
-}
-
-.hud-side--left {
+  top: var(--sp-3);
   left: var(--sp-4);
-  /* 260 px (was 240) gives full-word Russian labels like
-     "Поколение" / "Популяция" room without crowding the values. */
-  width: 260px;
-}
-
-.hud-side--right {
   right: var(--sp-4);
-  align-items: stretch;
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-start;
+  z-index: 2;
+  /* Gaps between ribbon children let canvas drag + click pass
+     through.  The stats card and minimap themselves re-enable
+     pointer-events on their own boxes. */
+  pointer-events: none;
 }
 
-/* ─── Floating HUD cards ─────────────────────────────────────────────────── */
-
-.hud-card {
+.ribbon__stats {
+  height: 36px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: 0 var(--sp-4);
   background: rgba(22, 22, 26, 0.78);
   border: 1px solid var(--color-border);
   border-radius: var(--r-md);
-  padding: var(--sp-3) var(--sp-4);
   backdrop-filter: blur(8px);
+  pointer-events: auto;
 }
 
-.hud-card--stats {
-  display: grid;
-  /* Two-column auto-fit: label hugs left, value hugs right.  The
-     min-content + 1fr split lets labels stay compact (no wasted
-     gutter) while values still right-align with the card edge. */
-  grid-template-columns: max-content 1fr;
-  gap: var(--sp-1) var(--sp-3);
+.ribbon__stat {
+  display: flex;
   align-items: baseline;
-}
-
-.hud-card--stats .hud-card__value {
-  text-align: right;
-}
-
-.hud-card--controls {
-  display: flex;
-  flex-direction: column;
   gap: var(--sp-2);
-}
-
-.hud-card--legend {
-  position: absolute;
-  /* Pinned to bottom-centre so it stays clear of the left + right
-     scrollable panels at any viewport size.  Was bottom-left in
-     v1.11; on shorter screens that overlapped the bottom of the
-     left HUD stack and clipped the slider values. */
-  bottom: var(--sp-3);
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: var(--sp-5);
-  font-size: var(--fs-xs);
-  color: var(--color-fg-muted);
-  letter-spacing: 0.04em;
   white-space: nowrap;
-  z-index: 1;
 }
 
-.hud-card__label {
-  font-size: var(--fs-xs);
+.ribbon__label {
+  font-size: 10px;
+  letter-spacing: 0.1em;
   color: var(--color-fg-muted);
-  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.hud-card__value {
+.ribbon__value {
   font-family: var(--font-mono);
-  font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
   color: var(--color-fg);
-  text-align: right;
 }
 
-.hud-card__value--accent {
+.ribbon__value--accent {
   color: var(--color-panel-accent);
+  font-weight: 600;
 }
 
-/* Click-to-copy stat: same monospace look as a regular value but
-   acts as a button.  Hover: subtle background fade so the player
-   sees it's interactive.  Active state ("just copied") flashes
-   the accent colour briefly. */
-.hud-card__value--copyable {
+.ribbon__value--copyable {
   background: transparent;
   border: none;
   padding: 0;
   margin: 0;
   font: inherit;
   font-family: var(--font-mono);
-  font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
   color: var(--color-fg);
-  text-align: right;
   cursor: pointer;
   transition: color var(--dur-fast) var(--ease-out);
 }
 
-.hud-card__value--copyable:hover {
+.ribbon__value--copyable:hover {
   color: var(--color-panel-accent);
 }
 
-.hud-card__value--copied {
+.ribbon__value--copied {
   color: var(--color-panel-accent);
 }
 
-/* ─── Seed card ─────────────────────────────────────────────────────────── */
+/* Secondary stats (SOLO, SEED) — useful but rarely glanced; dim them
+   so the eye lands on the primary GEN/POP/LEAD/BEST quartet. */
+.ribbon__stat--secondary .ribbon__label,
+.ribbon__stat--secondary .ribbon__value {
+  opacity: 0.62;
+}
 
-.hud-card--seed {
+/* ─── Bottom dock: transport + drawers + new-population ─────────────────── */
+
+.dock {
+  position: absolute;
+  bottom: var(--sp-3);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
   gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: rgba(22, 22, 26, 0.84);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-lg);
+  backdrop-filter: blur(10px);
+  z-index: 2;
+  max-width: calc(100vw - 2 * var(--sp-4));
+}
+
+.dock__section {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  position: relative;
+}
+
+.dock__sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--color-border);
+  margin: var(--sp-1) var(--sp-1);
+}
+
+.dock__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  color: var(--color-fg);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: var(--sp-2) var(--sp-3);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+
+.dock__toggle:hover {
+  border-color: var(--color-fg-muted);
+}
+
+.dock__toggle[aria-expanded='true'] {
+  background: var(--color-surface-2);
+  border-color: var(--color-panel-accent);
+}
+
+.dock__toggle-num {
+  color: var(--color-panel-accent);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.dock__toggle-chevron {
+  font-size: 10px;
+  color: var(--color-fg-muted);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.dock__toggle[aria-expanded='true'] .dock__toggle-chevron {
+  transform: rotate(180deg);
+}
+
+/* Drawer popover — opens upward from its toggle button.  The toggle's
+   .dock__section ancestor is `position: relative`, providing the
+   containing block; the drawer itself is `position: absolute` and
+   `bottom: 100% + sp-3` so its bottom edge sits just above the dock. */
+.dock-drawer {
+  position: absolute;
+  bottom: calc(100% + var(--sp-3));
+  left: 0;
+  min-width: 280px;
+  background: rgba(22, 22, 26, 0.96);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4);
+  backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  z-index: 3;
+  animation: confirm-pop 0.12s ease-out;
+}
+
+.dock-drawer[hidden] {
+  display: none;
+}
+
+.dock-drawer--seed {
+  width: 280px;
+}
+
+.dock-drawer--wide {
+  width: 600px;
+}
+
+.dock-drawer__head {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--sp-1);
+}
+
+.dock-drawer__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2) var(--sp-4);
+}
+
+/* ─── Bottom-left legend ───────────────────────────────────────────────── */
+
+.legend {
+  position: absolute;
+  bottom: var(--sp-3);
+  left: var(--sp-4);
+  display: flex;
+  gap: var(--sp-4);
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  z-index: 1;
+  pointer-events: none;
 }
 
 .seed-input-row {
@@ -915,46 +992,6 @@ button {
   letter-spacing: 0.04em;
 }
 
-.hud-card__heading {
-  margin: 0 0 var(--sp-2);
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-fg-muted);
-}
-
-/* Numbered section headings on the left-side control cards.  A CSS
-   counter on the side container increments per `.hud-card--controls`
-   heading and renders as a "01", "02", … prefix; an extending hairline
-   after the text fills the remaining card width.  The stats card has
-   no `.hud-card--controls` class so it stays unnumbered. */
-.hud-side--left {
-  counter-reset: hud-section;
-}
-
-.hud-card--controls .hud-card__heading {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-}
-
-.hud-card--controls .hud-card__heading::before {
-  counter-increment: hud-section;
-  content: counter(hud-section, decimal-leading-zero);
-  color: var(--color-panel-accent);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  flex: 0 0 auto;
-}
-
-.hud-card--controls .hud-card__heading::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--color-border);
-}
-
 /* ─── Sliders ────────────────────────────────────────────────────────────── */
 
 .ctrl {
@@ -1054,32 +1091,23 @@ button {
   letter-spacing: 0.02em;
 }
 
-/* In-card confirm overlay — same visual shape as the host card so
-   it reads as the card "transforming" into the warning rather than
-   a separate floating popover.  Used by the strict-determinism
-   toggle: ticking the box covers the card with this until the
-   player accepts or cancels. */
-.hud-card--evolution {
-  position: relative;
-}
-
+/* In-drawer confirm overlay — sits on top of the Evolution drawer
+   when the strict-determinism toggle is ticked, until the player
+   accepts or cancels.  The drawer is itself `position: absolute`
+   which provides the containing block for the overlay's
+   `inset: 0`-style positioning. */
 .card-confirm {
   position: absolute;
-  /* Anchor to top + sides of the host card; height is auto so the
-     popover grows downward past the card when the warning text +
-     buttons need more room than the host card itself has.  Clamping
-     to inset:0 (the previous behaviour) clipped the buttons. */
-  top: 0;
-  left: 0;
-  right: 0;
-  min-height: 100%;
+  /* Cover the host drawer's interior cleanly.  Drawer dimensions
+     are stable enough (heading + 3 sliders + toggle + hint ≈ 240 px)
+     that a fixed inset overlay holds the warning text + buttons
+     without overflow. */
+  inset: 0;
   display: flex;
   flex-direction: column;
   background: rgba(22, 22, 26, 0.96);
-  border: 1px solid var(--color-panel-accent);
   border-radius: var(--r-md);
   padding: var(--sp-3) var(--sp-4);
-  backdrop-filter: blur(8px);
   z-index: 4;
   animation: confirm-pop 0.12s ease-out;
 }
@@ -1133,26 +1161,21 @@ button {
 /* ─── Minimap ────────────────────────────────────────────────────────────── */
 
 .minimap {
-  position: absolute;
-  top: var(--sp-4);
-  left: 50%;
-  transform: translateX(-50%);
-  /* Bumped 1260 → 1400 max width and 44 → 80 px height in v0.9.32.
-     The extra vertical space lets track hills actually read at a
-     glance; the old 44 px squished any meaningful y-variation
-     into a near-flat line. */
-  width: min(1400px, calc(100vw - 480px));
-  height: 80px;
+  /* Lives inside the ribbon flex container — fills the remaining
+     horizontal space after the stats card.  Height tracks the
+     ribbon's height (36 px in normal mode, 60vh in headless). */
+  flex: 1 1 auto;
+  height: 36px;
   background: rgba(22, 22, 26, 0.78);
   border: 1px solid var(--color-border);
-  border-radius: var(--r-sm);
+  border-radius: var(--r-md);
   backdrop-filter: blur(8px);
-  z-index: 1;
   display: block;
+  pointer-events: auto;
   /* Click or drag anywhere on the minimap to move the camera.
-     `grab` signals "you can grab this and drag it"; the JS
-     side switches it to `grabbing` while a drag is active via
-     the .minimap--dragging class. */
+     `grab` signals "you can grab this and drag it"; the JS side
+     switches to `grabbing` while a drag is active via the
+     .minimap--dragging class. */
   cursor: grab;
   touch-action: none;
 }
@@ -1165,31 +1188,19 @@ button {
 
 /* When the canvas is hidden (×32 speed mode), the minimap takes
    over: it grows to fill most of the empty stage area so the
-   player can still watch the population's progress at a glance,
-   and the charts panel auto-opens to fill the rest of the lower
-   half.  Sidebars remain in place — sliders and stats are still
-   useful in this mode. */
+   player can still watch the population's progress at a glance.
+   The dock + ribbon stats stay anchored as in normal mode; only
+   the minimap's height changes. */
 .mode-headless .minimap {
-  height: calc(60vh - var(--sp-4));
-  /* Wider too — no canvas to leave room for, just the sidebars. */
-  width: min(1700px, calc(100vw - 540px));
+  height: calc(100vh - var(--topbar-h) - 160px);
 }
 
-.mode-headless .charts-panel {
-  /* Anchor lower-right, taller, so it fills the stretch under the
-     enlarged minimap.  Width matches the previous default
-     (640 px max) so the side panels stay readable. */
-  bottom: var(--sp-4);
-  right: var(--sp-4);
-  max-height: 35vh;
-}
-
-/* Big "headless" hint top-centre so the player understands why
-   their canvas is blank.  Hidden by default, only visible when
-   .mode-headless is active. */
+/* Big "headless" hint just below the enlarged minimap so the player
+   understands why their canvas is blank.  Hidden by default, only
+   visible when .mode-headless is active. */
 .headless-banner {
   position: absolute;
-  top: calc(60vh + var(--sp-2));
+  bottom: calc(var(--sp-3) + 84px);
   left: 50%;
   transform: translateX(-50%);
   font-family: var(--font-mono);
@@ -1253,9 +1264,10 @@ button {
 .charts-panel {
   position: absolute;
   right: var(--sp-4);
-  bottom: var(--sp-4);
+  /* Clear the dock at the bottom (~52 px tall + 12 px gap). */
+  bottom: calc(var(--sp-3) + 76px);
   width: min(640px, calc(100vw - 2 * var(--sp-4)));
-  max-height: 56vh;
+  max-height: calc(100vh - var(--topbar-h) - 160px);
   overflow-y: auto;
   background: rgba(22, 22, 26, 0.86);
   border: 1px solid var(--color-border);
@@ -1341,8 +1353,20 @@ button {
     display: none;
   }
 
-  .hud-side--left {
+  /* Drop the secondary stats (SOLO/SEED) on narrow screens — the
+     primary GEN/POP/LEAD/BEST set already squeezes the available
+     ribbon width. */
+  .ribbon__stat--secondary {
+    display: none;
+  }
+
+  /* Track drawer's two-column grid collapses to one column so each
+     slider gets its full row width on narrow screens. */
+  .dock-drawer--wide {
     width: calc(100vw - 2 * var(--sp-4));
-    max-width: 280px;
+  }
+
+  .dock-drawer__grid {
+    grid-template-columns: 1fr;
   }
 }

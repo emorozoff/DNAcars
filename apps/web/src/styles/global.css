@@ -327,7 +327,7 @@ button {
 .minimap__track {
   fill: none;
   stroke: var(--color-fg-muted);
-  stroke-width: 1.2;
+  stroke-width: 1.6;
   stroke-linejoin: round;
 }
 
@@ -336,7 +336,7 @@ button {
   fill-opacity: 0.1;
   stroke: var(--color-accent);
   stroke-opacity: 0.5;
-  stroke-width: 0.7;
+  stroke-width: 1;
 }
 
 .minimap__leader {

@@ -13,10 +13,19 @@
 
 import type { WorldSnapshot } from '../sim/world';
 
-const VIEW_W = 600;
+/**
+ * SVG viewBox: 1500×50.  At our typical display size (≈1260×44) this
+ * gives an x-scale of 0.84 and a y-scale of 0.88 — close to uniform,
+ * so strokes and dots aren't visibly stretched horizontally.  Was
+ * 600×50 in v0.9.10 which looked OK at 420 px wide but became
+ * obviously stretched once the user bumped the minimap to 1260 px.
+ */
+const VIEW_W = 1500;
 const VIEW_H = 50;
 /** Vertical padding inside the viewBox so the track polyline doesn't kiss the edges. */
 const PAD_Y = 6;
+/** Stride target — keep one polyline node per ≈ 6 viewBox units. */
+const STRIDE_TARGET = 6;
 
 export type MinimapHandle = {
   setTrack(points: { x: number; y: number }[]): void;
@@ -74,7 +83,10 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
       trackMaxY = maxY;
       const yRange = maxY - minY || 1;
       // Stride through points so we don't put 2500 nodes into a 600-px-wide line.
-      const stride = Math.max(1, Math.floor(points.length / 240));
+      // Target ~one node every STRIDE_TARGET viewBox units.  At
+      // VIEW_W=1500 that's 250 nodes — dense enough to look smooth
+      // even when the canvas is wide.
+      const stride = Math.max(1, Math.floor(points.length / (VIEW_W / STRIDE_TARGET)));
       let pts = '';
       for (let i = 0; i < points.length; i += stride) {
         const p = points[i]!;
@@ -102,7 +114,7 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
         let dot = carDots[i];
         if (!dot) {
           dot = document.createElementNS(SVG_NS, 'circle');
-          dot.setAttribute('r', '1.6');
+          dot.setAttribute('r', '2.4');
           dot.setAttribute('class', 'minimap__car');
           carsGroup.appendChild(dot);
           carDots[i] = dot;

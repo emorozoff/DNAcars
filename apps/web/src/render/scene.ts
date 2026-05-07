@@ -360,6 +360,13 @@ function sampleTrackY(points: { x: number; y: number }[], x: number): number {
  * sine-wave hill profile filled solid.  Used for the parallax layers.
  * `freq` is rad/m; `amp` is the hill height amplitude in metres;
  * `phase` shifts the profile so the two layers don't align perfectly.
+ *
+ * Extends `MARGIN` metres past both ends of the track so the polygon
+ * always covers the visible viewport, even when the camera is parked
+ * near x=0 (where parallax-shifted "screen-centre world x" can be
+ * negative) or near the end of the track.  Without this margin a hard
+ * vertical edge of the fill becomes visible mid-canvas — the "gray
+ * rectangle" bug the user reported in v0.9.19.
  */
 function drawParallaxLayer(
   g: Graphics,
@@ -371,13 +378,14 @@ function drawParallaxLayer(
 ): void {
   g.clear();
   const STEP = 4;
-  // Build the polygon: top edge follows the sine wave, bottom edge is
-  // a flat line far below (so the area is always filled to "infinity").
+  const MARGIN = 200;
+  const x0 = -MARGIN;
+  const x1 = length + MARGIN;
   const top: { x: number; y: number }[] = [];
-  for (let x = 0; x <= length + STEP; x += STEP) {
+  for (let x = x0; x <= x1; x += STEP) {
     top.push({ x, y: Math.sin(x * freq + phase) * amp });
   }
-  const points = [...top, { x: length, y: -50 }, { x: 0, y: -50 }];
+  const points = [...top, { x: x1, y: -50 }, { x: x0, y: -50 }];
   g.poly(points);
   g.fill({ color, alpha: 1 });
 }

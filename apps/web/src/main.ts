@@ -381,6 +381,10 @@ type Hud = {
   version: HTMLElement;
   /** Solo-verified elite distance (top-1 re-run alone). */
   eliteSolo: HTMLElement;
+  /** "Alive" count: cars in the current run that haven't finished yet. */
+  alive: HTMLElement;
+  /** Track length, e.g. "500m", shown next to the leader value. */
+  trackLength: HTMLElement;
 };
 
 async function bootstrap(): Promise<void> {
@@ -403,7 +407,12 @@ async function bootstrap(): Promise<void> {
     seed: requireEl('stat-seed'),
     generation: requireEl('stat-generation'),
     version: requireEl('app-version'),
-    eliteSolo: requireEl('stat-elite-solo'),
+    // stat-elite-solo no longer exists in the new ribbon — keep the
+    // field as a detached element so the existing "verifyEliteAlone"
+    // codepath can still write to it without an extra null-check.
+    eliteSolo: document.getElementById('stat-elite-solo') ?? document.createElement('span'),
+    alive: requireEl('stat-alive'),
+    trackLength: requireEl('stat-track-length'),
   };
   hud.version.textContent = `v${__APP_VERSION__}`;
 
@@ -766,6 +775,21 @@ async function bootstrap(): Promise<void> {
       strictPopover.hidden = true;
       strictInput.checked = false;
     });
+    // Click on the modal backdrop (anywhere outside the inner panel)
+    // is treated as cancel — same as the No button.  Escape too.
+    strictPopover.addEventListener('click', (ev) => {
+      if (ev.target === strictPopover) {
+        strictPopover.hidden = true;
+        strictInput.checked = false;
+      }
+    });
+    window.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && !strictPopover.hidden) {
+        ev.preventDefault();
+        strictPopover.hidden = true;
+        strictInput.checked = false;
+      }
+    });
   }
   window.addEventListener('keydown', (ev) => {
     // Don't interfere when typing into a slider / button.
@@ -1017,7 +1041,7 @@ function bindControls(): void {
  */
 function bindDockDrawers(): void {
   const toggles: { btn: HTMLButtonElement; drawer: HTMLElement }[] = [];
-  const ids = ['seed', 'evolution', 'track'];
+  const ids = ['seed', 'track'];
   for (const id of ids) {
     const btn = document.getElementById(`dock-toggle-${id}`);
     const drawer = document.getElementById(`dock-drawer-${id}`);
@@ -1134,6 +1158,8 @@ async function startSession(opts: StartOptions): Promise<Session> {
   });
 
   hud.total.textContent = String(genomes.length);
+  hud.alive.textContent = String(genomes.length);
+  hud.trackLength.textContent = `${track.options.length}m`;
   hud.seed.textContent = trackSeed.toString(16).padStart(8, '0');
   hud.generation.textContent = String(generation);
 
@@ -1268,10 +1294,13 @@ async function startSession(opts: StartOptions): Promise<Session> {
 
 function updateHud(hud: Hud, snap: WorldSnapshot): void {
   let lead = 0;
+  let alive = 0;
   for (const c of snap.cars) {
     if (c.travel > lead) lead = c.travel;
+    if (!c.finished) alive++;
   }
   hud.lead.textContent = `${lead.toFixed(1)} m`;
+  hud.alive.textContent = String(alive);
 }
 
 function requireEl(id: string): HTMLElement {

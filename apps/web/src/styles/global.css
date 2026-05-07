@@ -379,7 +379,7 @@ button {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: var(--sp-4);
+  gap: var(--sp-3);
   padding: 0 var(--sp-4);
   background: rgba(22, 22, 26, 0.78);
   border: 1px solid var(--color-border);
@@ -388,6 +388,9 @@ button {
   pointer-events: auto;
 }
 
+/* Each stat is a "label / value" pair where the label sits to the
+   left of the value at the same vertical baseline.  Kept compact
+   so the whole strip fits even on a 13" laptop. */
 .ribbon__stat {
   display: flex;
   align-items: baseline;
@@ -395,18 +398,44 @@ button {
   white-space: nowrap;
 }
 
+/* Vertical hairline divider between adjacent stats — visual
+   grouping cue without using extra padding. */
+.ribbon__sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--color-border);
+}
+
 .ribbon__label {
-  font-size: 0.625rem;
-  letter-spacing: 0.1em;
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
   color: var(--color-fg-muted);
   text-transform: uppercase;
 }
 
 .ribbon__value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.15rem;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-sm);
   color: var(--color-fg);
+}
+
+.ribbon__hash {
+  color: var(--color-fg-muted);
+  font-weight: 400;
+  margin-right: 0.05rem;
+}
+
+/* Sub-text inside a value — e.g. " / 500m" track-length context
+   after the leader, or " / 24" total-cars context after alive
+   count.  Rendered dim so it reads as "this is the denominator". */
+.ribbon__sub {
+  color: var(--color-fg-muted);
+  font-size: 0.8125rem;
+  letter-spacing: 0.02em;
 }
 
 .ribbon__value--accent {
@@ -436,13 +465,6 @@ button {
   color: var(--color-panel-accent);
 }
 
-/* Secondary stats (SOLO, SEED) — useful but rarely glanced; dim them
-   so the eye lands on the primary GEN/POP/LEAD/BEST quartet. */
-.ribbon__stat--secondary .ribbon__label,
-.ribbon__stat--secondary .ribbon__value {
-  opacity: 0.62;
-}
-
 /* ─── Bottom dock: transport + drawers + new-population ─────────────────── */
 
 .dock {
@@ -451,15 +473,33 @@ button {
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3);
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
   background: rgba(22, 22, 26, 0.84);
   border: 1px solid var(--color-border);
   border-radius: var(--r-lg);
   backdrop-filter: blur(10px);
   z-index: 2;
   max-width: calc(100vw - 2 * var(--sp-4));
+}
+
+.dock__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+}
+
+/* Top row: always-visible Evolution params.  Hairline separates
+   it from the action row below. */
+.dock__row--params {
+  border-bottom: 1px solid var(--color-border);
+  gap: var(--sp-4);
+}
+
+.dock__row--actions {
+  gap: var(--sp-2);
 }
 
 .dock__section {
@@ -1013,6 +1053,27 @@ button {
   cursor: pointer;
 }
 
+/* Compact horizontal variant for the always-visible Evolution row in
+   the bottom dock — single-line layout, narrow slider, value
+   right-aligned to a fixed minimum width so all three sliders' value
+   columns line up vertically across the row. */
+.ctrl--inline {
+  display: flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.ctrl--inline .ctrl__slider {
+  width: 6rem;
+  flex: 0 0 auto;
+}
+
+.ctrl--inline .ctrl__value {
+  min-width: 2.5rem;
+  flex: 0 0 auto;
+}
+
 .ctrl__label {
   font-size: var(--fs-xs);
   color: var(--color-fg-muted);
@@ -1086,6 +1147,12 @@ button {
   margin-top: var(--sp-2);
 }
 
+/* When the toggle variant is also inline (Evolution row), drop the
+   margin-top — the row's flex alignment handles vertical centring. */
+.ctrl--inline.ctrl--toggle {
+  margin-top: 0;
+}
+
 .ctrl__checkbox {
   width: 0.875rem;
   height: 0.875rem;
@@ -1102,54 +1169,66 @@ button {
   letter-spacing: 0.02em;
 }
 
-/* In-drawer confirm overlay — sits on top of the Evolution drawer
-   when the strict-determinism toggle is ticked, until the player
-   accepts or cancels.  The drawer is itself `position: absolute`
-   which provides the containing block for the overlay's
-   `inset: 0`-style positioning. */
-.card-confirm {
-  position: absolute;
-  /* Cover the host drawer's interior cleanly.  Drawer dimensions
-     are stable enough (heading + 3 sliders + toggle + hint ≈ 240 px)
-     that a fixed inset overlay holds the warning text + buttons
-     without overflow. */
+/* Centred modal — used by the strict-determinism warning.  Body-
+   level overlay with a dimmed backdrop so the prompt reads as a
+   real "do you want to do this" decision rather than a passive
+   tooltip.  Click on the dimmed area or pressing Escape cancels. */
+.modal-confirm {
+  position: fixed;
   inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
   display: flex;
-  flex-direction: column;
-  background: rgba(22, 22, 26, 0.96);
-  border-radius: var(--r-md);
-  padding: var(--sp-3) var(--sp-4);
-  z-index: 4;
-  animation: confirm-pop 0.12s ease-out;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  animation: modal-fade 0.16s ease-out;
 }
 
-.card-confirm[hidden] {
+.modal-confirm[hidden] {
   display: none;
 }
 
-.card-confirm__heading {
-  margin: 0 0 var(--sp-2);
-  font-size: var(--fs-xs);
-  font-weight: 500;
+.modal-confirm__panel {
+  width: min(24rem, calc(100vw - 2 * var(--sp-4)));
+  background: rgba(22, 22, 26, 0.98);
+  border: 1px solid var(--color-panel-accent);
+  border-radius: var(--r-md);
+  padding: var(--sp-4) var(--sp-5);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  animation: confirm-pop 0.16s ease-out;
+}
+
+.modal-confirm__heading {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--color-panel-accent);
 }
 
-.card-confirm__text {
-  margin: 0 0 var(--sp-3);
-  font-size: 0.75rem;
-  line-height: 1.45;
+.modal-confirm__text {
+  margin: 0 0 var(--sp-4);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
   color: var(--color-fg);
   white-space: pre-line;
-  flex: 1;
 }
 
-.card-confirm__actions {
+.modal-confirm__actions {
   display: flex;
   gap: var(--sp-2);
   justify-content: flex-end;
-  margin-top: auto;
+}
+
+@keyframes modal-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .swatch {
@@ -1364,10 +1443,10 @@ button {
     display: none;
   }
 
-  /* Drop the secondary stats (SOLO/SEED) on narrow screens — the
-     primary GEN/POP/LEAD/BEST set already squeezes the available
-     ribbon width. */
-  .ribbon__stat--secondary {
+  /* Drop labels from ribbon stats on narrow screens; values alone
+     keep the strip readable while saving width. */
+  .ribbon__label,
+  .ribbon__sep {
     display: none;
   }
 

@@ -32,8 +32,6 @@ export const ru: Dictionary = {
   'panel.speedup': '⏵ Норм. скорость',
   'panel.speedup8': '⏵⏵ ×8 скорость',
   'panel.speedup32': '⏵⏵⏵ ×32 (без рендера)',
-  'panel.skipTen': '⏩ +10 поколений',
-  'panel.skipping': '⏩ перематываем…',
   'panel.trackRandom': '🗺 случайная',
   'panel.trackFixed': '🗺 фикс. трасса',
   'panel.trackSmooth': '🗺 ровная',

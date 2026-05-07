@@ -30,8 +30,6 @@ const enRaw = {
   'panel.speedup': '⏵ Realtime',
   'panel.speedup8': '⏵⏵ ×8 speed',
   'panel.speedup32': '⏵⏵⏵ ×32 (no render)',
-  'panel.skipTen': '⏩ +10 gens',
-  'panel.skipping': '⏩ skipping…',
   'panel.trackRandom': '🗺 random track',
   'panel.trackFixed': '🗺 fixed track',
   'panel.trackSmooth': '🗺 smooth track',

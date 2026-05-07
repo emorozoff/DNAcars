@@ -139,15 +139,6 @@ const SPEED_STATES: SpeedState[] = [
 let speedIdx = 0;
 
 /**
- * "Skip N generations" mode.  When non-null, the loop runs at very
- * high speed with rendering off until `generation` reaches this
- * target, then resets to whatever the speed cycle was on before.
- */
-let skipUntilGen: number | null = null;
-const SKIP_SPEED = 64;
-const SKIP_AMOUNT = 10;
-
-/**
  * Wall-time budget per RAF frame for physics steps, in ms.  At ×1 we
  * never come close.  At ×8/×32 the inner while-loop hits this cap and
  * the next RAF picks up where it left off — so the UI never blocks
@@ -218,10 +209,9 @@ async function verifyEliteAlone(genome: Genome, track: Track): Promise<number> {
 
 /**
  * Resolve the multiplier and headless flag the tick loop should use
- * *right now*, taking the skip-N-gens override into account.
+ * *right now*.
  */
 function effectiveSpeed(): SpeedState {
-  if (skipUntilGen !== null) return { multiplier: SKIP_SPEED, headless: true };
   return SPEED_STATES[speedIdx] ?? SPEED_STATES[0]!;
 }
 
@@ -475,21 +465,11 @@ async function bootstrap(): Promise<void> {
         // supported as a shortcut for the segmented control).
         const slot = Number(ev.code.slice(-1)) - 1;
         if (slot < 0 || slot >= SPEED_STATES.length) return;
-        if (skipUntilGen !== null) skipUntilGen = null;
         speedIdx = slot;
         updateSpeedSegmented();
         applyHeadless();
         return;
       }
-      case 'KeyS':
-        // Power-user hotkey: skip the next N generations at high
-        // speed without rendering.  The on-screen +10-gens button
-        // was removed in v1.0.0, but this shortcut stays.
-        ev.preventDefault();
-        skipUntilGen = generation + SKIP_AMOUNT;
-        updateSpeedSegmented();
-        applyHeadless();
-        return;
       case 'KeyC':
         ev.preventDefault();
         if (charts) charts.setVisible(!charts.isVisible());
@@ -506,14 +486,13 @@ async function bootstrap(): Promise<void> {
         scene.followLeader();
         return;
       case 'Escape':
-        // If the inline confirm popover is open, Esc dismisses it
-        // first.  Otherwise it's the "calm down" hotkey: cancel any
-        // skip-N-gens job and drop the speed back to realtime.
+        // If the inline confirm popover is open, Esc dismisses it.
+        // Otherwise it's the "calm down" hotkey — drop speed back
+        // to realtime.
         if (isConfirmOpen()) {
           setConfirmOpen(false);
           return;
         }
-        if (skipUntilGen !== null) skipUntilGen = null;
         speedIdx = 0;
         updateSpeedSegmented();
         applyHeadless();
@@ -521,23 +500,20 @@ async function bootstrap(): Promise<void> {
     }
   });
 
-  // Speed segmented control: three direct-select segments (×1 / ×8
-  // / ×32).  Clicking a segment cancels any active skip-N-gens
-  // job (still triggerable via KeyS hotkey) and sets the speed
-  // slot directly.  When skip mode is active, no segment is
-  // highlighted — skip overrides everything.
+  // Speed segmented control: three direct-select segments
+  // (×1 / ×8 / ×32).  Clicking a segment sets the speed slot
+  // directly.  The active slot is highlighted.
   const speedSegItems = document.querySelectorAll<HTMLButtonElement>('#seg-speed [data-speed-idx]');
 
   function updateSpeedSegmented(): void {
-    const skipping = skipUntilGen !== null;
     speedSegItems.forEach((el) => {
       const idx = Number(el.dataset['speedIdx']);
-      el.classList.toggle('segmented__item--active', !skipping && idx === speedIdx);
+      el.classList.toggle('segmented__item--active', idx === speedIdx);
     });
   }
 
   function applyHeadless(): void {
-    const headless = skipUntilGen !== null || (SPEED_STATES[speedIdx]?.headless ?? false);
+    const headless = SPEED_STATES[speedIdx]?.headless ?? false;
     // Re-narrow inside the closure — TS loses the earlier instanceof
     // narrowing once `host` is captured by another function.
     if (host instanceof HTMLElement) {
@@ -549,8 +525,6 @@ async function bootstrap(): Promise<void> {
     el.addEventListener('click', () => {
       const idx = Number(el.dataset['speedIdx']);
       if (Number.isNaN(idx)) return;
-      // Clicking any segment while in skip mode cancels the skip.
-      if (skipUntilGen !== null) skipUntilGen = null;
       speedIdx = idx;
       updateSpeedSegmented();
       applyHeadless();
@@ -637,13 +611,6 @@ async function bootstrap(): Promise<void> {
         history.push(collectStats(generation, durationSec, results));
         if (charts) charts.update(history);
         generation += 1;
-        // If we were skipping ahead and just hit the target generation,
-        // exit skip mode and restore the visible speed selection.
-        if (skipUntilGen !== null && generation >= skipUntilGen) {
-          skipUntilGen = null;
-          updateSpeedSegmented();
-          applyHeadless();
-        }
         const effective = effectiveSpeed();
         setTimeout(() => void restart(), GENERATION_PAUSE_MS / effective.multiplier);
       },
@@ -850,17 +817,13 @@ async function startSession(opts: StartOptions): Promise<Session> {
         fitness: snap.cars[i]?.travel ?? 0,
       }));
       onGenerationEnd(results);
-      // Solo-verify the top-1 elite in a side-world.  Skipped while
-      // skip-N-gens is active (extra ~50–150 ms per gen times N
-      // would noticeably slow the skip).  Runs in the background;
-      // the next generation starts immediately, the verified-elite
-      // HUD just updates whenever this resolves.
-      if (skipUntilGen === null) {
-        const top = results.reduce((a, b) => (b.fitness > a.fitness ? b : a));
-        void verifyEliteAlone(top.genome, track).then((solo) => {
-          hud.eliteSolo.textContent = `${solo.toFixed(1)} m`;
-        });
-      }
+      // Solo-verify the top-1 elite in a side-world.  Runs in the
+      // background; the next generation starts immediately, the
+      // verified-elite HUD just updates whenever this resolves.
+      const top = results.reduce((a, b) => (b.fitness > a.fitness ? b : a));
+      void verifyEliteAlone(top.genome, track).then((solo) => {
+        hud.eliteSolo.textContent = `${solo.toFixed(1)} m`;
+      });
       return;
     }
     requestAnimationFrame(tick);

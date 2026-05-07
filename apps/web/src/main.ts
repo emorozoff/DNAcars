@@ -483,6 +483,12 @@ async function startSession(opts: StartOptions): Promise<Session> {
     const carSnap = snap.cars.find((c) => c.index === carIndex);
     if (!genome || !carSnap) return;
     const trackY = sampleTrackY(track, carSnap.position.x);
+    // Pull the per-car trajectory + safety-event counts.  The
+    // timeline tuples are documented in apps/web/src/sim/world.ts:
+    //   [t, x, y, vx, vy, ang, hAt, onBits, ev]
+    // ev codes: 0 sample / 1 velClamp / 2 airClamp / 3 finish.
+    const timeline = world.getCarTimeline(carIndex);
+    const eventCounts = world.getCarEventCounts(carIndex);
     const bundle = {
       version: __APP_VERSION__,
       trackSeed: trackSeed.toString(16).padStart(8, '0'),
@@ -499,6 +505,10 @@ async function startSession(opts: StartOptions): Promise<Session> {
         trackYHere: Number(trackY.toFixed(3)),
         heightAboveTrack: Number((carSnap.position.y - trackY).toFixed(3)),
       },
+      eventCounts,
+      timelineHelp:
+        'tuple = [t, x, y, vx, vy, ang, heightAboveTrack, onGroundBitmask, eventCode]; eventCode 0=sample 1=velClamp 2=airClamp 3=finish',
+      timeline,
     };
     const json = JSON.stringify(bundle, null, 2);
     void navigator.clipboard

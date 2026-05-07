@@ -357,6 +357,40 @@ type WheelRuntime = {
   onGround: boolean;
 };
 
+/**
+ * Per-car timeline entry — a single point on the trajectory record.
+ * Stored as a flat tuple to keep the JSON bundle compact when the
+ * user copies a debug dump.
+ *
+ *   t       sim time, seconds (since this generation started)
+ *   x, y    chassis position
+ *   vx, vy  chassis linear velocity
+ *   ang     chassis rotation, rad
+ *   hAt     altitude above the local track surface (m)
+ *   on      bitmask of which wheels were on the ground this tick
+ *   ev      event code:
+ *             0 = periodic sample (every TIMELINE_SAMPLE_SEC)
+ *             1 = velocity clamp fired (|v| past safety.maxLinvel)
+ *             2 = altitude ceiling fired (above safety.maxAirHeight)
+ *             3 = finish (car just stalled out)
+ */
+export type TimelineEntry = [
+  t: number,
+  x: number,
+  y: number,
+  vx: number,
+  vy: number,
+  ang: number,
+  hAt: number,
+  on: number,
+  ev: 0 | 1 | 2 | 3,
+];
+
+/** Periodic sample rate.  5 Hz → 150 entries per 30 s of sim. */
+const TIMELINE_SAMPLE_SEC = 0.2;
+/** Max entries kept per car.  At 5 Hz + a few events that's ≈ 60 s of history. */
+const TIMELINE_MAX = 400;
+
 type CarRuntime = {
   index: number;
   genome: Genome;
@@ -371,6 +405,12 @@ type CarRuntime = {
   stallTimer: number;
   /** Once true, motor is off and bodies are pinned in place forever. */
   finished: boolean;
+  /** Trajectory record — periodic samples + immediate event entries. */
+  timeline: TimelineEntry[];
+  /** Sim time of the last periodic sample. */
+  lastSampleT: number;
+  /** How many times the velocity / altitude safety nets have fired. */
+  eventCounts: { velClamp: number; airClamp: number };
 };
 
 export type CarSnapshot = {
@@ -407,6 +447,10 @@ export type WorldHandle = {
   snapshot(): WorldSnapshot;
   allFinished(): boolean;
   forceFinishAll(): void;
+  /** Return the recorded trajectory + event entries for car `idx`. */
+  getCarTimeline(idx: number): TimelineEntry[];
+  /** Return how many times each safety net has fired for car `idx`. */
+  getCarEventCounts(idx: number): { velClamp: number; airClamp: number };
   destroy(): void;
 };
 
@@ -461,9 +505,19 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
         car.ageSec += SIM_DT;
         const x = car.chassis.translation().x;
         if (x > car.maxX) car.maxX = x;
-        clampInsaneVelocity(car);
-        clampAirHeight(car, opts.track);
+        clampInsaneVelocity(car, opts.track, time);
+        clampAirHeight(car, opts.track, time);
+        const wasFinished = car.finished;
         updateLifecycle(car);
+        // Record a periodic sample for this car.  If updateLifecycle
+        // just promoted us to "finished", record an event entry too
+        // so the timeline ends with a clear "this is when it stopped"
+        // marker.
+        if (!wasFinished && car.finished) {
+          recordTimeline(car, opts.track, time, 3);
+        } else {
+          recordTimeline(car, opts.track, time, 0);
+        }
       }
     },
     snapshot(): WorldSnapshot {
@@ -487,6 +541,12 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
       for (const car of cars) {
         if (!car.finished) car.finished = true;
       }
+    },
+    getCarTimeline(idx): TimelineEntry[] {
+      return cars[idx]?.timeline ?? [];
+    },
+    getCarEventCounts(idx): { velClamp: number; airClamp: number } {
+      return cars[idx]?.eventCounts ?? { velClamp: 0, airClamp: 0 };
     },
     destroy(): void {
       world.free();
@@ -633,6 +693,9 @@ function buildCar(
     ageSec: 0,
     stallTimer: 0,
     finished: false,
+    timeline: [],
+    lastSampleT: -Infinity,
+    eventCounts: { velClamp: 0, airClamp: 0 },
   };
 }
 
@@ -754,12 +817,14 @@ function freezeCar(car: CarRuntime): void {
  * `maxLinvel` is a known glitch state, not gameplay.  Scale velocity
  * back to the cap and warn so we can see how often this fires.
  */
-function clampInsaneVelocity(car: CarRuntime): void {
+function clampInsaneVelocity(car: CarRuntime, track: Track, time: number): void {
   const v = car.chassis.linvel();
   const sp = Math.hypot(v.x, v.y);
   if (sp <= TUNING.safety.maxLinvel) return;
   const scale = TUNING.safety.maxLinvel / sp;
   car.chassis.setLinvel({ x: v.x * scale, y: v.y * scale }, true);
+  car.eventCounts.velClamp++;
+  recordTimeline(car, track, time, 1);
   console.warn(
     `[safety] car ${car.index} clamped from ${sp.toFixed(1)} m/s to ${TUNING.safety.maxLinvel}`,
   );
@@ -780,7 +845,7 @@ function clampInsaneVelocity(car: CarRuntime): void {
  * "altitude above track" is computed against the actual hill profile
  * under the car, not against a flat absolute y=0.
  */
-function clampAirHeight(car: CarRuntime, track: Track): void {
+function clampAirHeight(car: CarRuntime, track: Track, time: number): void {
   const pos = car.chassis.translation();
   if (pos.x < 0 || pos.x > track.options.length) return;
   const trackY = sampleTrackY(track, pos.x);
@@ -789,6 +854,50 @@ function clampAirHeight(car: CarRuntime, track: Track): void {
   const v = car.chassis.linvel();
   if (v.y <= 0) return; // already coming down — let gravity finish the job
   car.chassis.setLinvel({ x: v.x, y: 0 }, true);
+  car.eventCounts.airClamp++;
+  recordTimeline(car, track, time, 2);
+}
+
+/**
+ * Append a timeline entry for this car.  Called periodically (every
+ * TIMELINE_SAMPLE_SEC sim seconds) and immediately on safety events.
+ *
+ * Entries are kept in a flat tuple so the JSON bundle that the user
+ * pastes back to me stays compact and readable.  We cap at
+ * TIMELINE_MAX entries — older ones drop off the front of the queue
+ * so the buffer is always "the most recent N moments of this car".
+ *
+ * `eventCode` 0 means "this is a periodic sample"; non-zero codes
+ * (1=velClamp, 2=airClamp, 3=finish) mean "an event happened this
+ * tick" and the entry was forced regardless of sample timing.
+ */
+function recordTimeline(
+  car: CarRuntime,
+  track: Track,
+  time: number,
+  eventCode: 0 | 1 | 2 | 3,
+): void {
+  if (eventCode === 0 && time - car.lastSampleT < TIMELINE_SAMPLE_SEC) return;
+  car.lastSampleT = time;
+  const pos = car.chassis.translation();
+  const vel = car.chassis.linvel();
+  const trackY = pos.x >= 0 && pos.x <= track.options.length ? sampleTrackY(track, pos.x) : 0;
+  let onBits = 0;
+  for (let i = 0; i < car.wheels.length && i < 8; i++) {
+    if (car.wheels[i]!.onGround) onBits |= 1 << i;
+  }
+  car.timeline.push([
+    Number(time.toFixed(2)),
+    Number(pos.x.toFixed(2)),
+    Number(pos.y.toFixed(2)),
+    Number(vel.x.toFixed(2)),
+    Number(vel.y.toFixed(2)),
+    Number(car.chassis.rotation().toFixed(3)),
+    Number((pos.y - trackY).toFixed(2)),
+    onBits,
+    eventCode,
+  ]);
+  if (car.timeline.length > TIMELINE_MAX) car.timeline.shift();
 }
 
 function normalizeAngle(a: number): number {

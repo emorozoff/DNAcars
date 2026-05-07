@@ -519,7 +519,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
     // Pull the per-car trajectory + safety-event counts.  The
     // timeline tuples are documented in apps/web/src/sim/world.ts:
     //   [t, x, y, vx, vy, ang, hAt, onBits, ev]
-    // ev codes: 0 sample / 1 velClamp / 3 finish.
+    // ev codes: 0 sample / 1 velClamp / 3 finish / 4 spike.
     const timeline = world.getCarTimeline(carIndex);
     const eventCounts = world.getCarEventCounts(carIndex);
     const bundle = {
@@ -540,7 +540,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
       },
       eventCounts,
       timelineHelp:
-        'tuple = [t, x, y, vx, vy, ang, heightAboveTrack, onGroundBitmask, eventCode]; eventCode 0=sample 1=velClamp 3=finish',
+        'tuple = [t, x, y, vx, vy, ang, heightAboveTrack, onGroundBitmask, eventCode]; eventCode 0=sample 1=velClamp 3=finish 4=spike',
       timeline,
     };
     const json = JSON.stringify(bundle, null, 2);

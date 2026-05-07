@@ -163,6 +163,23 @@ export const TUNING = {
      * head room for legitimate downhill bursts.
      */
     maxLinvel: 22,
+    /**
+     * Maximum chassis velocity change in m/s per *substep* (= 1/120 s)
+     * that we accept as a normal physics interaction.  At 2 m/s this
+     * corresponds to 240 m/s² of acceleration in a single substep —
+     * already well above gravity (10) or hard friction-braking (~50),
+     * but comfortably below the explosive ejections we observe when a
+     * polygonal chassis lands edge-first into the polygonal ground
+     * (those are 8 m/s+ in one substep, > 1000 m/s²).
+     *
+     * When |dv| exceeds this we scale the velocity change back to
+     * the threshold and dampen the chassis's angular velocity by
+     * half — together this prevents the post-impact "kicked
+     * sideways at random angle" behaviour we saw at t=22.45 in the
+     * v0.9.19 user-reported timeline (vx flipped +4.23 → -3.91 in
+     * one game-tick).
+     */
+    maxDvPerSubstep: 2,
   },
   lifecycle: {
     /** Speed below which a car counts as "not moving" (m/s). */
@@ -377,6 +394,7 @@ type WheelRuntime = {
  *             0 = periodic sample (every TIMELINE_SAMPLE_SEC)
  *             1 = velocity clamp fired (|v| past safety.maxLinvel)
  *             3 = finish (car just stalled out)
+ *             4 = impulse spike clipped (|dv| past safety.maxDvPerSubstep)
  *           (code 2 used to be the altitude-ceiling event;
  *           dropped in v0.9.17 — the ceiling was a band-aid, we
  *           now want the raw physics so we can find the real
@@ -391,7 +409,7 @@ export type TimelineEntry = [
   ang: number,
   hAt: number,
   on: number,
-  ev: 0 | 1 | 2 | 3,
+  ev: 0 | 1 | 2 | 3 | 4,
 ];
 
 /** Periodic sample rate.  5 Hz → 150 entries per 30 s of sim. */
@@ -423,8 +441,14 @@ type CarRuntime = {
   timeline: TimelineEntry[];
   /** Sim time of the last periodic sample. */
   lastSampleT: number;
-  /** How many times the velocity / altitude safety nets have fired. */
-  eventCounts: { velClamp: number };
+  /**
+   * Chassis linear velocity at the end of the previous substep.
+   * Compared against the current velocity post-step to detect
+   * explosive impulse spikes (penetration ejections).
+   */
+  lastVelocity: { x: number; y: number };
+  /** How many times each safety net has fired for this car. */
+  eventCounts: { velClamp: number; spike: number };
 };
 
 export type CarSnapshot = {
@@ -464,7 +488,7 @@ export type WorldHandle = {
   /** Return the recorded trajectory + event entries for car `idx`. */
   getCarTimeline(idx: number): TimelineEntry[];
   /** Return how many times each safety net has fired for car `idx`. */
-  getCarEventCounts(idx: number): { velClamp: number };
+  getCarEventCounts(idx: number): { velClamp: number; spike: number };
   destroy(): void;
 };
 
@@ -513,6 +537,14 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
           applyMotor(car);
         }
         world.step();
+        // Detect explosive impulses INSIDE the substep loop so the
+        // clipped velocity feeds back into the next substep — if we
+        // only checked once per game-tick, the spike could propagate
+        // chassis position by ~17 cm before being caught.
+        for (const car of cars) {
+          if (!car.finished)
+            clampImpulseSpike(car, opts.track, time + (s + 1) * (SIM_DT / PHYSICS_SUBSTEPS));
+        }
       }
       time += SIM_DT;
       for (const car of cars) {
@@ -559,8 +591,8 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
     getCarTimeline(idx): TimelineEntry[] {
       return cars[idx]?.timeline ?? [];
     },
-    getCarEventCounts(idx): { velClamp: number } {
-      return cars[idx]?.eventCounts ?? { velClamp: 0 };
+    getCarEventCounts(idx): { velClamp: number; spike: number } {
+      return cars[idx]?.eventCounts ?? { velClamp: 0, spike: 0 };
     },
     destroy(): void {
       world.free();
@@ -718,7 +750,8 @@ function buildCar(
     airborne: true,
     timeline: [],
     lastSampleT: -Infinity,
-    eventCounts: { velClamp: 0 },
+    lastVelocity: { x: 0, y: 0 },
+    eventCounts: { velClamp: 0, spike: 0 },
   };
 }
 
@@ -882,6 +915,58 @@ function clampInsaneVelocity(car: CarRuntime, track: Track, time: number): void 
   );
 }
 
+/**
+ * Per-substep impulse-spike detector.
+ *
+ * Compares the chassis's velocity now against the value at the end
+ * of the previous substep; if the change in one 1/120-s step exceeds
+ * `maxDvPerSubstep` we treat it as an explosive ejection (typically
+ * the solver pushing the polygonal chassis out of the polygonal
+ * ground after a deep edge-first penetration), scale the change back
+ * to the threshold, and dampen angular velocity by half so the
+ * post-impact heading isn't a random spin.
+ *
+ * Compared to clampInsaneVelocity (which catches absolute |v| > 22
+ * m/s), this catches the *moderate* impulses that produced the
+ * "sudden reverse" behaviour the user observed in v0.9.19 — vx
+ * flipping from +4 to -4 in one game tick.  The full magnitude of
+ * post-clamp velocity stays below 22 m/s so clampInsaneVelocity
+ * never fired, but the change-per-tick is plainly impossible from
+ * normal physics.
+ *
+ * Called once per substep, after world.step(), before the chassis's
+ * velocity feeds into the next substep.
+ */
+function clampImpulseSpike(car: CarRuntime, track: Track, time: number): void {
+  const v = car.chassis.linvel();
+  const dvx = v.x - car.lastVelocity.x;
+  const dvy = v.y - car.lastVelocity.y;
+  const dv = Math.hypot(dvx, dvy);
+  const limit = TUNING.safety.maxDvPerSubstep;
+  if (dv > limit) {
+    const scale = limit / dv;
+    car.chassis.setLinvel(
+      {
+        x: car.lastVelocity.x + dvx * scale,
+        y: car.lastVelocity.y + dvy * scale,
+      },
+      true,
+    );
+    // Halve angular velocity too — explosion-ejections almost
+    // always come with a spin component; without this the chassis
+    // emerges from the clamp moving slower but still rotating
+    // wildly.
+    car.chassis.setAngvel(car.chassis.angvel() * 0.5, true);
+    car.eventCounts.spike++;
+    recordTimeline(car, track, time, 4);
+  }
+  // Cache for the next substep's comparison — read fresh because
+  // we may have just modified it above.
+  const nv = car.chassis.linvel();
+  car.lastVelocity.x = nv.x;
+  car.lastVelocity.y = nv.y;
+}
+
 // (`clampAirHeight` removed in v0.9.17 — see commit log.  We want the
 // raw physics so that any flying behaviour reveals its real cause in
 // the timeline log instead of being masked by a band-aid ceiling.)
@@ -903,7 +988,7 @@ function recordTimeline(
   car: CarRuntime,
   track: Track,
   time: number,
-  eventCode: 0 | 1 | 2 | 3,
+  eventCode: 0 | 1 | 2 | 3 | 4,
 ): void {
   if (eventCode === 0 && time - car.lastSampleT < TIMELINE_SAMPLE_SEC) return;
   car.lastSampleT = time;

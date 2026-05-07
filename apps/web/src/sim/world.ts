@@ -735,9 +735,30 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
   // Resolve absolute world-y for ceilings (their `y` field carries
   // the *relative* clearance during placement; we add the local
   // surface height now that the points array exists).
+  //
+  // Use the *maximum* surface height across the ceiling's full
+  // [xCenter - halfWidth, xCenter + halfWidth] span — not just the
+  // centre — so the configured clearance gene is the actual minimum
+  // gap to the track everywhere under the beam.  Sampling at the
+  // centre alone fails on rising terrain: a 5 m-wide beam over a
+  // hill that climbs 1.5 m across that span ends up touching (or
+  // below) the surface on the high side, becoming an impassable
+  // hard wall instead of the intended overhead obstacle.
+  const sampleStep = points.length > 1 ? points[1]!.x - points[0]!.x : 0.6;
   const resolved: PhysicalObstacle[] = physicalObstacles.map((p) => {
     if (p.kind === 'ceiling') {
-      return { ...p, y: sampleY(points, p.xCenter) + p.y };
+      const left = p.xCenter - p.halfWidth;
+      const right = p.xCenter + p.halfWidth;
+      let maxSurfaceY = Math.max(sampleY(points, left), sampleY(points, right));
+      const iLeft = Math.max(0, Math.floor(left / sampleStep));
+      const iRight = Math.min(points.length - 1, Math.ceil(right / sampleStep));
+      for (let i = iLeft; i <= iRight; i++) {
+        const tp = points[i]!;
+        if (tp.x < left) continue;
+        if (tp.x > right) break;
+        if (tp.y > maxSurfaceY) maxSurfaceY = tp.y;
+      }
+      return { ...p, y: maxSurfaceY + p.y };
     }
     return p;
   });

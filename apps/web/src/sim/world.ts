@@ -146,16 +146,6 @@ export const TUNING = {
      * head room for legitimate downhill bursts.
      */
     maxLinvel: 22,
-    /**
-     * Maximum altitude (m) a chassis is allowed above the local
-     * track surface.  Past this we set vertical velocity to 0
-     * (only when ascending) so gravity pulls the body straight
-     * back down — a hard ceiling that prevents "flying to the
-     * moon" no matter how dramatic the terrain.  4 m is a few
-     * jumps above any natural ramp clearance, never fires for
-     * legitimate hops over a hill crest.
-     */
-    maxAirHeight: 4,
   },
   lifecycle: {
     /** Speed below which a car counts as "not moving" (m/s). */
@@ -228,9 +218,7 @@ const DEFAULT_TRACK: TrackOptions = {
    * Cranked back up 2.8 → 5.0 in v0.9.11 by user request: more
    * dramatic hills make the evolutionary fitness landscape more
    * interesting (cars need to climb, jump, recover) and visually
-   * the world looks more alive.  Flying is no longer a worry
-   * because TUNING.safety.maxAirHeight enforces a hard altitude
-   * ceiling regardless of how steep the terrain gets.
+   * the world looks more alive.
    */
   amplitude: 5.0,
 };
@@ -371,8 +359,11 @@ type WheelRuntime = {
  *   ev      event code:
  *             0 = periodic sample (every TIMELINE_SAMPLE_SEC)
  *             1 = velocity clamp fired (|v| past safety.maxLinvel)
- *             2 = altitude ceiling fired (above safety.maxAirHeight)
  *             3 = finish (car just stalled out)
+ *           (code 2 used to be the altitude-ceiling event;
+ *           dropped in v0.9.17 — the ceiling was a band-aid, we
+ *           now want the raw physics so we can find the real
+ *           cause of any flying behaviour)
  */
 export type TimelineEntry = [
   t: number,
@@ -410,7 +401,7 @@ type CarRuntime = {
   /** Sim time of the last periodic sample. */
   lastSampleT: number;
   /** How many times the velocity / altitude safety nets have fired. */
-  eventCounts: { velClamp: number; airClamp: number };
+  eventCounts: { velClamp: number };
 };
 
 export type CarSnapshot = {
@@ -450,7 +441,7 @@ export type WorldHandle = {
   /** Return the recorded trajectory + event entries for car `idx`. */
   getCarTimeline(idx: number): TimelineEntry[];
   /** Return how many times each safety net has fired for car `idx`. */
-  getCarEventCounts(idx: number): { velClamp: number; airClamp: number };
+  getCarEventCounts(idx: number): { velClamp: number };
   destroy(): void;
 };
 
@@ -506,7 +497,6 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
         const x = car.chassis.translation().x;
         if (x > car.maxX) car.maxX = x;
         clampInsaneVelocity(car, opts.track, time);
-        clampAirHeight(car, opts.track, time);
         const wasFinished = car.finished;
         updateLifecycle(car);
         // Record a periodic sample for this car.  If updateLifecycle
@@ -545,8 +535,8 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
     getCarTimeline(idx): TimelineEntry[] {
       return cars[idx]?.timeline ?? [];
     },
-    getCarEventCounts(idx): { velClamp: number; airClamp: number } {
-      return cars[idx]?.eventCounts ?? { velClamp: 0, airClamp: 0 };
+    getCarEventCounts(idx): { velClamp: number } {
+      return cars[idx]?.eventCounts ?? { velClamp: 0 };
     },
     destroy(): void {
       world.free();
@@ -695,7 +685,7 @@ function buildCar(
     finished: false,
     timeline: [],
     lastSampleT: -Infinity,
-    eventCounts: { velClamp: 0, airClamp: 0 },
+    eventCounts: { velClamp: 0 },
   };
 }
 
@@ -830,33 +820,9 @@ function clampInsaneVelocity(car: CarRuntime, track: Track, time: number): void 
   );
 }
 
-/**
- * Hard altitude ceiling — defence against "flying to the moon".
- *
- * If the chassis ends up more than `maxAirHeight` metres above the
- * track surface beneath it AND is currently rising (vy > 0), we zero
- * its vertical velocity.  Gravity and damping then bring the body
- * straight back down within a second or two.  Horizontal velocity is
- * untouched, so the car still flies forward at speed and lands far
- * along the track — looks like a heavy thump on an invisible
- * ceiling, not a teleport.
- *
- * The check uses the same `sampleTrackY` we use everywhere else, so
- * "altitude above track" is computed against the actual hill profile
- * under the car, not against a flat absolute y=0.
- */
-function clampAirHeight(car: CarRuntime, track: Track, time: number): void {
-  const pos = car.chassis.translation();
-  if (pos.x < 0 || pos.x > track.options.length) return;
-  const trackY = sampleTrackY(track, pos.x);
-  const altitude = pos.y - trackY;
-  if (altitude <= TUNING.safety.maxAirHeight) return;
-  const v = car.chassis.linvel();
-  if (v.y <= 0) return; // already coming down — let gravity finish the job
-  car.chassis.setLinvel({ x: v.x, y: 0 }, true);
-  car.eventCounts.airClamp++;
-  recordTimeline(car, track, time, 2);
-}
+// (`clampAirHeight` removed in v0.9.17 — see commit log.  We want the
+// raw physics so that any flying behaviour reveals its real cause in
+// the timeline log instead of being masked by a band-aid ceiling.)
 
 /**
  * Append a timeline entry for this car.  Called periodically (every
@@ -868,8 +834,8 @@ function clampAirHeight(car: CarRuntime, track: Track, time: number): void {
  * so the buffer is always "the most recent N moments of this car".
  *
  * `eventCode` 0 means "this is a periodic sample"; non-zero codes
- * (1=velClamp, 2=airClamp, 3=finish) mean "an event happened this
- * tick" and the entry was forced regardless of sample timing.
+ * (1=velClamp, 3=finish) mean "an event happened this tick" and the
+ * entry was forced regardless of sample timing.
  */
 function recordTimeline(
   car: CarRuntime,

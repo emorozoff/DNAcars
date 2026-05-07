@@ -114,4 +114,12 @@ export const ru: Dictionary = {
   'chart.avgMotorSpeed': 'Ср. скорость мотора',
   'chart.avgChassisDensity': 'Ср. плотность корпуса',
   'chart.avgChassisSize': 'Ср. размер корпуса',
+  // Секции панели статистики (редизайн v1.15)
+  'stats.progress': 'Прогресс эволюции',
+  'stats.progressBest': 'Лучший',
+  'stats.progressMean': 'Средний',
+  'stats.distribution': 'Распределение текущего поколения',
+  'stats.distributionHint': 'Кто сколько проехал в этом поколении',
+  'stats.genome': 'Эволюция генома',
+  'stats.empty': 'Запусти поколение чтобы увидеть статистику',
 };

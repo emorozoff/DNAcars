@@ -697,10 +697,12 @@ function updateCarView(view: CarView, car: CarSnapshot, tier: RenderTier): void 
 
   const cos = Math.cos(-car.angle);
   const sin = Math.sin(-car.angle);
-  // ×8 ('lite') skips per-wheel tinting to save 60 cars × 4 wheels
-  // worth of property writes per frame.  At that speed the wheel-
-  // grounded green flash is visually unreadable anyway.
-  const updateTints = tier === 'full';
+  // Wheel tinting policy:
+  //   'full' (×1)  — green flash on grounded wheels every frame
+  //   'lite' (×8)  — neutral grey only.  At ×8 the green strobe
+  //                  is unreadable and a previously-set green tint
+  //                  would otherwise stick if we just skipped the
+  //                  write (the bug this comment is replacing).
   for (let i = 0; i < view.wheels.length; i++) {
     const wg = view.wheels[i]!;
     const ws = car.wheels[i];
@@ -709,8 +711,10 @@ function updateCarView(view: CarView, car: CarSnapshot, tier: RenderTier): void 
     const dy = ws.position.y - car.position.y;
     wg.position.set(dx * cos - dy * sin, dx * sin + dy * cos);
     wg.rotation = ws.angle - car.angle;
-    if (updateTints) {
+    if (tier === 'full') {
       wg.tint = ws.onGround && !car.finished ? COLORS.wheelGround : COLORS.wheel;
+    } else {
+      wg.tint = COLORS.wheel;
     }
   }
   if (car.finished) view.finalDrawn = true;

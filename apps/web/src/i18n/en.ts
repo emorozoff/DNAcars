@@ -112,6 +112,14 @@ const enRaw = {
   'chart.avgMotorSpeed': 'Avg motor speed',
   'chart.avgChassisDensity': 'Avg chassis density',
   'chart.avgChassisSize': 'Avg chassis size',
+  // Stats panel sections (v1.15 redesign)
+  'stats.progress': 'Evolution progress',
+  'stats.progressBest': 'Best',
+  'stats.progressMean': 'Mean',
+  'stats.distribution': 'Current generation distribution',
+  'stats.distributionHint': 'How far the cars in this gen got, binned',
+  'stats.genome': 'Genome trends',
+  'stats.empty': 'Run a generation to see stats',
 } as const;
 
 export type TranslationKey = keyof typeof enRaw;

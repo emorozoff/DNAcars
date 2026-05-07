@@ -498,7 +498,7 @@ async function bootstrap(): Promise<void> {
     scene.setRecordHistory([]);
     hud.best.textContent = '—';
     hud.eliteSolo.textContent = '—';
-    if (charts) charts.update(history);
+    if (charts) charts.update(history, null);
   }
 
   // Track-preset segmented control: direct selection by clicking
@@ -970,7 +970,7 @@ async function bootstrap(): Promise<void> {
         // Record summary stats and refresh sparklines.
         const durationSec = (performance.now() - sessionStartedAt) / 1000;
         history.push(collectStats(generation, durationSec, results));
-        if (charts) charts.update(history);
+        if (charts) charts.update(history, results);
         generation += 1;
         const effective = effectiveSpeed();
         setTimeout(() => void restart(), GENERATION_PAUSE_MS / effective.multiplier);

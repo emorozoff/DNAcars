@@ -143,6 +143,85 @@ const TRACK_MODES: TrackMode[] = ['random', 'fixed'];
 let trackModeIdx = 0;
 let fixedTrackSeed: number | null = null;
 
+/* ─── Seed share/save (v1.7) ──────────────────────────────────────────── */
+
+/**
+ * localStorage key for the rolling history of recent fixed-mode
+ * seeds.  Capped at SEED_HISTORY_MAX so the chip list stays
+ * compact and the storage footprint stays trivial.
+ */
+const SEED_HISTORY_KEY = 'dnacars.seedHistory';
+const SEED_HISTORY_MAX = 8;
+
+function loadSeedHistory(): number[] {
+  try {
+    const raw = localStorage.getItem(SEED_HISTORY_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw) as unknown;
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((x): x is number => typeof x === 'number' && Number.isFinite(x))
+      .slice(0, SEED_HISTORY_MAX);
+  } catch {
+    return [];
+  }
+}
+
+function saveSeedHistory(history: number[]): void {
+  try {
+    localStorage.setItem(SEED_HISTORY_KEY, JSON.stringify(history.slice(0, SEED_HISTORY_MAX)));
+  } catch {
+    /* localStorage might be disabled (private mode etc.); ignore */
+  }
+}
+
+/**
+ * Push a fixed-mode seed to the front of the history.  Same
+ * seed reappearing moves to the front instead of duplicating, so
+ * the list stays clean.
+ */
+function pushSeedToHistory(seed: number): void {
+  const cleaned = loadSeedHistory().filter((s) => s !== seed);
+  cleaned.unshift(seed);
+  saveSeedHistory(cleaned);
+}
+
+/** Render the seed as an 8-character hex string. */
+function formatSeed(seed: number): string {
+  return (seed >>> 0).toString(16).padStart(8, '0');
+}
+
+/** Parse an 8-char-or-shorter hex string (with or without 0x) into a uint32, or null. */
+function parseSeedHex(input: string): number | null {
+  const cleaned = input.trim().replace(/^0x/i, '');
+  if (!/^[0-9a-fA-F]{1,8}$/.test(cleaned)) return null;
+  return parseInt(cleaned, 16) >>> 0;
+}
+
+/**
+ * Read `?seed=xxxxxxxx` from the URL on bootstrap so a shared
+ * link drops the player straight into the same fixed track.
+ */
+function readSeedFromUrl(): number | null {
+  if (typeof window === 'undefined') return null;
+  const v = new URLSearchParams(window.location.search).get('seed');
+  return v ? parseSeedHex(v) : null;
+}
+
+/**
+ * Mirror the active fixed seed (if any) into the URL so the
+ * player can copy the address bar to share.  In random mode the
+ * URL has no `seed` param.  Uses replaceState to avoid spamming
+ * the browser history on every generation.
+ */
+function updateUrlSeed(seed: number | null): void {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  if (seed === null) url.searchParams.delete('seed');
+  else url.searchParams.set('seed', formatSeed(seed));
+  window.history.replaceState({}, '', url.toString());
+}
+
 type SpeedState = { multiplier: number; headless: boolean };
 const SPEED_STATES: SpeedState[] = [
   { multiplier: 1, headless: false },
@@ -252,7 +331,11 @@ function nextTrackParams(): { seed: number; opts: Partial<TrackOptions> } {
     obstacles: { ...trackTuning.obstacles },
   };
   if (mode === 'fixed') {
-    if (fixedTrackSeed === null) fixedTrackSeed = (Math.random() * 0xffffffff) >>> 0;
+    if (fixedTrackSeed === null) {
+      fixedTrackSeed = (Math.random() * 0xffffffff) >>> 0;
+      pushSeedToHistory(fixedTrackSeed);
+      updateUrlSeed(fixedTrackSeed);
+    }
     return { seed: fixedTrackSeed, opts: baseOpts };
   }
   const seed = (Math.random() * 0xffffffff) >>> 0;
@@ -294,6 +377,18 @@ async function bootstrap(): Promise<void> {
   };
   hud.version.textContent = `v${__APP_VERSION__}`;
 
+  // Seed-on-URL handoff: a `?seed=xxxxxxxx` param drops the
+  // player straight into fixed-track mode using that seed.
+  // Useful for sharing a specific track with friends — copy
+  // the URL after the seed shows up in the address bar (or
+  // click the seed value to copy just the hex).
+  const initialUrlSeed = readSeedFromUrl();
+  if (initialUrlSeed !== null) {
+    fixedTrackSeed = initialUrlSeed;
+    trackModeIdx = TRACK_MODES.indexOf('fixed');
+    pushSeedToHistory(initialUrlSeed);
+  }
+
   bindControls();
 
   // Stats dashboard: a grid of sparklines that grows one column per
@@ -332,14 +427,17 @@ async function bootstrap(): Promise<void> {
   const trackRecordHistory: number[] = [];
   const TRACK_RECORD_HISTORY_MAX = 5;
 
-  function freshRun(): void {
+  function freshRun(keepSeed: number | null = null): void {
     generation = 0;
     lastResults = null;
     bestEver = 0;
     history.length = 0;
-    // Drop the cached fixed seed too so a new run picks a fresh track
-    // even if the user is still on the 'fixed' preset.
-    fixedTrackSeed = null;
+    // Drop the cached fixed seed unless the caller is preserving
+    // it (the seed-paste flow asks to keep its just-applied seed
+    // through the reset; the default "↻ New population" button
+    // path passes null and gets a fresh random seed next gen).
+    fixedTrackSeed = keepSeed;
+    updateUrlSeed(keepSeed);
     trackRecordX = null;
     trackRecordHistory.length = 0;
     scene.setRecordHistory([]);
@@ -373,14 +471,119 @@ async function bootstrap(): Promise<void> {
       // cleanly.  The "record on this track" marker only makes
       // sense in fixed mode, so clear it on mode change.
       fixedTrackSeed = null;
+      updateUrlSeed(null);
       trackRecordX = null;
       trackRecordHistory.length = 0;
       scene.setRecordHistory([]);
       updateTrackSegmented();
+      renderSeedHistoryUI();
       el.blur();
     });
   });
   updateTrackSegmented();
+
+  /* ─── Seed card: copy current, paste/apply, recent-history chips ─── */
+
+  const seedDisplayBtn = document.getElementById('stat-seed');
+  const seedInput = document.getElementById('seed-input');
+  const seedApplyBtn = document.getElementById('seed-apply');
+  const seedHistoryHost = document.getElementById('seed-history');
+
+  function renderSeedHistoryUI(): void {
+    if (!(seedHistoryHost instanceof HTMLElement)) return;
+    seedHistoryHost.innerHTML = '';
+    const history = loadSeedHistory();
+    if (history.length === 0) {
+      const empty = document.createElement('span');
+      empty.className = 'seed-history__empty';
+      empty.textContent = t('panel.seedHistoryEmpty');
+      seedHistoryHost.appendChild(empty);
+      return;
+    }
+    for (const seed of history) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'seed-chip';
+      if (fixedTrackSeed === seed && TRACK_MODES[trackModeIdx] === 'fixed') {
+        chip.classList.add('seed-chip--current');
+      }
+      chip.textContent = formatSeed(seed);
+      chip.title = t('panel.seedCopyHint');
+      chip.addEventListener('click', () => {
+        applySeedHex(seed);
+        chip.blur();
+      });
+      seedHistoryHost.appendChild(chip);
+    }
+  }
+
+  /**
+   * Apply a seed: switch to fixed mode, set fixedTrackSeed,
+   * push to history, update URL, refresh segmented + chip
+   * highlights, kick off a fresh restart so the new gen runs
+   * on the new seed.
+   */
+  function applySeedHex(seed: number): void {
+    trackModeIdx = TRACK_MODES.indexOf('fixed');
+    pushSeedToHistory(seed);
+    // freshRun(seed) wipes population/record state but keeps
+    // the just-applied fixed seed wired up so the next
+    // generation runs on the requested track.
+    freshRun(seed);
+    updateTrackSegmented();
+    renderSeedHistoryUI();
+    void restart();
+  }
+
+  if (seedDisplayBtn instanceof HTMLButtonElement) {
+    seedDisplayBtn.addEventListener('click', () => {
+      const text = seedDisplayBtn.textContent?.trim() ?? '';
+      if (!text || text === '—') return;
+      void navigator.clipboard
+        .writeText(text)
+        .then(() => {
+          seedDisplayBtn.classList.add('hud-card__value--copied');
+          const previousTitle = seedDisplayBtn.title;
+          seedDisplayBtn.title = t('panel.seedCopied');
+          setTimeout(() => {
+            seedDisplayBtn.classList.remove('hud-card__value--copied');
+            seedDisplayBtn.title = previousTitle;
+          }, 1200);
+        })
+        .catch((err) => console.warn('seed copy failed', err));
+    });
+  }
+
+  function applyFromInput(): void {
+    if (!(seedInput instanceof HTMLInputElement)) return;
+    const seed = parseSeedHex(seedInput.value);
+    if (seed === null) {
+      seedInput.classList.add('seed-input--error');
+      setTimeout(() => seedInput.classList.remove('seed-input--error'), 600);
+      return;
+    }
+    seedInput.value = '';
+    applySeedHex(seed);
+  }
+  if (seedApplyBtn instanceof HTMLButtonElement) {
+    seedApplyBtn.addEventListener('click', () => {
+      applyFromInput();
+      seedApplyBtn.blur();
+    });
+  }
+  if (seedInput instanceof HTMLInputElement) {
+    seedInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        applyFromInput();
+      }
+    });
+  }
+  renderSeedHistoryUI();
+  // History chips show empty-state text + active-chip styling
+  // that depend on locale and current fixedTrackSeed; re-render
+  // on locale change to keep both in sync.
+  $locale.subscribe(() => renderSeedHistoryUI());
 
   const pauseBtn = document.getElementById('btn-pause');
   function updatePauseButtonText(): void {
@@ -573,6 +776,10 @@ async function bootstrap(): Promise<void> {
     }
     const trackParams = nextTrackParams();
     const trackSeed = trackParams.seed;
+    // Refresh the seed-history chips: nextTrackParams may have
+    // just lazy-generated a new fixed seed (and pushed it to
+    // history), so the active-chip highlight needs to follow.
+    renderSeedHistoryUI();
 
     // Build the genomes for this generation.  Gen 0 (or "Space"
     // restart) seeds with random genomes; later generations are

@@ -110,15 +110,15 @@ export type SceneHandle = {
    *
    * `tier` controls how much per-car work the renderer does:
    *
-   *   'full' (×1) — full quality.  Drop shadows under each
-   *                  chassis, wheel-on-ground green tint, full
-   *                  spoke detail.  All ×1 effects are tier-
-   *                  gated to avoid wasted work at higher speeds.
-   *   'lite' (×8) — minimal.  No shadows, no wheel tint, no
-   *                  spoke updates.  Cars zooming at 8× real-time
-   *                  blur into colour anyway; skipping these
-   *                  per-frame attribute writes is 60 cars × 4
-   *                  wheels × ~3 properties = ~720 writes saved.
+   *   'full' (×1) — full quality.  Wheel-on-ground green tint
+   *                  and full spoke detail.  All tier-specific
+   *                  effects are gated here to avoid wasted work
+   *                  at higher speeds.
+   *   'lite' (×8) — minimal.  No wheel tint, no spoke updates.
+   *                  Cars zooming at 8× real-time blur into
+   *                  colour anyway; skipping these per-frame
+   *                  attribute writes is 60 cars × 4 wheels ×
+   *                  ~3 properties = ~720 writes saved.
    *   'none' (×32) — headless.  Camera + minimap still update;
    *                   no per-car Pixi work at all.
    */
@@ -186,12 +186,6 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   // against the grey surface.
   const obstaclesGfx = new Graphics();
   world.addChild(obstaclesGfx);
-
-  // Shadows go on their own layer, between obstacles and cars,
-  // so dark elliptical drops don't fight with the chassis fill.
-  // Only populated at tier === 'full'.
-  const shadowsLayer = new Container();
-  world.addChild(shadowsLayer);
 
   const carsLayer = new Container();
   world.addChild(carsLayer);
@@ -530,18 +524,15 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       if (!view) {
         view = makeCarView(car, (idx) => onCarClickHandler?.(idx));
         carsLayer.addChild(view.container);
-        shadowsLayer.addChild(view.shadow);
         carViews.set(car.index, view);
       }
-      updateCarView(view, car, tier, trackPoints);
+      updateCarView(view, car, tier);
     }
 
     for (const [k, v] of carViews) {
       if (!seen.has(k)) {
         carsLayer.removeChild(v.container);
-        shadowsLayer.removeChild(v.shadow);
         v.container.destroy({ children: true });
-        v.shadow.destroy();
         carViews.delete(k);
       }
     }
@@ -562,9 +553,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       // "the physics is broken on every restart but the first".
       for (const v of carViews.values()) {
         carsLayer.removeChild(v.container);
-        shadowsLayer.removeChild(v.shadow);
         v.container.destroy({ children: true });
-        v.shadow.destroy();
       }
       carViews.clear();
       camera.x = points[0]?.x ?? 0;
@@ -626,12 +615,6 @@ type CarView = {
   container: Container;
   body: Graphics;
   wheels: Graphics[];
-  /**
-   * Soft drop-shadow ellipse pinned to the local track surface
-   * directly under the chassis.  Only shown at tier === 'full';
-   * hidden (visible=false) at lite/none.
-   */
-  shadow: Graphics;
   /** When > performance.now(), the chassis tints highlight-yellow (post-click). */
   highlightUntil: number;
   /**
@@ -669,23 +652,7 @@ function makeCarView(car: CarSnapshot, onClick: ((idx: number) => void) | null):
     container.addChild(g);
   }
 
-  // Drop shadow — a single dark ellipse, pre-drawn once.  Width
-  // scales with the chassis bounding radius so big cars cast big
-  // shadows.  alpha 0.45 reads clearly against the track without
-  // muddying the chassis polygon above.
-  const chassisRadius = car.vertices.reduce((m, v) => Math.max(m, Math.hypot(v.x, v.y)), 0) || 0.5;
-  const shadow = new Graphics();
-  shadow.ellipse(0, 0, chassisRadius * 1.0, chassisRadius * 0.18);
-  shadow.fill({ color: 0x000000, alpha: 0.45 });
-
-  const view: CarView = {
-    container,
-    body,
-    wheels,
-    shadow,
-    highlightUntil: 0,
-    finalDrawn: false,
-  };
+  const view: CarView = { container, body, wheels, highlightUntil: 0, finalDrawn: false };
 
   // Click on a car: flash chassis yellow for 1.5 s and fire the
   // external handler so the host can dump a debug bundle to the
@@ -701,12 +668,7 @@ function makeCarView(car: CarSnapshot, onClick: ((idx: number) => void) | null):
   return view;
 }
 
-function updateCarView(
-  view: CarView,
-  car: CarSnapshot,
-  tier: RenderTier,
-  trackPoints: { x: number; y: number }[] | null,
-): void {
+function updateCarView(view: CarView, car: CarSnapshot, tier: RenderTier): void {
   // Skip the entire per-car update once a finished car has been
   // rendered in its final pose at least once — the body is fixed
   // in world.ts so its position will never change again.  Saves
@@ -723,22 +685,6 @@ function updateCarView(
   // Brief post-click highlight: chassis tint goes yellow until the timer
   // expires, then snaps back to the default body colour.
   view.body.tint = performance.now() < view.highlightUntil ? COLORS.highlight : COLORS.body;
-
-  // Drop shadow — only at tier 'full'.  Pinned to the local track
-  // surface y at the car's x, so the shadow stays "on the ground"
-  // even when the chassis is mid-jump (looks natural — the car
-  // casts a smaller shadow far below it).  alpha drops with the
-  // car's height above the surface so the shadow softens as the
-  // chassis flies.
-  if (tier === 'full' && trackPoints) {
-    const surfaceY = sampleTrackY(trackPoints, car.position.x);
-    const heightAboveSurface = Math.max(0, car.position.y - surfaceY);
-    view.shadow.visible = true;
-    view.shadow.position.set(car.position.x, surfaceY);
-    view.shadow.alpha = (car.finished ? 0.3 : 1) * Math.max(0.15, 1 - heightAboveSurface * 0.15);
-  } else {
-    view.shadow.visible = false;
-  }
 
   const cos = Math.cos(-car.angle);
   const sin = Math.sin(-car.angle);

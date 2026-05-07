@@ -430,6 +430,137 @@ button {
   color: var(--color-accent);
 }
 
+/* Click-to-copy stat: same monospace look as a regular value but
+   acts as a button.  Hover: subtle background fade so the player
+   sees it's interactive.  Active state ("just copied") flashes
+   the accent colour briefly. */
+.hud-card__value--copyable {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg);
+  text-align: right;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+.hud-card__value--copyable:hover {
+  color: var(--color-accent);
+}
+
+.hud-card__value--copied {
+  color: var(--color-accent);
+}
+
+/* ─── Seed card ─────────────────────────────────────────────────────────── */
+
+.hud-card--seed {
+  gap: var(--sp-2);
+}
+
+.seed-input-row {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+
+.seed-input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(10, 10, 14, 0.6);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-1) var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  letter-spacing: 0.04em;
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+.seed-input:focus {
+  border-color: var(--color-accent);
+}
+
+.seed-input--error {
+  border-color: var(--color-bad);
+  animation: seed-shake 0.3s ease-out;
+}
+
+@keyframes seed-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+
+.btn--seed-apply {
+  background: rgba(22, 22, 26, 0.78);
+  color: var(--color-accent);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  padding: var(--sp-1) var(--sp-3);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+.btn--seed-apply:hover {
+  border-color: var(--color-accent);
+}
+
+.seed-history {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  min-height: 22px;
+}
+
+.seed-chip {
+  background: rgba(10, 10, 14, 0.5);
+  color: var(--color-fg-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  padding: 2px var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.seed-chip:hover {
+  color: var(--color-fg);
+  border-color: var(--color-fg-muted);
+}
+
+.seed-chip--current {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.seed-history__empty {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-fg-muted);
+  letter-spacing: 0.04em;
+}
+
 .hud-card__heading {
   margin: 0 0 var(--sp-1);
   font-size: var(--fs-xs);

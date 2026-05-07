@@ -52,7 +52,39 @@
             <span class="hud-card__label" data-i18n="panel.eliteSolo">elite·solo</span>
             <span class="hud-card__value" id="stat-elite-solo">—</span>
             <span class="hud-card__label" data-i18n="panel.seed">seed</span>
-            <span class="hud-card__value" id="stat-seed">—</span>
+            <button
+              class="hud-card__value hud-card__value--copyable"
+              id="stat-seed"
+              type="button"
+              title=""
+              data-i18n-title="panel.seedCopyHint"
+            >
+              —
+            </button>
+          </section>
+
+          <section class="hud-card hud-card--controls hud-card--seed">
+            <h3 class="hud-card__heading" data-i18n="panel.seedSection">Seed</h3>
+            <div class="seed-input-row">
+              <input
+                class="seed-input"
+                id="seed-input"
+                type="text"
+                maxlength="8"
+                spellcheck="false"
+                autocomplete="off"
+                placeholder="hex"
+              />
+              <button
+                class="btn btn--seed-apply"
+                id="seed-apply"
+                type="button"
+                data-i18n="panel.seedApply"
+              >
+                Apply
+              </button>
+            </div>
+            <div class="seed-history" id="seed-history"></div>
           </section>
 
           <section class="hud-card hud-card--controls">

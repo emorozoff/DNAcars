@@ -22,48 +22,43 @@
           <span class="brand__name">DNAcars</span>
           <span class="brand__version" id="app-version">v—</span>
         </div>
-        <nav class="topbar__nav">
-          <button class="btn btn--ghost" id="lang-toggle" aria-label="Toggle language">EN</button>
-        </nav>
+        <div class="topbar__hint" data-i18n="panel.hint">
+          press space or the button → new population
+        </div>
+        <button class="btn btn--ghost" id="lang-toggle" aria-label="Toggle language">EN</button>
       </header>
 
       <main class="stage">
         <div id="pixi-root" class="stage__canvas"></div>
-        <aside class="panel">
-          <h2 class="panel__title" data-i18n="panel.run">Run</h2>
-          <div class="stat">
-            <span class="stat__label" data-i18n="panel.generation">gen</span>
-            <span class="stat__value stat__value--accent" id="stat-generation">—</span>
-          </div>
-          <div class="stat">
-            <span class="stat__label" data-i18n="panel.cars">cars</span>
-            <span class="stat__value" id="stat-total">—</span>
-          </div>
-          <div class="stat">
-            <span class="stat__label" data-i18n="panel.lead">lead</span>
-            <span class="stat__value" id="stat-lead">—</span>
-          </div>
-          <div class="stat">
-            <span class="stat__label" data-i18n="panel.seed">seed</span>
-            <span class="stat__value" id="stat-seed">—</span>
-          </div>
 
-          <div class="panel__actions">
-            <button class="btn btn--primary" id="btn-restart" data-i18n="panel.restart">
-              ↻ new shapes
-            </button>
-          </div>
-
-          <p class="panel__hint" data-i18n="panel.hint">
-            Press space (or the button) to reseed the track and respawn a new batch of random
-            shapes.
-          </p>
+        <aside class="hud-card hud-card--stats">
+          <span class="hud-card__label" data-i18n="panel.generation">gen</span>
+          <span class="hud-card__value hud-card__value--accent" id="stat-generation">—</span>
+          <span class="hud-card__label" data-i18n="panel.cars">cars</span>
+          <span class="hud-card__value" id="stat-total">—</span>
+          <span class="hud-card__label" data-i18n="panel.lead">lead</span>
+          <span class="hud-card__value" id="stat-lead">—</span>
+          <span class="hud-card__label" data-i18n="panel.seed">seed</span>
+          <span class="hud-card__value" id="stat-seed">—</span>
         </aside>
-      </main>
 
-      <footer class="footer">
-        <span data-i18n="footer.tagline">Evolution, in your browser.</span>
-      </footer>
+        <div class="hud-card hud-card--actions">
+          <button class="btn btn--primary" id="btn-restart" data-i18n="panel.restart">
+            ↻ new population
+          </button>
+        </div>
+
+        <div class="hud-card hud-card--legend">
+          <span
+            ><span class="swatch swatch--grey"></span
+            ><span data-i18n="legend.wheelAir">wheel in air</span></span
+          >
+          <span
+            ><span class="swatch swatch--green"></span
+            ><span data-i18n="legend.wheelGround">wheel on ground</span></span
+          >
+        </div>
+      </main>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

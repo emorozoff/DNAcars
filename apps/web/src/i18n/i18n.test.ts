@@ -7,12 +7,12 @@ describe('i18n', () => {
   });
 
   it('returns english by default', () => {
-    expect(t('footer.tagline')).toBe('Evolution, in your browser.');
+    expect(t('panel.cars')).toBe('Cars');
   });
 
   it('switches to russian', () => {
     setLocale('ru');
-    expect(t('footer.tagline')).toBe('Эволюция в твоём браузере.');
+    expect(t('panel.cars')).toBe('Машин');
     expect($locale.get()).toBe('ru');
   });
 

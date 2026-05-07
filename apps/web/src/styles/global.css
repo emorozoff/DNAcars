@@ -18,12 +18,14 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  overflow: hidden;
 }
 
 #app {
-  min-height: 100dvh;
+  position: fixed;
+  inset: 0;
   display: grid;
-  grid-template-rows: var(--topbar-h) 1fr var(--footer-h);
+  grid-template-rows: var(--topbar-h) 1fr;
 }
 
 button {
@@ -36,9 +38,11 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--sp-4);
   padding: 0 var(--sp-5);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
+  z-index: 2;
 }
 
 .brand {
@@ -62,18 +66,25 @@ button {
 .brand__version {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  color: var(--color-fg-dim);
+  color: var(--color-accent);
   letter-spacing: 0.04em;
   margin-left: var(--sp-2);
-  padding: 2px 6px;
+  padding: 2px 8px;
   border: 1px solid var(--color-border);
-  border-radius: var(--r-sm);
+  border-radius: 999px;
   font-variant-numeric: tabular-nums;
 }
 
-.topbar__nav {
-  display: flex;
-  gap: var(--sp-2);
+.topbar__hint {
+  flex: 1;
+  text-align: center;
+  color: var(--color-fg-dim);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ─── Buttons ────────────────────────────────────────────────────────────── */
@@ -105,28 +116,29 @@ button {
 }
 
 .btn--primary {
-  background: var(--color-accent-soft);
+  background: var(--color-surface);
   color: var(--color-accent);
-  border-color: var(--color-accent);
+  border-color: var(--color-border);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  padding: var(--sp-2) var(--sp-4);
 }
 
 .btn--primary:hover {
-  background: var(--color-accent);
-  color: var(--color-bg);
+  border-color: var(--color-accent);
 }
 
-/* ─── Stage ──────────────────────────────────────────────────────────────── */
+/* ─── Stage (full-canvas + floating overlays) ────────────────────────────── */
 
 .stage {
-  display: grid;
-  grid-template-columns: 1fr var(--panel-w);
-  min-height: 0;
-}
-
-.stage__canvas {
   position: relative;
   background: var(--color-bg);
   overflow: hidden;
+}
+
+.stage__canvas {
+  position: absolute;
+  inset: 0;
 }
 
 .stage__canvas canvas {
@@ -135,101 +147,91 @@ button {
   height: 100%;
 }
 
-/* ─── Panel ──────────────────────────────────────────────────────────────── */
+/* ─── Floating HUD cards ─────────────────────────────────────────────────── */
 
-.panel {
-  border-left: 1px solid var(--color-border);
-  background: var(--color-surface);
-  padding: var(--sp-5);
-  overflow-y: auto;
+.hud-card {
+  position: absolute;
+  background: rgba(22, 22, 26, 0.78);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4);
+  backdrop-filter: blur(8px);
+  z-index: 1;
 }
 
-.panel__title {
-  margin: 0 0 var(--sp-3);
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-fg-muted);
+.hud-card--stats {
+  top: var(--sp-4);
+  left: var(--sp-4);
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: var(--sp-1) var(--sp-5);
+  min-width: 180px;
 }
 
-.panel__title--minor {
-  margin-top: var(--sp-6);
+.hud-card--actions {
+  top: var(--sp-4);
+  right: var(--sp-4);
+  padding: 0;
+  background: transparent;
+  border: none;
+  backdrop-filter: none;
+}
+
+.hud-card--legend {
+  bottom: var(--sp-4);
+  left: var(--sp-4);
+  display: flex;
+  gap: var(--sp-5);
   font-size: var(--fs-xs);
-  color: var(--color-fg-dim);
-}
-
-.panel__actions {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  margin: var(--sp-4) 0 var(--sp-2);
-}
-
-.panel__hint {
-  margin: 0;
-  color: var(--color-fg-dim);
-  font-size: var(--fs-sm);
-}
-
-.stat {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: var(--sp-2) 0;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.stat:last-of-type {
-  border-bottom: none;
-}
-
-.stat__label {
-  font-size: var(--fs-sm);
   color: var(--color-fg-muted);
   letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
-.stat__value {
-  font-family: var(--font-mono);
-  font-size: var(--fs-md);
-  font-variant-numeric: tabular-nums;
-  color: var(--color-fg);
-}
-
-.stat__value--accent {
-  color: var(--color-accent);
-}
-
-/* ─── Footer ─────────────────────────────────────────────────────────────── */
-
-.footer {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-top: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-fg-dim);
+.hud-card__label {
   font-size: var(--fs-xs);
+  color: var(--color-fg-muted);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-/* ─── Mobile ─────────────────────────────────────────────────────────────── */
+.hud-card__value {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg);
+  text-align: right;
+}
+
+.hud-card__value--accent {
+  color: var(--color-accent);
+}
+
+.swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: var(--sp-2);
+  vertical-align: middle;
+}
+
+.swatch--grey {
+  background: var(--color-car-wheel);
+}
+
+.swatch--green {
+  background: var(--color-accent);
+}
+
+/* ─── Mobile (collapse hint, shrink overlays) ────────────────────────────── */
 
 @media (max-width: 720px) {
-  :root {
-    --panel-w: 100%;
+  .topbar__hint {
+    display: none;
   }
 
-  .stage {
-    grid-template-columns: 1fr;
-    grid-template-rows: 60vh auto;
-  }
-
-  .panel {
-    border-left: none;
-    border-top: 1px solid var(--color-border);
+  .hud-card--stats {
+    min-width: auto;
+    font-size: var(--fs-xs);
   }
 }

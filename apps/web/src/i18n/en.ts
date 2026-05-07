@@ -1,13 +1,12 @@
 const enRaw = {
-  'panel.run': 'Run',
   'panel.generation': 'Gen',
   'panel.cars': 'Cars',
   'panel.lead': 'Lead',
   'panel.seed': 'Seed',
   'panel.restart': '↻ New population',
-  'panel.hint':
-    'Each generation runs until every car has stalled.  Press space to start a new run from scratch.',
-  'footer.tagline': 'Evolution, in your browser.',
+  'panel.hint': 'press space or the button → new population',
+  'legend.wheelAir': 'wheel in air',
+  'legend.wheelGround': 'wheel on ground',
 } as const;
 
 export type TranslationKey = keyof typeof enRaw;

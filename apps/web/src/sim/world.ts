@@ -108,6 +108,31 @@ export const TUNING = {
     /** Max distance from track surface to count a wheel as "on ground". */
     wheelTolerance: 0.06,
   },
+  solver: {
+    /**
+     * Constraint solver iterations per step (Rapier default is 4).
+     * Tried 4 in v0.8.6 thinking it was "phantom-chase" complexity,
+     * but with heavy chassis + heavy wheels (densities up to 400)
+     * the default just isn't enough to keep the polygonal chassis
+     * out of the polyline ground.  Bumping to 8 gives the solver
+     * twice as many passes to resolve all contact / joint
+     * constraints to convergence each step.
+     */
+    numIterations: 8,
+  },
+  /**
+   * Hard upper bound on the chassis's linear-velocity magnitude.  Even
+   * with thick ground + extra solver iterations, a fast heavy car can
+   * occasionally slip through a sharp track corner and get ejected by
+   * the solver with an explosive vertical impulse.  Above this cap we
+   * scale velocity back to the limit and log a warning — the cap
+   * never fires in normal driving (top speeds at full motor are ≈ 11
+   * m/s), so anything beyond it is a known-glitch situation we want
+   * to know about.
+   */
+  safety: {
+    maxLinvel: 30,
+  },
   lifecycle: {
     /** Speed below which a car counts as "not moving" (m/s). */
     stallSpeed: 0.15,
@@ -366,6 +391,11 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
   await ensureRapier();
   const world = new RAPIER.World({ x: 0, y: -GRAVITY });
   world.timestep = SIM_DT;
+  // More iterations than the default 4: a stiff scene of heavy
+  // chassis + heavy wheels + revolute joints needs the extra passes
+  // to converge each step and avoid the explosive ejections that
+  // launch cars to the moon.
+  world.integrationParameters.numSolverIterations = TUNING.solver.numIterations;
 
   buildTrackColliders(world, opts.track);
 
@@ -394,6 +424,7 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
         car.ageSec += SIM_DT;
         const x = car.chassis.translation().x;
         if (x > car.maxX) car.maxX = x;
+        clampInsaneVelocity(car);
         updateLifecycle(car);
       }
     },
@@ -430,22 +461,28 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
 function buildTrackColliders(world: RAPIER.World, track: Track): void {
   const ground = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
 
-  // Track surface is a thin polyline.  CCD on the chassis and wheels
-  // is enough to prevent tunneling at our speeds and step size — no
-  // need for a thicker ground volume.
-  const flat = new Float32Array(track.points.length * 2);
-  for (let i = 0; i < track.points.length; i++) {
-    const p = track.points[i]!;
-    flat[i * 2] = p.x;
-    flat[i * 2 + 1] = p.y;
-  }
-  world.createCollider(
-    RAPIER.ColliderDesc.polyline(flat)
+  // Thick "earth" — each track segment becomes a trapezoid extending
+  // 100 m down to a virtual floor.  Adjacent trapezoids share an edge
+  // so the surface is gap-free.  Crucial for heavy bodies: a thin
+  // polyline + heavy chassis can get tunneled-into at sharp corners
+  // even with CCD, and the constraint solver then ejects the body
+  // with an explosive vertical impulse (we observed 30 + m altitudes
+  // above the highest hill).  With a solid volume below the surface
+  // the body can't penetrate into geometry — it's pushed back out
+  // along the surface normal, smoothly, by accumulated contacts.
+  const floorY = -100;
+  for (let i = 0; i < track.points.length - 1; i++) {
+    const a = track.points[i]!;
+    const b = track.points[i + 1]!;
+    const verts = new Float32Array([a.x, a.y, b.x, b.y, b.x, floorY, a.x, floorY]);
+    const desc = RAPIER.ColliderDesc.convexHull(verts);
+    if (!desc) continue;
+    desc
       .setFriction(1.0)
       .setRestitution(0.05)
-      .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL)),
-    ground,
-  );
+      .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL));
+    world.createCollider(desc, ground);
+  }
 
   // Back wall at x=0 so a car bumped backwards can't roll off the world.
   world.createCollider(
@@ -669,6 +706,25 @@ function freezeCar(car: CarRuntime): void {
     w.body.setLinvel(z, true);
     w.body.setAngvel(0, true);
   }
+}
+
+/**
+ * Safety net: even with thick ground + 8 solver iterations, the
+ * solver can still occasionally hand a body an explosive impulse on
+ * a sharp track corner, sending it tens of metres into the air.
+ * Top realistic chassis speed is ≈ 11 m/s; anything beyond
+ * `maxLinvel` is a known glitch state, not gameplay.  Scale velocity
+ * back to the cap and warn so we can see how often this fires.
+ */
+function clampInsaneVelocity(car: CarRuntime): void {
+  const v = car.chassis.linvel();
+  const sp = Math.hypot(v.x, v.y);
+  if (sp <= TUNING.safety.maxLinvel) return;
+  const scale = TUNING.safety.maxLinvel / sp;
+  car.chassis.setLinvel({ x: v.x * scale, y: v.y * scale }, true);
+  console.warn(
+    `[safety] car ${car.index} clamped from ${sp.toFixed(1)} m/s to ${TUNING.safety.maxLinvel}`,
+  );
 }
 
 function normalizeAngle(a: number): number {

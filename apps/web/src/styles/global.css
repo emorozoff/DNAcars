@@ -243,6 +243,17 @@ button {
 .stage__canvas {
   position: absolute;
   inset: 0;
+  /* Hint that the world is grabbable.  Pixi overrides this when
+     the pointer is over a car (sets to "pointer" via the
+     container.cursor property), so the grab cursor only shows
+     where a drag would actually pan the camera. */
+  cursor: grab;
+  touch-action: none;
+}
+
+.stage__canvas--dragging,
+.stage__canvas--dragging canvas {
+  cursor: grabbing;
 }
 
 .stage__canvas canvas {

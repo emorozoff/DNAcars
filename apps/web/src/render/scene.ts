@@ -32,6 +32,15 @@ const ZOOM_MIN = 12;
 const ZOOM_MAX = 90;
 const ZOOM_WHEEL_FACTOR = 1.12;
 const CAMERA_LERP = 0.08;
+/**
+ * After the user takes manual control of the camera (drag on the
+ * main canvas, click on a car-dot, etc.) the camera waits this
+ * many real-time milliseconds of *no further interaction* before
+ * snapping back to the running leader.  10 s feels long enough
+ * to inspect a specific spot without having to keep nudging the
+ * mouse to hold position.
+ */
+const CAMERA_IDLE_RETURN_MS = 10_000;
 
 /** Parallax factors: 1.0 = pinned to camera (foreground), 0 = static. */
 const PARALLAX_FAR = 0.25;
@@ -190,25 +199,112 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     cameraChangeHandler?.({ mode: cameraMode, manual: cameraMode.type !== 'leader' });
   }
 
+  /**
+   * Real-time clock at the moment the user last did anything that
+   * counts as "manual camera input" (drag on the main canvas,
+   * click on a car-dot, etc.).  Used by the idle-return timer in
+   * the ticker: once `now - lastManualInputAt` exceeds
+   * CAMERA_IDLE_RETURN_MS, we snap the camera mode back to leader.
+   */
+  let lastManualInputAt = 0;
+  function markManualInput(): void {
+    lastManualInputAt = performance.now();
+  }
+
   // Wire minimap interactions (only when a minimap actually mounted).
+  // Minimap drag and car-dot picks are still supported alongside the
+  // new main-canvas drag — they all count as "manual input" and
+  // share the same idle-return timer.
   if (minimap) {
     minimap.onJump((worldX) => {
       cameraMode = { type: 'free' };
       freeCameraX = worldX;
       cameraTarget = { x: worldX, y: cameraTarget.y };
+      markManualInput();
       emitCameraChange();
     });
     minimap.onCarSelect((idx) => {
       cameraMode = { type: 'car', idx };
+      markManualInput();
       emitCameraChange();
     });
   }
+
+  // Drag on the main canvas → free-camera mode.  The drag delta
+  // (in screen pixels) is converted to world-metres via the
+  // current zoom and applied directly to freeCameraX so the
+  // viewport tracks the cursor 1:1.  Pointer-capture means the
+  // gesture survives leaving the canvas bounds while the button
+  // is still held.
+  //
+  // Two-stage state machine to distinguish clicks from drags:
+  //   primed = pointer is down but we haven't seen enough motion
+  //            to call it a drag yet.  Click-on-car (whose Pixi
+  //            handler fires the debug-bundle copy) lives entirely
+  //            inside this stage and never switches camera mode.
+  //   dragging = motion has crossed DRAG_THRESHOLD_PX, the gesture
+  //              is now confirmed as a camera pan.
+  const DRAG_THRESHOLD_PX = 4;
+  let primed = false;
+  let dragging = false;
+  let dragStartClientX = 0;
+  let dragStartClientY = 0;
+  let dragLastClientX = 0;
+  host.addEventListener('pointerdown', (e) => {
+    // Only the primary button (left mouse / first finger) drives
+    // the camera — leave middle/right click for browser defaults.
+    if (e.button !== 0) return;
+    primed = true;
+    dragging = false;
+    dragStartClientX = e.clientX;
+    dragStartClientY = e.clientY;
+    dragLastClientX = e.clientX;
+    host.setPointerCapture(e.pointerId);
+  });
+  host.addEventListener('pointermove', (e) => {
+    if (!primed) return;
+    if (!dragging) {
+      // Still inside the click-vs-drag dead zone.  Promote to
+      // drag once the pointer has moved past DRAG_THRESHOLD_PX
+      // from the start position.
+      const dx = e.clientX - dragStartClientX;
+      const dy = e.clientY - dragStartClientY;
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+      dragging = true;
+      host.classList.add('stage__canvas--dragging');
+      // Drag started for real → enter free-camera mode at the
+      // current camera-x so the user grabs whatever they're
+      // already looking at (no teleport).
+      cameraMode = { type: 'free' };
+      freeCameraX = camera.x;
+      markManualInput();
+      emitCameraChange();
+    }
+    const dxPx = e.clientX - dragLastClientX;
+    dragLastClientX = e.clientX;
+    // Inverted: dragging right pulls the world right, so the camera
+    // slides left.  Matches the standard "grab and pull" gesture.
+    freeCameraX -= dxPx / zoom;
+    cameraTarget = { x: freeCameraX, y: cameraTarget.y };
+    markManualInput();
+  });
+  const stopHostDragging = (e: PointerEvent): void => {
+    primed = false;
+    dragging = false;
+    host.classList.remove('stage__canvas--dragging');
+    if (host.hasPointerCapture(e.pointerId)) host.releasePointerCapture(e.pointerId);
+  };
+  host.addEventListener('pointerup', stopHostDragging);
+  host.addEventListener('pointercancel', stopHostDragging);
 
   // Mouse-wheel zoom on the main canvas.  Wheel-up zooms in (more
   // pixels per metre), wheel-down zooms out.  preventDefault to
   // suppress the browser's default page scroll on top of the
   // canvas.  applyTransform reads `zoom` directly so the next RAF
-  // tick picks up the new value.
+  // tick picks up the new value.  Wheel doesn't count as "manual
+  // input" for the idle-return purpose — zoom is orthogonal to
+  // pan, and we don't want a quick zoom adjustment to lock the
+  // camera in place forever.
   host.addEventListener(
     'wheel',
     (e) => {
@@ -227,6 +323,18 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   ro.observe(host);
 
   app.ticker.add(() => {
+    // Auto-return to leader-follow after idle.  Only fires when
+    // we're in a manual mode (free / car) — leader mode has no
+    // timer to expire.  `lastManualInputAt = 0` is the initial
+    // value before anything has happened, in which case we don't
+    // want the timer to immediately fire on the first frame.
+    if (cameraMode.type !== 'leader' && lastManualInputAt > 0 && !dragging) {
+      const idle = performance.now() - lastManualInputAt;
+      if (idle >= CAMERA_IDLE_RETURN_MS) {
+        cameraMode = { type: 'leader' };
+        emitCameraChange();
+      }
+    }
     camera.x += (cameraTarget.x - camera.x) * CAMERA_LERP;
     camera.y += (cameraTarget.y - camera.y) * CAMERA_LERP;
     applyTransform();
@@ -421,6 +529,11 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         cameraMode = { type: 'leader' };
         emitCameraChange();
       }
+      // Also clear the idle-return clock so the next manual gesture
+      // starts a fresh 10-second window — otherwise a half-elapsed
+      // timer carries over from the previous run and can snap the
+      // camera back almost immediately.
+      lastManualInputAt = 0;
     },
     setSnapshot,
     onCarClick(handler): void {

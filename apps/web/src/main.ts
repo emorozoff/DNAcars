@@ -713,6 +713,59 @@ async function bootstrap(): Promise<void> {
       setConfirmOpen(false);
     });
   }
+
+  // Strict-determinism toggle.  Switching the physics regime mid-run
+  // makes the existing record/best-ever stale (a genome that hit the
+  // wall in shared-world physics may not in isolated mode, and vice
+  // versa), and the chart's rolling history mixes the two regimes
+  // unhelpfully.  So a confirmed toggle in either direction wipes the
+  // run state — same as clicking "New population".  Keeps the fixed
+  // seed so the player can immediately compare same-track results
+  // before vs after the toggle.
+  const strictInput = document.getElementById('ctrl-strict-determinism');
+  const strictPopover = document.getElementById('strict-determinism-confirm');
+  const strictYes = document.getElementById('strict-determinism-confirm-yes');
+  const strictNo = document.getElementById('strict-determinism-confirm-no');
+  if (
+    strictInput instanceof HTMLInputElement &&
+    strictPopover instanceof HTMLElement &&
+    strictYes instanceof HTMLButtonElement &&
+    strictNo instanceof HTMLButtonElement
+  ) {
+    strictInput.checked = strictDeterminism;
+    strictPopover.hidden = true;
+    const applyStrictDeterminism = (next: boolean): void => {
+      strictDeterminism = next;
+      saveStrictDeterminism(next);
+      strictInput.checked = next;
+      // Reset run state so the new mode's runs aren't visually
+      // contaminated by the previous mode's record/sparkline.  Keep
+      // the fixed seed if we're in fixed mode for easy A/B.
+      const keepSeed = TRACK_MODES[trackModeIdx] === 'fixed' ? fixedTrackSeed : null;
+      freshRun(keepSeed);
+      void restart();
+    };
+    strictInput.addEventListener('change', () => {
+      if (strictInput.checked && !strictDeterminism) {
+        // Don't commit yet — visually un-tick and show the warning
+        // popover.  Confirm/Cancel buttons drive the actual change.
+        strictInput.checked = false;
+        strictPopover.hidden = false;
+      } else if (!strictInput.checked && strictDeterminism) {
+        // Turning OFF — silent (no confirmation), but still resets
+        // the run since the regime is changing.
+        applyStrictDeterminism(false);
+      }
+    });
+    strictYes.addEventListener('click', () => {
+      strictPopover.hidden = true;
+      applyStrictDeterminism(true);
+    });
+    strictNo.addEventListener('click', () => {
+      strictPopover.hidden = true;
+      strictInput.checked = false;
+    });
+  }
   window.addEventListener('keydown', (ev) => {
     // Don't interfere when typing into a slider / button.
     const target = ev.target;
@@ -921,7 +974,6 @@ function bindControls(): void {
     gaParams.eliteCount = v;
     return String(v);
   });
-  bindStrictDeterminismToggle();
   // Track-tuning sliders.  Difficulty drives the procedural
   // amplitude in nextTrackParams; the rest are 0..1 obstacle
   // intensities.  Length is in metres directly.  All take
@@ -965,55 +1017,6 @@ function bindSlider(inputId: string, valueId: string, apply: (v: number) => stri
   sync(); // pull initial state from HTML attrs
 }
 
-/**
- * Wire the strict-determinism checkbox.  Default value comes from
- * localStorage so the player's choice survives reloads.  Turning it
- * ON shows the in-card warning popover (#strict-determinism-confirm)
- * — the toggle stays unchecked until the user accepts.  Turning it
- * OFF is silent.
- */
-function bindStrictDeterminismToggle(): void {
-  const input = document.getElementById('ctrl-strict-determinism');
-  const popover = document.getElementById('strict-determinism-confirm');
-  const yes = document.getElementById('strict-determinism-confirm-yes');
-  const no = document.getElementById('strict-determinism-confirm-no');
-  if (
-    !(input instanceof HTMLInputElement) ||
-    !(popover instanceof HTMLElement) ||
-    !(yes instanceof HTMLButtonElement) ||
-    !(no instanceof HTMLButtonElement)
-  ) {
-    return;
-  }
-  input.checked = strictDeterminism;
-  popover.hidden = true;
-
-  const closePopover = (accepted: boolean): void => {
-    popover.hidden = true;
-    if (accepted) {
-      input.checked = true;
-      strictDeterminism = true;
-      saveStrictDeterminism(true);
-    } else {
-      input.checked = false;
-    }
-  };
-
-  input.addEventListener('change', () => {
-    if (input.checked && !strictDeterminism) {
-      // Don't commit yet — show the warning and wait for explicit
-      // confirmation.  Visually un-tick until then so the user
-      // doesn't think the change has already landed.
-      input.checked = false;
-      popover.hidden = false;
-    } else if (!input.checked && strictDeterminism) {
-      strictDeterminism = false;
-      saveStrictDeterminism(false);
-    }
-  });
-  yes.addEventListener('click', () => closePopover(true));
-  no.addEventListener('click', () => closePopover(false));
-}
 
 type Session = {
   world: WorldHandle;

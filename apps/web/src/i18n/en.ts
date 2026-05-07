@@ -41,7 +41,7 @@ const enRaw = {
   'panel.strictDeterminism': 'Strict determinism',
   'panel.strictDeterminismHint': 'Same seed → identical run, every time. Costs ≈2× CPU.',
   'panel.strictDeterminismWarning':
-    'Every car gets its own physics world. Same seed → bit-identical run.\n\nBut ≈2× CPU load.\n\nIf this is unfamiliar — only enable on a powerful computer. Otherwise leave it off.',
+    'Every car gets its own physics world. Same seed → bit-identical run.\n\nBut ≈2× CPU load. If this is unfamiliar — only enable on a powerful computer, otherwise leave it off.\n\nThe current run will be reset.',
   'tutorial.close': 'Close',
   'tutorial.next': 'Next',
   'tutorial.back': 'Back',

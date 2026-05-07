@@ -67,6 +67,14 @@ export type MinimapHandle = {
    * uses this to enter follow-this-car mode.
    */
   onCarSelect(handler: ((carIdx: number) => void) | null): void;
+  /**
+   * Switch the minimap into "headless" presentation: hide the camera
+   * viewport rectangle (no canvas to anchor it to) and stretch each
+   * car marker into a full-height vertical line so the population
+   * reads as a barcode of positions across the track — the only
+   * useful visualisation when the main canvas is off.
+   */
+  setHeadless(on: boolean): void;
 };
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -84,6 +92,7 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
   let trackLength = 0;
   let trackMinY = 0;
   let trackMaxY = 1;
+  let headless = false;
   /**
    * Pool of <line> elements (one per car).  Lines instead of
    * circles because the minimap SVG uses
@@ -190,10 +199,20 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
     update(snap, cameraX, viewportWorldWidth, recordHistory): void {
       if (trackLength === 0) return;
       const xToView = (worldX: number): number => (worldX / trackLength) * VIEW_W;
-      const halfW = (viewportWorldWidth / trackLength) * VIEW_W * 0.5;
-      const cx = xToView(cameraX);
-      viewportEl.setAttribute('x', String(Math.max(0, cx - halfW)));
-      viewportEl.setAttribute('width', String(Math.min(VIEW_W, halfW * 2)));
+
+      // Camera viewport rectangle: hidden in headless mode (the main
+      // canvas isn't painting anyway, so the rect has nothing to
+      // refer to).  Otherwise size + position it from the active
+      // camera.
+      if (headless) {
+        viewportEl.setAttribute('opacity', '0');
+      } else {
+        const halfW = (viewportWorldWidth / trackLength) * VIEW_W * 0.5;
+        const cx = xToView(cameraX);
+        viewportEl.setAttribute('x', String(Math.max(0, cx - halfW)));
+        viewportEl.setAttribute('width', String(Math.min(VIEW_W, halfW * 2)));
+        viewportEl.removeAttribute('opacity');
+      }
 
       // Render every car as a tiny dot AND pick the running leader.
       const yRange = trackMaxY - trackMinY || 1;
@@ -216,15 +235,23 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
         // reused across populations.
         dot.dataset['carIdx'] = String(car.index);
         const dx = xToView(car.position.x);
-        const dy = VIEW_H - PAD_Y - ((car.position.y - trackMinY) / yRange) * (VIEW_H - 2 * PAD_Y);
-        // Vertical tick centred on (dx, dy), CAR_TICK_HALF either
-        // side.  x1 == x2 so the line is purely vertical; the
-        // non-scaling-stroke means it stays a 2 px tick on screen
-        // regardless of how tall the minimap is rendered.
+        // Vertical tick at x = dx.  In headless mode the tick spans
+        // the full minimap height (full-height "barcode" reading
+        // — the population's positions across the track is the only
+        // useful visualisation when the main canvas is off).  In
+        // normal mode it's centred on the car's local y so the
+        // player can see whether a car is in a valley vs on a peak.
         dot.setAttribute('x1', dx.toFixed(1));
         dot.setAttribute('x2', dx.toFixed(1));
-        dot.setAttribute('y1', (dy - CAR_TICK_HALF).toFixed(1));
-        dot.setAttribute('y2', (dy + CAR_TICK_HALF).toFixed(1));
+        if (headless) {
+          dot.setAttribute('y1', '0');
+          dot.setAttribute('y2', String(VIEW_H));
+        } else {
+          const dy =
+            VIEW_H - PAD_Y - ((car.position.y - trackMinY) / yRange) * (VIEW_H - 2 * PAD_Y);
+          dot.setAttribute('y1', (dy - CAR_TICK_HALF).toFixed(1));
+          dot.setAttribute('y2', (dy + CAR_TICK_HALF).toFixed(1));
+        }
         dot.setAttribute('opacity', car.finished ? '0.35' : '0.75');
 
         if (!leader || car.position.x > leader.x) leader = { x: car.position.x, y: car.position.y };
@@ -240,11 +267,17 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
       const lead = leaderRunning ?? leader;
       if (lead) {
         const lx = xToView(lead.x);
-        const ly = VIEW_H - PAD_Y - ((lead.y - trackMinY) / yRange) * (VIEW_H - 2 * PAD_Y);
         leaderEl.setAttribute('x1', String(lx));
         leaderEl.setAttribute('x2', String(lx));
-        leaderEl.setAttribute('y1', String(ly - LEADER_TICK_HALF));
-        leaderEl.setAttribute('y2', String(ly + LEADER_TICK_HALF));
+        if (headless) {
+          leaderEl.setAttribute('y1', '0');
+          leaderEl.setAttribute('y2', String(VIEW_H));
+        } else {
+          const ly =
+            VIEW_H - PAD_Y - ((lead.y - trackMinY) / yRange) * (VIEW_H - 2 * PAD_Y);
+          leaderEl.setAttribute('y1', String(ly - LEADER_TICK_HALF));
+          leaderEl.setAttribute('y2', String(ly + LEADER_TICK_HALF));
+        }
         leaderEl.setAttribute('opacity', '1');
       } else {
         leaderEl.setAttribute('opacity', '0');
@@ -281,6 +314,9 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
     },
     onCarSelect(handler): void {
       carSelectHandler = handler;
+    },
+    setHeadless(on: boolean): void {
+      headless = on;
     },
   };
 }

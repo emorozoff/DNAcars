@@ -507,6 +507,11 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     if (minimap) {
       const dpr = window.devicePixelRatio || 1;
       const viewportWorldWidth = app.renderer.width / dpr / zoom;
+      // In headless tier the canvas is hidden, so the camera-viewport
+      // rect on the minimap has nothing to refer to and the per-car
+      // y-position is invisible; switch the minimap into its barcode
+      // layout (full-height car lines, no viewport rect).
+      minimap.setHeadless(tier === 'none');
       minimap.update(snap, camera.x, viewportWorldWidth, recordHistory);
     }
 

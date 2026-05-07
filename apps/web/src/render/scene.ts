@@ -260,11 +260,11 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     }
     trackGfx.stroke({ color: COLORS.track, width: 0.08, alpha: 1 });
 
-    // Discrete obstacles — walls (vertical posts) and ceilings
-    // (horizontal beams).  Both drawn as filled rectangles in the
-    // hazard-red colour so the player sees them at a glance,
-    // matched to the actual collider geometry built in
-    // buildTrackColliders.
+    // Discrete obstacles — walls (vertical posts), ceilings
+    // (horizontal beams), and kill-zones (translucent overhead
+    // boxes).  Drawn in the hazard-red palette so the player sees
+    // them at a glance; geometry mirrors the actual colliders /
+    // trigger regions so what they see is what hits the cars.
     obstaclesGfx.clear();
     for (const ob of trackPhysicalObstacles) {
       if (ob.kind === 'wall') {
@@ -272,11 +272,22 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         // 10 cm wide, full configured height, sitting on the surface.
         obstaclesGfx.rect(ob.x - 0.05, surfaceY, 0.1, ob.height);
         obstaclesGfx.fill({ color: COLORS.obstacle, alpha: 0.95 });
-      } else {
+      } else if (ob.kind === 'ceiling') {
         // Ceiling: filled rectangle from the underside-y down by
         // 16 cm, centred at xCenter.
         obstaclesGfx.rect(ob.xCenter - ob.halfWidth, ob.y - 0.08, ob.halfWidth * 2, 0.16);
         obstaclesGfx.fill({ color: COLORS.obstacle, alpha: 0.95 });
+      } else {
+        // Kill-zone: translucent red shaded region from yFloor up
+        // 6 m.  6 m is plenty of vertical span — anything flying
+        // higher than that has long since hit the floor edge.
+        // Plus a brighter horizontal stroke at yFloor so the
+        // boundary reads cleanly against busy parallax backgrounds.
+        const kzHeight = 6;
+        obstaclesGfx.rect(ob.x1, ob.yFloor, ob.x2 - ob.x1, kzHeight);
+        obstaclesGfx.fill({ color: COLORS.obstacle, alpha: 0.18 });
+        obstaclesGfx.moveTo(ob.x1, ob.yFloor).lineTo(ob.x2, ob.yFloor);
+        obstaclesGfx.stroke({ color: COLORS.obstacle, width: 0.06, alpha: 0.9 });
       }
     }
 

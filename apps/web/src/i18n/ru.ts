@@ -15,6 +15,8 @@ export const ru: Dictionary = {
   'panel.bumps': 'Кочки',
   'panel.walls': 'Стены',
   'panel.ceilings': 'Потолки',
+  'panel.cliffs': 'Обрывы',
+  'panel.killzones': 'Убийцы',
   'panel.restart': '↻ Новая популяция',
   'panel.restartConfirm': 'Создать новую популяцию?  Это удалит все гены текущего поколения.',
   'panel.pause': '⏸ Пауза',

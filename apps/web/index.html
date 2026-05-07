@@ -221,15 +221,37 @@
             📊 stats
           </button>
           <button class="btn btn--primary" id="btn-pause">⏸ pause</button>
-          <button class="btn btn--primary" id="btn-speedup" data-i18n="panel.speedup">
-            ⏵ realtime
-          </button>
+
+          <div class="seg-group">
+            <span class="seg-group__label" data-i18n="panel.speedLabel">speed</span>
+            <div class="segmented" id="seg-speed" role="radiogroup">
+              <button class="segmented__item" data-speed-idx="0" type="button">×1</button>
+              <button class="segmented__item" data-speed-idx="1" type="button">×8</button>
+              <button class="segmented__item" data-speed-idx="2" type="button">×32</button>
+            </div>
+          </div>
+
           <button class="btn btn--primary" id="btn-skip" data-i18n="panel.skipTen">
             ⏩ +10 gens
           </button>
-          <button class="btn btn--primary" id="btn-track" data-i18n="panel.trackRandom">
-            🗺 random track
-          </button>
+
+          <div class="seg-group">
+            <span class="seg-group__label" data-i18n="panel.trackLabel">track</span>
+            <div class="segmented" id="seg-track" role="radiogroup">
+              <button class="segmented__item" data-track-mode="random" type="button">
+                <span data-i18n="panel.trackShortRandom">🎲 rand</span>
+              </button>
+              <button class="segmented__item" data-track-mode="fixed" type="button">
+                <span data-i18n="panel.trackShortFixed">📌 fix</span>
+              </button>
+              <button class="segmented__item" data-track-mode="smooth" type="button">
+                <span data-i18n="panel.trackShortSmooth">〰 smooth</span>
+              </button>
+              <button class="segmented__item" data-track-mode="extreme" type="button">
+                <span data-i18n="panel.trackShortExtreme">⛰ hard</span>
+              </button>
+            </div>
+          </div>
           <div class="confirm-anchor">
             <button class="btn btn--primary" id="btn-restart" data-i18n="panel.restart">
               ↻ new population

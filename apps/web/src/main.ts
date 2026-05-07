@@ -278,35 +278,39 @@ async function bootstrap(): Promise<void> {
     if (charts) charts.update(history);
   }
 
-  const trackBtn = document.getElementById('btn-track');
-  function updateTrackButtonText(): void {
-    if (!(trackBtn instanceof HTMLButtonElement)) return;
-    const mode = TRACK_MODES[trackModeIdx] ?? 'random';
-    const key =
-      mode === 'random'
-        ? 'panel.trackRandom'
-        : mode === 'fixed'
-          ? 'panel.trackFixed'
-          : mode === 'smooth'
-            ? 'panel.trackSmooth'
-            : 'panel.trackExtreme';
-    trackBtn.textContent = t(key);
+  // Track-preset segmented control: direct selection by clicking
+  // any of the four segments.  No more cycle-on-click — every
+  // option is visible at once, the active one is highlighted.
+  const trackSegItems = document.querySelectorAll<HTMLButtonElement>(
+    '#seg-track [data-track-mode]',
+  );
+  function updateTrackSegmented(): void {
+    const current = TRACK_MODES[trackModeIdx] ?? 'random';
+    trackSegItems.forEach((el) => {
+      const mode = el.dataset['trackMode'] as TrackMode | undefined;
+      el.classList.toggle('segmented__item--active', mode === current);
+    });
   }
-  if (trackBtn instanceof HTMLButtonElement) {
-    trackBtn.addEventListener('click', () => {
-      trackModeIdx = (trackModeIdx + 1) % TRACK_MODES.length;
-      // Switching modes invalidates any cached fixed seed so the next
-      // generation picks up the new mode's seed strategy cleanly.
-      // The "record on this track" marker only makes sense in fixed
-      // mode, so clear it on mode change.
+  trackSegItems.forEach((el) => {
+    el.addEventListener('click', () => {
+      const mode = el.dataset['trackMode'] as TrackMode | undefined;
+      if (!mode) return;
+      const idx = TRACK_MODES.indexOf(mode);
+      if (idx < 0) return;
+      trackModeIdx = idx;
+      // Switching modes invalidates any cached fixed seed so the
+      // next generation picks up the new mode's seed strategy
+      // cleanly.  The "record on this track" marker only makes
+      // sense in fixed mode, so clear it on mode change.
       fixedTrackSeed = null;
       trackRecordX = null;
       trackRecordHistory.length = 0;
       scene.setRecordHistory([]);
-      updateTrackButtonText();
+      updateTrackSegmented();
+      el.blur();
     });
-    updateTrackButtonText();
-  }
+  });
+  updateTrackSegmented();
 
   const pauseBtn = document.getElementById('btn-pause');
   function updatePauseButtonText(): void {
@@ -407,19 +411,22 @@ async function bootstrap(): Promise<void> {
       case 'Digit1':
       case 'Digit2':
       case 'Digit3': {
-        // Jump directly to a speed cycle slot.
+        // Jump directly to a speed slot via number keys (still
+        // supported as a shortcut for the segmented control).
         const slot = Number(ev.code.slice(-1)) - 1;
         if (slot < 0 || slot >= SPEED_STATES.length) return;
         if (skipUntilGen !== null) skipUntilGen = null;
         speedIdx = slot;
-        updateSpeedButtonText();
+        updateSpeedSegmented();
+        updateSkipButton();
         applyHeadless();
         return;
       }
       case 'KeyS':
         ev.preventDefault();
         skipUntilGen = generation + SKIP_AMOUNT;
-        updateSpeedButtonText();
+        updateSpeedSegmented();
+        updateSkipButton();
         applyHeadless();
         return;
       case 'KeyC':
@@ -447,25 +454,31 @@ async function bootstrap(): Promise<void> {
         }
         if (skipUntilGen !== null) skipUntilGen = null;
         speedIdx = 0;
-        updateSpeedButtonText();
+        updateSpeedSegmented();
+        updateSkipButton();
         applyHeadless();
         return;
     }
   });
 
-  const speedBtn = document.getElementById('btn-speedup');
+  // Speed segmented control: three direct-select segments (×1 / ×8
+  // / ×32).  Clicking a segment cancels any active skip-N-gens
+  // job and sets the speed slot directly.  When skip mode is
+  // active, no segment is highlighted (skip overrides everything).
+  const speedSegItems = document.querySelectorAll<HTMLButtonElement>('#seg-speed [data-speed-idx]');
   const skipBtn = document.getElementById('btn-skip');
 
-  function updateSpeedButtonText(): void {
-    if (!(speedBtn instanceof HTMLButtonElement)) return;
-    if (skipUntilGen !== null) {
-      speedBtn.textContent = t('panel.skipping');
-      return;
-    }
-    const idx = speedIdx;
-    const key: 'panel.speedup' | 'panel.speedup8' | 'panel.speedup32' =
-      idx === 0 ? 'panel.speedup' : idx === 1 ? 'panel.speedup8' : 'panel.speedup32';
-    speedBtn.textContent = t(key);
+  function updateSpeedSegmented(): void {
+    const skipping = skipUntilGen !== null;
+    speedSegItems.forEach((el) => {
+      const idx = Number(el.dataset['speedIdx']);
+      el.classList.toggle('segmented__item--active', !skipping && idx === speedIdx);
+    });
+  }
+  function updateSkipButton(): void {
+    if (!(skipBtn instanceof HTMLButtonElement)) return;
+    skipBtn.textContent = skipUntilGen !== null ? t('panel.skipping') : t('panel.skipTen');
+    skipBtn.classList.toggle('btn--active', skipUntilGen !== null);
   }
 
   function applyHeadless(): void {
@@ -477,24 +490,36 @@ async function bootstrap(): Promise<void> {
     }
   }
 
-  if (speedBtn instanceof HTMLButtonElement) {
-    speedBtn.addEventListener('click', () => {
-      // Clicking the speed button while in skip mode cancels the skip.
+  speedSegItems.forEach((el) => {
+    el.addEventListener('click', () => {
+      const idx = Number(el.dataset['speedIdx']);
+      if (Number.isNaN(idx)) return;
+      // Clicking any segment while in skip mode cancels the skip.
       if (skipUntilGen !== null) skipUntilGen = null;
-      speedIdx = (speedIdx + 1) % SPEED_STATES.length;
-      updateSpeedButtonText();
+      speedIdx = idx;
+      updateSpeedSegmented();
+      updateSkipButton();
       applyHeadless();
+      el.blur();
     });
-    updateSpeedButtonText();
-  }
+  });
+  updateSpeedSegmented();
+  updateSkipButton();
+  // The skip button's text depends on *both* skip-mode and the
+  // current locale (panel.skipTen vs panel.skipping).  Re-apply
+  // on every locale flip so applyTranslations doesn't reset it
+  // back to the data-i18n default while we're mid-skip.
+  $locale.subscribe(() => updateSkipButton());
 
   if (skipBtn instanceof HTMLButtonElement) {
     skipBtn.addEventListener('click', () => {
       // Set a target generation; the tick loop takes care of forcing
       // top speed + headless mode until we get there.
       skipUntilGen = generation + SKIP_AMOUNT;
-      updateSpeedButtonText();
+      updateSpeedSegmented();
+      updateSkipButton();
       applyHeadless();
+      skipBtn.blur();
     });
   }
 
@@ -569,10 +594,11 @@ async function bootstrap(): Promise<void> {
         if (charts) charts.update(history);
         generation += 1;
         // If we were skipping ahead and just hit the target generation,
-        // exit skip mode and restore the visible speed cycle state.
+        // exit skip mode and restore the visible speed selection.
         if (skipUntilGen !== null && generation >= skipUntilGen) {
           skipUntilGen = null;
-          updateSpeedButtonText();
+          updateSpeedSegmented();
+          updateSkipButton();
           applyHeadless();
         }
         const effective = effectiveSpeed();

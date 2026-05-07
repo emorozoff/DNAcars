@@ -129,6 +129,77 @@ button {
   border-color: var(--color-accent);
 }
 
+.btn--active {
+  background: var(--color-accent);
+  color: rgba(0, 0, 0, 0.9);
+  border-color: var(--color-accent);
+}
+
+.btn--active:hover {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: var(--color-accent);
+}
+
+/* ─── Segmented control ─────────────────────────────────────────────────── */
+
+.seg-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.seg-group__label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--color-fg-muted);
+  text-transform: uppercase;
+  padding-left: 2px;
+}
+
+.segmented {
+  display: flex;
+  background: rgba(22, 22, 26, 0.78);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-md);
+  padding: 2px;
+  gap: 1px;
+  backdrop-filter: blur(8px);
+}
+
+.segmented__item {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--color-fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  padding: var(--sp-1) var(--sp-2);
+  cursor: pointer;
+  border-radius: calc(var(--r-md) - 2px);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+  white-space: nowrap;
+  /* Compact text — segments need to fit four labels in a stack
+     where a single button used to live. */
+  min-width: 0;
+}
+
+.segmented__item:hover {
+  color: var(--color-fg);
+}
+
+.segmented__item--active {
+  background: var(--color-accent);
+  color: rgba(0, 0, 0, 0.9);
+  font-weight: 600;
+}
+
+.segmented__item--active:hover {
+  color: rgba(0, 0, 0, 0.9);
+}
+
 .btn--floating {
   position: absolute;
   top: calc(var(--sp-4) + 60px);

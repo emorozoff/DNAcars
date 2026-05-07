@@ -45,9 +45,26 @@ export const TUNING = {
     minVertices: 5,
     maxVertices: 10,
     minRadius: 0.35,
-    maxRadius: 1.0,
+    /**
+     * Bumped 1.0 → 1.8 in v1.11: the previous cap kept the maximum
+     * chassis at ≈ 2 m wide — small enough that on hilly terrain
+     * "small + nimble" always beat "big + stable" because there
+     * was no room for "big" to be very big.  Letting cars grow to
+     * 3.6 m wide gives the size tail enough headroom that genuine
+     * monster-truck silhouettes can emerge once the rest of the
+     * track favours them (cliffs they bridge, walls they roll
+     * over, etc.).
+     */
+    maxRadius: 1.8,
     minDensity: 250,
-    maxDensity: 450,
+    /**
+     * Dropped 450 → 300 in v1.11 to compensate for the larger
+     * radius range.  Mass scales with area (≈ r²), so a 1.8 m
+     * chassis at the old 450 kg/m² density would be ≈ 3× heavier
+     * than the previous heaviest.  300 keeps the new max in the
+     * same ballpark as the old.
+     */
+    maxDensity: 300,
     /**
      * High body friction so a toppled car drags against the track and
      * stops moving instead of sliding indefinitely down a slope.  The
@@ -87,7 +104,17 @@ export const TUNING = {
     minCount: 1,
     maxCount: 4,
     minRadius: 0.18,
-    maxRadius: 0.7,
+    /**
+     * Bumped 0.7 → 1.2 in v1.11.  Big wheels matter for two reasons:
+     * they smooth out terrain chatter (small wheel between adjacent
+     * track points gets a sharp upward kick; big wheel rides over
+     * both points smoothly), and combined with the new wider chassis
+     * range they enable wheelbases that bridge real cliffs.  The cap
+     * was the main reason "small + nimble" always beat "big + stable"
+     * — a 0.7 m wheel can't roll over a 1 m wall, so once any wheel-
+     * scale obstacle appeared the small wheels were forced to win.
+     */
+    maxRadius: 1.2,
     /**
      * Per-wheel "power" gene (0..1) drives mass, motor strength and
      * visual stroke width together — the trio of {light, weak, thin}
@@ -95,15 +122,15 @@ export const TUNING = {
      * light" or "heavy but weak"; the three traits are bound so the
      * player can read a wheel's power off its line thickness alone.
      *
-     * maxDensity dropped from 400 to 250 in v0.9.7: a 0.7 m radius
-     * wheel at density 400 is ≈ 615 kg — heavy enough that hitting a
-     * hill corner at 20 m/s produces a vertical impulse the chassis
-     * just rides up into the sky.  250 caps the heaviest wheel at
-     * ≈ 385 kg; cars still need to "earn" extra wheels but the
-     * collision impulses are tractable.
+     * maxDensity dropped 250 → 130 in v1.11 to compensate for the
+     * 0.7 → 1.2 m radius bump.  Wheel mass = density × π × r², so a
+     * 1.2 m wheel at the old 250 kg/m² density would be 1131 kg —
+     * a single max-size max-density wheel weighing more than the
+     * whole rest of the car.  130 caps the heaviest wheel at
+     * ≈ 588 kg; still substantial but tractable for the solver.
      */
     minDensity: 50,
-    maxDensity: 250,
+    maxDensity: 130,
     minMotorFrac: 0.2,
     maxMotorFrac: 1.0,
     /** Visual stroke width range (world metres, multiplied by render zoom). */
@@ -112,6 +139,13 @@ export const TUNING = {
     friction: 1.6,
     restitution: 0.0,
     linearDamping: 0.05,
+    /**
+     * Baseline wheel angular damping.  Per-wheel damping in
+     * buildCar() scales this *inversely* with the wheel's radius —
+     * a rolling-resistance proxy that gives bigger wheels a real
+     * energy advantage and tilts evolution away from the
+     * "everything tiny" attractor.  See buildCar for the formula.
+     */
     angularDamping: 0.05,
   },
   motor: {
@@ -1084,7 +1118,13 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
   }
 
   const sx = opts.spawnX ?? 8;
-  const sy = sampleTrackY(opts.track, sx) + 1.6;
+  // Spawn-height clearance bumped 1.6 → 3.2 in v1.11 to accommodate
+  // the new max chassis radius (1.8 m) + max wheel radius (1.2 m).
+  // A max-size car's lowest contact point sits ≈ 3 m below its
+  // chassis centre, so 3.2 m gives the wheels room to settle without
+  // spawning inside the ground.  Small cars still drop in safely —
+  // the airborne damping handles the longer fall.
+  const sy = sampleTrackY(opts.track, sx) + 3.2;
 
   const cars: CarRuntime[] = opts.genomes.map((g, i) => buildCar(carWorld[i]!, g, i, sx, sy));
 
@@ -1351,11 +1391,23 @@ function buildCar(
     // axes — mass, motor strength, visual stroke width.
     const density = lerp(TUNING.wheel.minDensity, TUNING.wheel.maxDensity, wg.power);
     const motorTorque = lerp(TUNING.wheel.minMotorFrac, TUNING.wheel.maxMotorFrac, wg.power);
+    // Rolling-resistance proxy.  Real-world rolling resistance scales
+    // ≈ 1/r — bigger wheels lose less energy per revolution because
+    // each revolution covers more ground.  Rapier doesn't model this
+    // out of the box, so we approximate it via per-body angular
+    // damping inversely proportional to wheel radius.  A 0.18 m wheel
+    // (the smallest possible) ends up at ≈ 5× the baseline damping,
+    // a 1.0 m wheel sits at the baseline, a 1.2 m wheel slightly
+    // below.  Without this nudge evolution always converges on the
+    // smallest wheels because they're light and accelerate fast;
+    // with it, big wheels gain a continuous energy edge that
+    // compounds over the track and rewards size organically.
+    const wheelAngularDamping = TUNING.wheel.angularDamping / Math.max(0.2, wg.radius);
     const wb = world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
         .setTranslation(spawnX + anchor.x, spawnY + anchor.y)
         .setLinearDamping(TUNING.wheel.linearDamping)
-        .setAngularDamping(TUNING.wheel.angularDamping)
+        .setAngularDamping(wheelAngularDamping)
         .setCcdEnabled(true),
     );
     const wheelCollider = world.createCollider(

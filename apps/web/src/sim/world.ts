@@ -490,10 +490,15 @@ function placeObstacles(
 ): { terrain: PlacedObstacle[]; physical: PhysicalObstacle[] } {
   const terrain: PlacedObstacle[] = [];
   const physical: PhysicalObstacle[] = [];
-  // Average gap formula shared across kinds: shorter gap = more
-  // obstacles.  Floor at 25 m so 100 % intensity doesn't fuse
-  // into a continuous wall.
-  const gapFor = (intensity: number): number => Math.max(25, 350 / Math.max(0.1, intensity));
+  // Average gap between obstacles of one kind, in metres.  Linear
+  // interpolation from 200 m (sparse hint) at low intensity down to
+  // 12 m (≈ 125 obstacles per kind on a 1500 m track) at full.  The
+  // pre-v0.9.31 formula was `Math.max(25, 350 / intensity)` which
+  // had the relationship inverted: at intensity=1 it returned 350 m
+  // (≈ 4 obstacles total), making the slider feel like nothing was
+  // happening even at "100 %".  User reported "ceilings appear 1-5
+  // times — should be 100" and was correct: the formula was wrong.
+  const gapFor = (intensity: number): number => lerp(200, 12, intensity);
 
   const placePitOrBump = (kind: 'pit' | 'bump', intensity: number, fullMagnitude: number): void => {
     if (intensity <= 0) return;
@@ -559,9 +564,13 @@ function placeObstacles(
     while (x < trackLength - 5) {
       const halfWidth = lerp(2.5, 1.0, obstacles.ceiling) * (0.8 + rng() * 0.4);
       // Clearance above local track surface, m.  Lower at higher
-      // intensity → harder to pass.  Track surface y filled in by
-      // buildTrackColliders.
-      const clearance = lerp(3.5, 1.8, obstacles.ceiling) * (0.85 + rng() * 0.3);
+      // intensity → harder to pass.  At full intensity the
+      // clearance floor is 0.9 m — a typical chassis is ≈ 1 m
+      // tall, so 100 % ceilings are *meant* to be borderline
+      // impossible to pass without hugging the surface exactly.
+      // (Was lerp(3.5, 1.8) pre-v0.9.31; user reported 100 %
+      // ceilings still felt easy to fit under.)
+      const clearance = lerp(4.0, 0.9, obstacles.ceiling) * (0.85 + rng() * 0.3);
       // We stash clearance in `y` here — buildTrackColliders adds
       // the local track surface y so the absolute world-y can be
       // computed.  Mild abuse of the field but keeps the type
@@ -584,7 +593,11 @@ function placeObstacles(
     while (x < trackLength - 5) {
       const intensity = obstacles.killzone;
       const halfWidth = lerp(2.5, 1.0, intensity) * (0.8 + rng() * 0.4);
-      const clearance = lerp(4.0, 1.8, intensity) * (0.85 + rng() * 0.3);
+      // Clearance scales 4.5 m (low intensity = easy to dodge)
+      // down to 1.2 m at full strength — a chassis just barely
+      // fits under, any small jump = death.  Floor matches the
+      // ceiling tightening (was lerp(4.0, 1.8) pre-v0.9.31).
+      const clearance = lerp(4.5, 1.2, intensity) * (0.85 + rng() * 0.3);
       physical.push({
         kind: 'killzone',
         x1: x - halfWidth,

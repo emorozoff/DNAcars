@@ -28,6 +28,17 @@ import RAPIER from '@dimforge/rapier2d-compat';
 
 export const SIM_DT = 1 / 60;
 export const GRAVITY = 9.81;
+/**
+ * Physics sub-steps per game tick.  At 1/60 s a heavy fast wheel
+ * crosses ~30 cm per step — fast enough that a single big impulse on
+ * a steep hill corner can launch the chassis several metres before
+ * the constraint solver gets another chance to balance.  Halving the
+ * step (= 2 substeps) gives the solver twice as many opportunities
+ * to converge each frame, and CCD has half as much work to do per
+ * call.  The cost is doubling physics CPU, which is fine for our
+ * ≤ 100 dynamic bodies.
+ */
+const PHYSICS_SUBSTEPS = 2;
 
 export const TUNING = {
   chassis: {
@@ -46,12 +57,13 @@ export const TUNING = {
     friction: 0.8,
     restitution: 0.0,
     /**
-     * Bumped from 0.4 to 0.5 in v0.9.4 — a fast heavy chassis on a
-     * downhill could otherwise build up enough horizontal momentum
-     * that the next uphill became a launch ramp.  Slightly heavier
-     * air drag caps top speed without making the cars feel sluggish.
+     * Linear damping bumped 0.5 → 0.65 in v0.9.7: with smaller
+     * substeps and lower wheel mass, top speeds were going to drift
+     * down anyway, but a touch more drag means a downhill car
+     * reaches its terminal speed faster and so doesn't accumulate
+     * as much extra momentum into the next uphill collision.
      */
-    linearDamping: 0.5,
+    linearDamping: 0.65,
     angularDamping: 0.2,
   },
   wheel: {
@@ -65,9 +77,16 @@ export const TUNING = {
      * vs {heavy, strong, thick}.  A car can't pick "powerful but
      * light" or "heavy but weak"; the three traits are bound so the
      * player can read a wheel's power off its line thickness alone.
+     *
+     * maxDensity dropped from 400 to 250 in v0.9.7: a 0.7 m radius
+     * wheel at density 400 is ≈ 615 kg — heavy enough that hitting a
+     * hill corner at 20 m/s produces a vertical impulse the chassis
+     * just rides up into the sky.  250 caps the heaviest wheel at
+     * ≈ 385 kg; cars still need to "earn" extra wheels but the
+     * collision impulses are tractable.
      */
     minDensity: 50,
-    maxDensity: 400,
+    maxDensity: 250,
     minMotorFrac: 0.2,
     maxMotorFrac: 1.0,
     /** Visual stroke width range (world metres, multiplied by render zoom). */
@@ -121,17 +140,16 @@ export const TUNING = {
     numIterations: 8,
   },
   /**
-   * Hard upper bound on the chassis's linear-velocity magnitude.  Even
-   * with thick ground + extra solver iterations, a fast heavy car can
-   * occasionally slip through a sharp track corner and get ejected by
-   * the solver with an explosive vertical impulse.  Above this cap we
-   * scale velocity back to the limit and log a warning — the cap
-   * never fires in normal driving (top speeds at full motor are ≈ 11
-   * m/s), so anything beyond it is a known-glitch situation we want
-   * to know about.
+   * Hard upper bound on the chassis's linear-velocity magnitude.
+   * Tightened from 30 to 22 in v0.9.7: the user's bundles showed
+   * launches starting from ≈ 26 m/s — comfortably below the old 30
+   * cap so it never fired, but enough to send the chassis 16+ m up.
+   * Top normal driving speed is ≈ 12 m/s, so 22 is still plenty of
+   * head room for legitimate downhill bursts while catching the
+   * "moderate but unphysical" launches that fall under 30.
    */
   safety: {
-    maxLinvel: 30,
+    maxLinvel: 22,
   },
   lifecycle: {
     /** Speed below which a car counts as "not moving" (m/s). */
@@ -201,14 +219,13 @@ const DEFAULT_TRACK: TrackOptions = {
   step: 0.6,
   warmup: 25,
   /**
-   * Lowered from 5.0 in v0.9.4.  Layered-sine slope sums to roughly
-   * 0.25 in normalised units; multiplied by amplitude it becomes the
-   * world-space slope.  At 5.0 the worst slope was ~52° — a near
-   * vertical ramp that would launch a fast heavy car several metres
-   * above the next peak.  3.5 caps the worst slope at ~38°, still
-   * dramatic but no longer a trampoline.
+   * Lowered again 3.5 → 2.8 in v0.9.7.  At 3.5 the worst slope was
+   * ~38°, still steep enough that a 26 m/s downhill car bouncing off
+   * the next uphill ended 16 m above the surface.  2.8 caps the
+   * worst slope at ~32° — visibly hilly, but no longer a trampoline
+   * corridor.
    */
-  amplitude: 3.5,
+  amplitude: 2.8,
 };
 
 export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): Track {
@@ -390,7 +407,10 @@ export type CreateWorldOptions = {
 export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle> {
   await ensureRapier();
   const world = new RAPIER.World({ x: 0, y: -GRAVITY });
-  world.timestep = SIM_DT;
+  // Each physics call advances by SIM_DT / SUBSTEPS so the per-game-
+  // tick total is still SIM_DT, just split across multiple solver
+  // passes for smoother contact resolution.
+  world.timestep = SIM_DT / PHYSICS_SUBSTEPS;
   // More iterations than the default 4: a stiff scene of heavy
   // chassis + heavy wheels + revolute joints needs the extra passes
   // to converge each step and avoid the explosive ejections that
@@ -408,16 +428,21 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
 
   return {
     step(): void {
-      for (const car of cars) {
-        if (car.finished) {
-          // Pinned: zero out velocities so the wreckage doesn't drift.
-          freezeCar(car);
-          continue;
+      // Run PHYSICS_SUBSTEPS sub-steps per game tick.  Motor torque is
+      // applied before each sub-step so the "addTorque" accumulator
+      // gets properly integrated over the smaller dt, instead of
+      // applying one frame's worth of torque to one of two sub-steps.
+      for (let s = 0; s < PHYSICS_SUBSTEPS; s++) {
+        for (const car of cars) {
+          if (car.finished) {
+            freezeCar(car);
+            continue;
+          }
+          updateWheelContacts(car, opts.track);
+          applyMotor(car);
         }
-        updateWheelContacts(car, opts.track);
-        applyMotor(car);
+        world.step();
       }
-      world.step();
       time += SIM_DT;
       for (const car of cars) {
         if (car.finished) continue;

@@ -13,6 +13,8 @@ export const ru: Dictionary = {
   'panel.trackTuning': 'Трасса',
   'panel.pits': 'Ямы',
   'panel.bumps': 'Кочки',
+  'panel.walls': 'Стены',
+  'panel.ceilings': 'Потолки',
   'panel.restart': '↻ Новая популяция',
   'panel.restartConfirm': 'Создать новую популяцию?  Это удалит все гены текущего поколения.',
   'panel.pause': '⏸ Пауза',

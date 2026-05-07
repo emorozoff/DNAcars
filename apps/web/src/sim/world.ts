@@ -308,11 +308,43 @@ export type ObstacleConfig = {
   pit: number;
   /** Bump (upward spike) intensity, 0..1.  Drives both density and height. */
   bump: number;
+  /**
+   * Vertical wall intensity, 0..1.  At full strength: ≈ 2 m tall
+   * thin posts that the chassis must climb over or jump.  Walls
+   * are real Rapier colliders, not Y-profile modulation, so they
+   * present a hard barrier with friction = wheel friction (cars
+   * with strong wheels can lever themselves over).
+   */
+  wall: number;
+  /**
+   * Low-overhead ceiling intensity, 0..1.  At full strength: a
+   * 4-m-wide horizontal beam ≈ 2.5 m above the local track surface.
+   * Counters jumpy strategies — a chassis launching into the air
+   * crashes into it.  Cars hugging the surface fit underneath.
+   */
+  ceiling: number;
 };
+
+/**
+ * A physical obstacle placed by `placeObstacles` that needs its
+ * own Rapier collider beyond the procedural ground polyline.
+ * Position fields are in world coordinates.
+ */
+export type PhysicalObstacle =
+  | { kind: 'wall'; x: number; height: number }
+  | { kind: 'ceiling'; xCenter: number; halfWidth: number; y: number };
 
 export type Track = {
   options: TrackOptions;
   points: { x: number; y: number }[];
+  /**
+   * Discrete physical obstacles (walls, ceilings) that need their
+   * own Rapier colliders.  Computed in generateTrack alongside the
+   * Y-profile and consumed by buildTrackColliders.  Pure-Y
+   * obstacles (pits, bumps) are folded into `points` directly and
+   * don't appear here.
+   */
+  physicalObstacles: PhysicalObstacle[];
 };
 
 const DEFAULT_TRACK: TrackOptions = {
@@ -336,12 +368,12 @@ const DEFAULT_TRACK: TrackOptions = {
    */
   difficultyDistance: 250,
   /**
-   * Obstacles default to off in v0.9.27 — turning them on at
-   * non-zero intensities is a player choice via the new track-
-   * tuning sliders.  This keeps the baseline track identical to
-   * v0.9.26 for anyone who hasn't touched the new controls.
+   * Obstacles default to off — turning them on at non-zero
+   * intensities is a player choice via the track-tuning sliders.
+   * This keeps the baseline track identical for anyone who hasn't
+   * touched the new controls.
    */
-  obstacles: { pit: 0, bump: 0 },
+  obstacles: { pit: 0, bump: 0, wall: 0, ceiling: 0 },
 };
 
 /** Frequency where the high-frequency "sharpness" octaves wake up (m). */
@@ -378,38 +410,81 @@ type PlacedObstacle = {
  * window (first OBSTACLE_START metres) — same logic as the
  * procedural difficulty ramp: cars need a runway to evolve into
  * before they get punished by local hazards.
+ *
+ * Returns two lists: `terrain` (Y-profile pits/bumps that the
+ * generateTrack loop folds into points) and `physical` (walls,
+ * ceilings — anything that needs its own Rapier collider).
  */
 function placeObstacles(
   rng: Rng,
   obstacles: ObstacleConfig,
   trackLength: number,
-): PlacedObstacle[] {
-  const out: PlacedObstacle[] = [];
-  const place = (kind: 'pit' | 'bump', intensity: number, fullMagnitude: number): void => {
+): { terrain: PlacedObstacle[]; physical: PhysicalObstacle[] } {
+  const terrain: PlacedObstacle[] = [];
+  const physical: PhysicalObstacle[] = [];
+  // Average gap formula shared across kinds: shorter gap = more
+  // obstacles.  Floor at 25 m so 100 % intensity doesn't fuse
+  // into a continuous wall.
+  const gapFor = (intensity: number): number => Math.max(25, 350 / Math.max(0.1, intensity));
+
+  const placePitOrBump = (kind: 'pit' | 'bump', intensity: number, fullMagnitude: number): void => {
     if (intensity <= 0) return;
-    // Average gap shrinks as intensity grows.  Floor at 25 m so
-    // even at 100 % they don't overlap into a continuous trench.
-    const meanGap = Math.max(25, 350 / Math.max(0.1, intensity));
+    const meanGap = gapFor(intensity);
     let x = OBSTACLE_START + rng() * meanGap;
     while (x < trackLength - 5) {
-      // Per-obstacle magnitude: 70..100 % of full strength × intensity.
       const mag = fullMagnitude * intensity * (0.7 + rng() * 0.3);
-      // Width 0.6..1.6 m — narrower obstacles read as sharper
-      // hazards, wider ones as gentle dips/swells.
       const width = 0.6 + rng() * 1.0;
-      out.push({ kind, x, magnitude: mag, width });
-      // Jittered next gap so they don't appear on a metronome.
+      terrain.push({ kind, x, magnitude: mag, width });
       x += meanGap * (0.55 + rng() * 0.9);
     }
   };
-  // Full-strength magnitudes were tuned visually: a 4 m pit is
-  // unmistakable next to ±5 m amplitude hills, a 2.5 m bump is a
-  // sharp jolt that any car will feel.
-  place('pit', obstacles.pit, 4.0);
-  place('bump', obstacles.bump, 2.5);
-  // Sort by x so the per-track-point loop can stop scanning early.
-  out.sort((a, b) => a.x - b.x);
-  return out;
+
+  // Y-profile hazards.
+  placePitOrBump('pit', obstacles.pit, 4.0);
+  placePitOrBump('bump', obstacles.bump, 2.5);
+
+  // Walls — vertical thin colliders.  Height scales 0.3..2 m with
+  // intensity (low intensity = bumps the size of curbs; full = real
+  // barriers cars must climb).  We don't pin them to the track
+  // surface here because we don't have point Y at this point in
+  // the pipeline; buildTrackColliders does the lookup.
+  if (obstacles.wall > 0) {
+    const meanGap = gapFor(obstacles.wall);
+    let x = OBSTACLE_START + rng() * meanGap;
+    while (x < trackLength - 5) {
+      const height = lerp(0.3, 2.0, obstacles.wall) * (0.7 + rng() * 0.3);
+      physical.push({ kind: 'wall', x, height });
+      x += meanGap * (0.55 + rng() * 0.9);
+    }
+  }
+
+  // Ceilings — horizontal beams above the track surface.  A car
+  // hugging the ground passes underneath; one launching into the
+  // air at this x slams into it.  Width and clearance both scale
+  // with intensity: low = wide and high (easy to slip under), full
+  // = narrow and low (must hit just right).
+  if (obstacles.ceiling > 0) {
+    const meanGap = gapFor(obstacles.ceiling);
+    let x = OBSTACLE_START + rng() * meanGap;
+    while (x < trackLength - 5) {
+      const halfWidth = lerp(2.5, 1.0, obstacles.ceiling) * (0.8 + rng() * 0.4);
+      // Clearance above local track surface, m.  Lower at higher
+      // intensity → harder to pass.  Track surface y filled in by
+      // buildTrackColliders.
+      const clearance = lerp(3.5, 1.8, obstacles.ceiling) * (0.85 + rng() * 0.3);
+      // We stash clearance in `y` here — buildTrackColliders adds
+      // the local track surface y so the absolute world-y can be
+      // computed.  Mild abuse of the field but keeps the type
+      // small; renderer treats this as the relative offset until
+      // it samples the surface.
+      physical.push({ kind: 'ceiling', xCenter: x, halfWidth, y: clearance });
+      x += meanGap * (0.55 + rng() * 0.9);
+    }
+  }
+
+  // Sort terrain by x so the per-track-point loop can stop scanning early.
+  terrain.sort((a, b) => a.x - b.x);
+  return { terrain, physical };
 }
 
 /** Gaussian deformation amount at distance `d` from an obstacle centre. */
@@ -437,7 +512,9 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
   // a pure function of the seed.  This is intentional: a fixed-track
   // run reproduces the exact same hazard layout every generation,
   // which is how the GA gets to optimise against them.
-  const obstacles = placeObstacles(rng, o.obstacles, o.length);
+  const placed = placeObstacles(rng, o.obstacles, o.length);
+  const obstacles = placed.terrain;
+  const physicalObstacles = placed.physical;
 
   const points: { x: number; y: number }[] = [];
   const difficultyEnd = o.warmup + o.difficultyDistance;
@@ -485,7 +562,28 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
     points.push({ x, y });
   }
   if (points[0]) points[0].y = 0;
-  return { options: o, points };
+  // Resolve ceiling absolute world-y now that we have the point
+  // array to sample from — until this point ceilings carried the
+  // *relative* clearance in the y field (see comment in
+  // placeObstacles).  Easier here than threading a sampler through
+  // placeObstacles.
+  const resolved = physicalObstacles.map((p) =>
+    p.kind === 'ceiling' ? { ...p, y: sampleY(points, p.xCenter) + p.y } : p,
+  );
+  return { options: o, points, physicalObstacles: resolved };
+}
+
+/** Linear-interpolated y at a given world-x against an even-spaced point list. */
+function sampleY(points: { x: number; y: number }[], x: number): number {
+  if (points.length < 2) return 0;
+  const step = points[1]!.x - points[0]!.x;
+  const idx = Math.floor(x / step);
+  if (idx < 0) return points[0]!.y;
+  if (idx >= points.length - 1) return points[points.length - 1]!.y;
+  const a = points[idx]!;
+  const b = points[idx + 1]!;
+  const t = (x - a.x) / (b.x - a.x);
+  return a.y + (b.y - a.y) * t;
 }
 
 function smoothstep(a: number, b: number, x: number): number {
@@ -868,6 +966,38 @@ function buildTrackColliders(world: RAPIER.World, track: Track): void {
       .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL)),
     ground,
   );
+
+  // Physical obstacles — walls and ceilings.  Each is a small fixed
+  // cuboid hung off the same ground rigid body as the surface
+  // colliders, sharing the same collision groups so cars treat them
+  // identically to the rest of the track.
+  for (const ob of track.physicalObstacles) {
+    if (ob.kind === 'wall') {
+      // Half-thickness 0.05 m (= 10 cm wide post), sitting on the
+      // surface y so the bottom is flush with the track.  Friction
+      // matches the ground; cars with strong wheels can climb over.
+      const surfaceY = sampleTrackY(track, ob.x);
+      world.createCollider(
+        RAPIER.ColliderDesc.cuboid(0.05, ob.height / 2)
+          .setTranslation(ob.x, surfaceY + ob.height / 2)
+          .setFriction(1.0)
+          .setRestitution(0.0)
+          .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL)),
+        ground,
+      );
+    } else {
+      // Ceiling: thin horizontal cuboid centred at (xCenter, y).
+      // Half-thickness 0.08 m makes a clearly visible beam.
+      world.createCollider(
+        RAPIER.ColliderDesc.cuboid(ob.halfWidth, 0.08)
+          .setTranslation(ob.xCenter, ob.y)
+          .setFriction(0.6)
+          .setRestitution(0.0)
+          .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL)),
+        ground,
+      );
+    }
+  }
 }
 
 /* ─── Car builder ──────────────────────────────────────────────────────── */

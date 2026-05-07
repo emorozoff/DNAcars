@@ -11,6 +11,8 @@ const enRaw = {
   'panel.trackTuning': 'Track',
   'panel.pits': 'Pits',
   'panel.bumps': 'Bumps',
+  'panel.walls': 'Walls',
+  'panel.ceilings': 'Ceilings',
   'panel.restart': '↻ New population',
   'panel.restartConfirm': 'Start a new population?  This wipes every gene of the current run.',
   'panel.pause': '⏸ Pause',

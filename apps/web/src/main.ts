@@ -80,7 +80,7 @@ const gaParams: GAParams = {
  * baseline track matches v0.9.26 until the user touches a slider.
  */
 const trackTuning: { obstacles: ObstacleConfig } = {
-  obstacles: { pit: 0, bump: 0 },
+  obstacles: { pit: 0, bump: 0, wall: 0, ceiling: 0 },
 };
 
 /**
@@ -581,6 +581,14 @@ function bindControls(): void {
     trackTuning.obstacles.bump = v / 100;
     return `${v}%`;
   });
+  bindSlider('ctrl-walls', 'ctrl-walls-val', (v) => {
+    trackTuning.obstacles.wall = v / 100;
+    return `${v}%`;
+  });
+  bindSlider('ctrl-ceilings', 'ctrl-ceilings-val', (v) => {
+    trackTuning.obstacles.ceiling = v / 100;
+    return `${v}%`;
+  });
 }
 
 function bindSlider(inputId: string, valueId: string, apply: (v: number) => string): void {
@@ -619,7 +627,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
   const { trackSeed, trackOpts, generation, genomes, scene, hud, onGenerationEnd } = opts;
 
   const track = generateTrack(trackSeed, trackOpts ?? {});
-  scene.setTrack(track.points);
+  scene.setTrack(track.points, track.physicalObstacles);
 
   const world = await createWorld({ track, genomes, spawnX: SPAWN_X });
 

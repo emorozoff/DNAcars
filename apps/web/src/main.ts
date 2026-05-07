@@ -968,27 +968,51 @@ function bindSlider(inputId: string, valueId: string, apply: (v: number) => stri
 /**
  * Wire the strict-determinism checkbox.  Default value comes from
  * localStorage so the player's choice survives reloads.  Turning it
- * ON pops a confirm() prompt with the CPU-cost warning — the toggle
- * is reverted if the user cancels.  Turning it OFF is silent.
+ * ON shows the in-card warning popover (#strict-determinism-confirm)
+ * — the toggle stays unchecked until the user accepts.  Turning it
+ * OFF is silent.
  */
 function bindStrictDeterminismToggle(): void {
   const input = document.getElementById('ctrl-strict-determinism');
-  if (!(input instanceof HTMLInputElement)) return;
+  const popover = document.getElementById('strict-determinism-confirm');
+  const yes = document.getElementById('strict-determinism-confirm-yes');
+  const no = document.getElementById('strict-determinism-confirm-no');
+  if (
+    !(input instanceof HTMLInputElement) ||
+    !(popover instanceof HTMLElement) ||
+    !(yes instanceof HTMLButtonElement) ||
+    !(no instanceof HTMLButtonElement)
+  ) {
+    return;
+  }
   input.checked = strictDeterminism;
-  input.addEventListener('change', () => {
-    if (input.checked && !strictDeterminism) {
-      const ok = window.confirm(t('panel.strictDeterminismWarning'));
-      if (!ok) {
-        input.checked = false;
-        return;
-      }
+  popover.hidden = true;
+
+  const closePopover = (accepted: boolean): void => {
+    popover.hidden = true;
+    if (accepted) {
+      input.checked = true;
       strictDeterminism = true;
       saveStrictDeterminism(true);
+    } else {
+      input.checked = false;
+    }
+  };
+
+  input.addEventListener('change', () => {
+    if (input.checked && !strictDeterminism) {
+      // Don't commit yet — show the warning and wait for explicit
+      // confirmation.  Visually un-tick until then so the user
+      // doesn't think the change has already landed.
+      input.checked = false;
+      popover.hidden = false;
     } else if (!input.checked && strictDeterminism) {
       strictDeterminism = false;
       saveStrictDeterminism(false);
     }
   });
+  yes.addEventListener('click', () => closePopover(true));
+  no.addEventListener('click', () => closePopover(false));
 }
 
 type Session = {

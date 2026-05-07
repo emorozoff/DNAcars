@@ -90,7 +90,7 @@
             <div class="seed-history" id="seed-history"></div>
           </section>
 
-          <section class="hud-card hud-card--controls">
+          <section class="hud-card hud-card--controls hud-card--evolution">
             <h3 class="hud-card__heading" data-i18n="panel.evolution">evolution</h3>
 
             <label class="ctrl">
@@ -148,6 +148,35 @@
             >
               Same seed → identical run, every time. Costs ≈2× CPU.
             </p>
+
+            <div class="card-confirm" id="strict-determinism-confirm" hidden>
+              <h3 class="card-confirm__heading" data-i18n="panel.strictDeterminism">
+                Strict determinism
+              </h3>
+              <p
+                class="card-confirm__text"
+                id="strict-determinism-confirm-text"
+                data-i18n="panel.strictDeterminismWarning"
+              ></p>
+              <div class="card-confirm__actions">
+                <button
+                  class="btn btn--confirm-no"
+                  id="strict-determinism-confirm-no"
+                  type="button"
+                  data-i18n="panel.confirmNo"
+                >
+                  Cancel
+                </button>
+                <button
+                  class="btn btn--confirm-yes"
+                  id="strict-determinism-confirm-yes"
+                  type="button"
+                  data-i18n="panel.confirmYes"
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
           </section>
 
           <section class="hud-card hud-card--controls">

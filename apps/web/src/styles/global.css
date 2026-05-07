@@ -969,6 +969,58 @@ button {
   letter-spacing: 0.02em;
 }
 
+/* In-card confirm overlay — same visual shape as the host card so
+   it reads as the card "transforming" into the warning rather than
+   a separate floating popover.  Used by the strict-determinism
+   toggle: ticking the box covers the card with this until the
+   player accepts or cancels. */
+.hud-card--evolution {
+  position: relative;
+}
+
+.card-confirm {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgba(22, 22, 26, 0.96);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4);
+  backdrop-filter: blur(8px);
+  z-index: 4;
+  animation: confirm-pop 0.12s ease-out;
+}
+
+.card-confirm[hidden] {
+  display: none;
+}
+
+.card-confirm__heading {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.card-confirm__text {
+  margin: 0 0 var(--sp-3);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-fg);
+  white-space: pre-line;
+  flex: 1;
+}
+
+.card-confirm__actions {
+  display: flex;
+  gap: var(--sp-2);
+  justify-content: flex-end;
+  margin-top: auto;
+}
+
 .swatch {
   display: inline-block;
   width: 8px;

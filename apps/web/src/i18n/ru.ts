@@ -45,6 +45,7 @@ export const ru: Dictionary = {
   'ribbon.best': 'РЕКОРД',
   'ribbon.alive': 'ЕДУТ',
   'ribbon.seed': 'СИД',
+  'panel.fastForward': 'Перемотка',
   'panel.strictDeterminism': 'Строгий детерминизм',
   'panel.strictDeterminismHint': 'Тот же сид → точно такой же заезд. Стоит ≈2× CPU.',
   'panel.strictDeterminismWarning':

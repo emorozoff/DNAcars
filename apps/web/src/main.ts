@@ -482,9 +482,44 @@ async function bootstrap(): Promise<void> {
   const trackRecordHistory: number[] = [];
   const TRACK_RECORD_HISTORY_MAX = 5;
 
+  /**
+   * Strict-determinism elite-distance cache.  After each gen-end
+   * (when strict-det is on) we save the top-N fitnesses keyed by a
+   * hash of the track config that produced them.  At the next
+   * gen-start, if the upcoming track config hashes the same, the
+   * cache predicts each elite's final distance — letting the tick
+   * loop force-finish as soon as only those elites are still alive.
+   *
+   * Invalidated implicitly by a track-config change (hash mismatch),
+   * and explicitly cleared in freshRun() and on strict-det toggle.
+   */
+  let eliteCache: { trackHash: string; distances: number[] } | null = null;
+
+  function trackConfigHash(trackSeed: number, trackOpts: Partial<TrackOptions>): string {
+    return JSON.stringify({ trackSeed, ...trackOpts });
+  }
+
+  /**
+   * Show the FAST-FORWARD banner briefly when the strict-det
+   * shortcut fires so the player notices the gen ended early.
+   * Idempotent — calling while already shown re-arms the timer.
+   */
+  let shortcutBannerTimer: ReturnType<typeof setTimeout> | null = null;
+  function flashShortcutBanner(): void {
+    const banner = document.getElementById('shortcut-banner');
+    if (!(banner instanceof HTMLElement)) return;
+    banner.hidden = false;
+    if (shortcutBannerTimer !== null) clearTimeout(shortcutBannerTimer);
+    shortcutBannerTimer = setTimeout(() => {
+      banner.hidden = true;
+      shortcutBannerTimer = null;
+    }, 700);
+  }
+
   function freshRun(keepSeed: number | null = null): void {
     generation = 0;
     lastResults = null;
+    eliteCache = null;
     bestEver = 0;
     history.length = 0;
     // Drop the cached fixed seed unless the caller is preserving
@@ -929,6 +964,29 @@ async function bootstrap(): Promise<void> {
     }
 
     const sessionStartedAt = performance.now();
+    // Decide if the strict-det fast-forward shortcut is available
+    // for this gen.  Only when:
+    //   - strict determinism is on (cache is only meaningful then),
+    //   - we have at least one prior gen's elite distances cached,
+    //   - the upcoming track config matches the one that produced
+    //     those distances (any slider tweak between gens flips the
+    //     hash and disables the shortcut for one gen, after which a
+    //     fresh cache rebuilds),
+    //   - we have at least one elite slot to short-circuit.
+    const currentTrackHash = trackConfigHash(trackSeed, trackParams.opts);
+    const cacheValid =
+      strictDeterminism &&
+      eliteCache !== null &&
+      eliteCache.trackHash === currentTrackHash &&
+      gaParams.eliteCount > 0 &&
+      eliteCache.distances.length > 0;
+    const shortcutCtx = cacheValid
+      ? {
+          eliteCount: gaParams.eliteCount,
+          cachedDistances: eliteCache!.distances,
+          onTrigger: flashShortcutBanner,
+        }
+      : null;
     session = await startSession({
       trackSeed,
       trackOpts: trackParams.opts,
@@ -936,12 +994,27 @@ async function bootstrap(): Promise<void> {
       genomes,
       scene,
       hud,
+      shortcutCtx,
       onGenerationEnd: (results) => {
         lastResults = results;
         const genBest = results.reduce((m, r) => (r.fitness > m ? r.fitness : m), 0);
         if (genBest > bestEver) {
           bestEver = genBest;
           hud.best.textContent = `${bestEver.toFixed(1)} m`;
+        }
+        // Save / clear the strict-det elite cache.  In strict-det,
+        // the top N fitnesses (sorted desc) become the predicted
+        // distances for the next gen's elites at indices 0..N-1.
+        // Outside strict-det the cache would lie (multi-body world
+        // is FP-noisy), so we explicitly null it.
+        if (strictDeterminism && gaParams.eliteCount > 0) {
+          const sorted = results
+            .map((r) => r.fitness)
+            .sort((a, b) => b - a)
+            .slice(0, gaParams.eliteCount);
+          eliteCache = { trackHash: currentTrackHash, distances: sorted };
+        } else {
+          eliteCache = null;
         }
         // In 'fixed' track mode, "best on this track" is meaningful;
         // every generation runs on the same seed, so we accumulate
@@ -1142,10 +1215,32 @@ type StartOptions = {
   scene: SceneHandle;
   hud: Hud;
   onGenerationEnd: (results: Scored[]) => void;
+  /**
+   * Strict-determinism fast-forward context.  When non-null, the
+   * tick loop watches for "every alive car is an elite whose final
+   * distance we already know from a previous gen" — at that moment
+   * it force-finishes the world and the gen-end results override
+   * those elite cars' fitness with the cached value.
+   *
+   *   eliteCount        — current `gaParams.eliteCount`
+   *   cachedDistances   — top-N distances from prev gen, sorted desc.
+   *                       cachedDistances[i] = predicted final
+   *                       distance of next-gen elite at index i (since
+   *                       elites are inserted at next[0..eliteCount-1]
+   *                       in fitness-descending order; see population.ts).
+   *   onTrigger         — called once when the shortcut fires (host
+   *                       uses this to flash the FAST-FORWARD banner).
+   */
+  shortcutCtx?: {
+    eliteCount: number;
+    cachedDistances: number[];
+    onTrigger: () => void;
+  } | null;
 };
 
 async function startSession(opts: StartOptions): Promise<Session> {
   const { trackSeed, trackOpts, generation, genomes, scene, hud, onGenerationEnd } = opts;
+  const shortcutCtx = opts.shortcutCtx ?? null;
 
   const track = generateTrack(trackSeed, trackOpts ?? {});
   scene.setTrack(track.points, track.physicalObstacles);
@@ -1212,6 +1307,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
   let acc = 0;
   let elapsed = 0;
   let frameCount = 0;
+  let shortcutApplied = false;
 
   function tick(): void {
     if (!running) return;
@@ -1246,6 +1342,34 @@ async function startSession(opts: StartOptions): Promise<Session> {
       world.forceFinishAll();
     }
     const snap = world.snapshot();
+
+    // Strict-determinism fast-forward: if every alive car is an
+    // elite whose final distance is already known (cached from the
+    // previous gen, valid only because strict-det runs each car in
+    // its own deterministic isolated world on the same track), end
+    // the gen now — there's nothing left to learn from running the
+    // elites to completion.  shortcutApplied gates this so we only
+    // trigger once per gen.
+    if (!shortcutApplied && shortcutCtx && shortcutCtx.eliteCount > 0) {
+      let onlyCachedElitesAlive = true;
+      let aliveCount = 0;
+      for (const car of snap.cars) {
+        if (car.finished) continue;
+        aliveCount++;
+        if (
+          car.index >= shortcutCtx.eliteCount ||
+          car.index >= shortcutCtx.cachedDistances.length
+        ) {
+          onlyCachedElitesAlive = false;
+          break;
+        }
+      }
+      if (aliveCount > 0 && onlyCachedElitesAlive) {
+        shortcutApplied = true;
+        world.forceFinishAll();
+        shortcutCtx.onTrigger();
+      }
+    }
     // Pick the render tier from speedIdx:
     //   ×1   → 'full' — wheel tints, all visual fidelity
     //   ×8   → 'lite' — skip wheel tints, also throttle to every
@@ -1266,10 +1390,19 @@ async function startSession(opts: StartOptions): Promise<Session> {
     if (!endNotified && world.allFinished()) {
       endNotified = true;
       running = false;
-      const results: Scored[] = genomes.map((genome, i) => ({
-        genome,
-        fitness: snap.cars[i]?.travel ?? 0,
-      }));
+      const results: Scored[] = genomes.map((genome, i) => {
+        let fitness = snap.cars[i]?.travel ?? 0;
+        // Fast-forward override: when the strict-det shortcut fired
+        // we cut the elite cars short of their full deterministic
+        // run.  The cached distance from the previous gen is what
+        // they *would* have reached — substitute it so the GA
+        // scoring + record markers + chart sparklines don't see a
+        // bogus "elite regressed" reading.
+        if (shortcutApplied && shortcutCtx && i < shortcutCtx.cachedDistances.length) {
+          fitness = Math.max(fitness, shortcutCtx.cachedDistances[i]!);
+        }
+        return { genome, fitness };
+      });
       onGenerationEnd(results);
       // Solo-verify the top-1 elite in a side-world.  Runs in the
       // background; the next generation starts immediately, the

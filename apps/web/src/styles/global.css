@@ -1315,6 +1315,60 @@ button {
   transform: translateX(-50%);
 }
 
+/* Strict-det fast-forward indicator — flashed centre-screen for
+   ~700 ms when the elite-cache shortcut fires and ends a gen early.
+   Accent green to read as "good thing happened" rather than warning. */
+.shortcut-banner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-5);
+  background: rgba(168, 255, 96, 0.12);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--r-md);
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 5;
+  backdrop-filter: blur(6px);
+  animation: shortcut-pulse 0.7s var(--ease-out) forwards;
+}
+
+.shortcut-banner[hidden] {
+  display: none;
+}
+
+.shortcut-banner__chev {
+  letter-spacing: 0;
+  opacity: 0.6;
+}
+
+@keyframes shortcut-pulse {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.92);
+  }
+  18% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.04);
+  }
+}
+
 .headless-banner {
   display: none;
 }

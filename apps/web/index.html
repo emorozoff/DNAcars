@@ -371,6 +371,15 @@
 
         <div class="headless-banner" data-i18n="panel.headlessBanner">Render off · ×32 speed</div>
 
+        <!-- Brief flash when the strict-det elite-cache shortcut fires
+             and ends the generation early.  Shown for ~700 ms by
+             flashShortcutBanner() in main.ts. -->
+        <div class="shortcut-banner" id="shortcut-banner" hidden>
+          <span class="shortcut-banner__chev" aria-hidden="true">»»</span>
+          <span class="shortcut-banner__text" data-i18n="panel.fastForward">Fast-forward</span>
+          <span class="shortcut-banner__chev" aria-hidden="true">»»</span>
+        </div>
+
         <aside class="charts-panel" id="charts-panel" hidden></aside>
 
         <div class="legend">

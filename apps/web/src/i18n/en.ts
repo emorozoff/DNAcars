@@ -43,6 +43,7 @@ const enRaw = {
   'ribbon.best': 'BEST',
   'ribbon.alive': 'ALIVE',
   'ribbon.seed': 'SEED',
+  'panel.fastForward': 'Fast-forward',
   'panel.strictDeterminism': 'Strict determinism',
   'panel.strictDeterminismHint': 'Same seed → identical run, every time. Costs ≈2× CPU.',
   'panel.strictDeterminismWarning':

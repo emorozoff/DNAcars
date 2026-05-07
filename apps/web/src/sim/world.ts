@@ -374,6 +374,20 @@ export type PhysicalObstacle =
       kind: 'slick' | 'bouncy';
       x1: number;
       x2: number;
+    }
+  | {
+      /**
+       * The finish line at the very end of every track — a tall
+       * vertical wall with a flag on top.  Always present (not
+       * controlled by sliders); the renderer draws it with a
+       * checkered finish-line stripe instead of the regular wall
+       * red so the player reads it as "the goal" not "another
+       * obstacle".
+       */
+      kind: 'finish';
+      x: number;
+      yBase: number;
+      height: number;
     };
 
 export type Track = {
@@ -436,24 +450,38 @@ const SHARPNESS_START = 80;
  */
 const OBSTACLE_START = 80;
 /**
- * Length (m) of the ascending-peak ramp at the end of every track.
- * Inside this region the surface y rises polynomially to the
- * configured PEAK_HEIGHT — gentle at the start of the ramp,
- * unclimbable (≥ 45° slope, motor tilt-gate kicks in) at the very
- * end.  This is the game's "you've gone as far as anything can"
- * boundary; no falling, no portals, just an honest mountain.
+ * Layout of the finish zone at the end of every track:
+ *
+ *     length-FINISH_ZONE_M ─── cliffEdge ─ wallX = length
+ *     |     pre-cliff      |   |  basin (flat, BASIN_Y)  | wall
+ *
+ *     ambient ──┐
+ *               │ sharp cliff (1 m horizontal, multi-m vertical)
+ *               └──────────────────── flat ──────────────│
+ *                                                          ║ vertical wall
+ *                                                          ║ + finish flag
+ *
+ * Designed for a clear "you've reached the end" reading: the
+ * approach signals an ending via a brief flat lead-in, the cliff
+ * gives a dramatic plunge, the basin is the stage for the wall,
+ * and the wall (+ flag) is the literal finish line.  No falling
+ * since the basin floor catches the chassis.
  */
-const PEAK_LENGTH = 200;
-/** Vertical height of the peak above the ambient surface (m). */
-const PEAK_HEIGHT = 50;
+const FINISH_ZONE_M = 24;
+/** World-y of the basin floor (flat after the cliff). */
+const BASIN_Y = -10;
 /**
- * Polynomial exponent for the peak ramp.  Slope at the very top
- * is `PEAK_HEIGHT * PEAK_POWER / PEAK_LENGTH`; with the chosen
- * 50/4/200 that's exactly 1.0 (= 100 % = 45°), matching the
- * motor's tilt-gate so the final stretch is physically
- * unclimbable.
+ * Width of the sharp cliff (m).  At 1 m wide and a typical
+ * `ambient - BASIN_Y` of 8–14 m, the slope works out to 80–86°
+ * — visually "almost vertical".
  */
-const PEAK_POWER = 4;
+const CLIFF_WIDTH_M = 1;
+/**
+ * Vertical wall height (m) above the basin floor.  Tall enough
+ * that even a chassis launching at full speed off ambient
+ * terrain can't clear it.
+ */
+const WALL_HEIGHT_M = 18;
 
 /**
  * One placed terrain obstacle.  Pits and bumps are symmetric
@@ -677,13 +705,26 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
   // a pure function of the seed.  This is intentional: a fixed-track
   // run reproduces the exact same hazard layout every generation,
   // which is how the GA gets to optimise against them.  Cap the
-  // upper bound at `peakStart` so no obstacles spawn inside the
-  // ascending peak — at 45 ° slope they'd be unintelligible (a
-  // wall on a wall, a pit on a pit, etc.).
-  const peakStart = o.length - PEAK_LENGTH;
-  const placed = placeObstacles(rng, o.obstacles, peakStart);
+  // upper bound at `finishZoneStart` so no obstacles spawn inside
+  // the cliff/basin/wall region — that area is reserved for the
+  // finish line.
+  const finishZoneStart = o.length - FINISH_ZONE_M;
+  const cliffEdge = finishZoneStart;
+  const basinStart = cliffEdge + CLIFF_WIDTH_M;
+  const placed = placeObstacles(rng, o.obstacles, finishZoneStart);
   const obstacles = placed.terrain;
   const physicalObstacles = placed.physical;
+  // Always-present finish wall at the very end of the track.
+  // Hangs off the same physical-obstacle list so buildTrackColliders
+  // gets it for free.  Height stretches the full WALL_HEIGHT_M
+  // above the basin floor — even a chassis flying off the cliff
+  // at top speed can't clear it.
+  physicalObstacles.push({
+    kind: 'finish',
+    x: o.length,
+    yBase: BASIN_Y,
+    height: WALL_HEIGHT_M,
+  });
 
   const points: { x: number; y: number }[] = [];
   const difficultyEnd = o.warmup + o.difficultyDistance;
@@ -749,16 +790,20 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
       }
       y += obstacleDelta * baseRamp;
     }
-    // Ascending peak — adds a polynomial ramp on top of everything
-    // else over the last PEAK_LENGTH metres of track.  Slope grows
-    // with the (PEAK_POWER-1)th power of the normalised distance
-    // through the ramp, hitting 45° (= motor tilt-gate) right at
-    // the end.  No obstacles spawn here (placeObstacles cap), no
-    // amplitude scaling — this is a rigid game boundary, not part
-    // of the procedural terrain.
-    if (x > peakStart) {
-      const t = Math.min(1, (x - peakStart) / PEAK_LENGTH);
-      y += PEAK_HEIGHT * Math.pow(t, PEAK_POWER);
+    // Finish zone: at `cliffEdge` the surface plunges in 1 m
+    // horizontal to the basin floor (BASIN_Y), then stays flat
+    // until x = length.  The plunge interpolates from whatever
+    // ambient was at cliffEdge down to BASIN_Y, so the *visual*
+    // depth of the cliff varies with the local terrain (a hill at
+    // the cliff edge → deeper plunge, a valley → shallower).  No
+    // amplitude scaling here; this is a rigid game boundary.
+    if (x >= cliffEdge) {
+      if (x < basinStart) {
+        const t = (x - cliffEdge) / CLIFF_WIDTH_M;
+        y = lerp(y, BASIN_Y, t);
+      } else {
+        y = BASIN_Y;
+      }
     }
     points.push({ x, y });
   }
@@ -1230,6 +1275,21 @@ function buildTrackColliders(world: RAPIER.World, track: Track): void {
         RAPIER.ColliderDesc.cuboid(ob.halfWidth, 0.08)
           .setTranslation(ob.xCenter, ob.y)
           .setFriction(0.6)
+          .setRestitution(0.0)
+          .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL)),
+        ground,
+      );
+    } else if (ob.kind === 'finish') {
+      // Finish wall: a tall vertical cuboid sitting on the basin
+      // floor at the very end of the track.  Half-thickness 0.1 m
+      // (= 20 cm wide post) — wider than regular walls so the
+      // visual stripe pattern reads at a glance.  Friction and
+      // restitution match the ground so a chassis crashing into
+      // it stops cleanly.
+      world.createCollider(
+        RAPIER.ColliderDesc.cuboid(0.1, ob.height / 2)
+          .setTranslation(ob.x, ob.yBase + ob.height / 2)
+          .setFriction(1.0)
           .setRestitution(0.0)
           .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL)),
         ground,

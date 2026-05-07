@@ -62,6 +62,12 @@ const COLORS = {
   slick: 0x7ec8ff,
   /** Bouncy patch — warm orange, "trampoline-like". */
   bouncy: 0xffb96e,
+  /** Finish-line stripes alternate between these. */
+  finishDark: 0x1a1a1f,
+  finishLight: 0xf2f2f5,
+  /** Finish flag fabric — warm accent so it reads at a distance. */
+  finishFlag: 0xffd166,
+  finishPole: 0xc8c8d0,
 } as const;
 
 const HIGHLIGHT_MS = 1500;
@@ -401,6 +407,37 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         obstaclesGfx.fill({ color: COLORS.obstacle, alpha: 0.18 });
         obstaclesGfx.moveTo(ob.x1, ob.yFloor).lineTo(ob.x2, ob.yFloor);
         obstaclesGfx.stroke({ color: COLORS.obstacle, width: 0.06, alpha: 0.9 });
+      } else if (ob.kind === 'finish') {
+        // Finish line: a 20 cm wide vertical wall striped in
+        // alternating dark/light bands like a real finish flag,
+        // capped with a flag flying off the top.  Geometry sits
+        // exactly where the collider in buildTrackColliders is.
+        const stripeBand = 0.6; // m per band — readable from a distance
+        const halfThickness = 0.1;
+        const bandsCount = Math.max(1, Math.ceil(ob.height / stripeBand));
+        for (let i = 0; i < bandsCount; i++) {
+          const yA = ob.yBase + i * stripeBand;
+          const yB = Math.min(ob.yBase + ob.height, yA + stripeBand);
+          obstaclesGfx.rect(ob.x - halfThickness, yA, halfThickness * 2, yB - yA);
+          obstaclesGfx.fill({
+            color: i % 2 === 0 ? COLORS.finishDark : COLORS.finishLight,
+            alpha: 1,
+          });
+        }
+        // Flag pole — extends an extra 1.5 m above the wall top so
+        // the flag sits clearly above the structure.
+        const poleTop = ob.yBase + ob.height + 1.5;
+        obstaclesGfx.moveTo(ob.x, ob.yBase + ob.height).lineTo(ob.x, poleTop);
+        obstaclesGfx.stroke({ color: COLORS.finishPole, width: 0.06, alpha: 1 });
+        // Triangular flag flying *backwards* from the pole (toward
+        // the approach side, x < ob.x), so a car crossing reads
+        // "I've reached the flag".
+        obstaclesGfx
+          .moveTo(ob.x, poleTop)
+          .lineTo(ob.x - 1.4, poleTop - 0.4)
+          .lineTo(ob.x, poleTop - 0.8)
+          .closePath();
+        obstaclesGfx.fill({ color: COLORS.finishFlag, alpha: 1 });
       } else {
         // Slick + bouncy: re-trace the track polyline between x1
         // and x2 in the modifier's signature colour.  Drawn at a

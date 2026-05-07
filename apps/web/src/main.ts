@@ -418,15 +418,16 @@ async function bootstrap(): Promise<void> {
         if (skipUntilGen !== null) skipUntilGen = null;
         speedIdx = slot;
         updateSpeedSegmented();
-        updateSkipButton();
         applyHeadless();
         return;
       }
       case 'KeyS':
+        // Power-user hotkey: skip the next N generations at high
+        // speed without rendering.  The on-screen +10-gens button
+        // was removed in v1.0.0, but this shortcut stays.
         ev.preventDefault();
         skipUntilGen = generation + SKIP_AMOUNT;
         updateSpeedSegmented();
-        updateSkipButton();
         applyHeadless();
         return;
       case 'KeyC':
@@ -455,7 +456,6 @@ async function bootstrap(): Promise<void> {
         if (skipUntilGen !== null) skipUntilGen = null;
         speedIdx = 0;
         updateSpeedSegmented();
-        updateSkipButton();
         applyHeadless();
         return;
     }
@@ -463,10 +463,10 @@ async function bootstrap(): Promise<void> {
 
   // Speed segmented control: three direct-select segments (×1 / ×8
   // / ×32).  Clicking a segment cancels any active skip-N-gens
-  // job and sets the speed slot directly.  When skip mode is
-  // active, no segment is highlighted (skip overrides everything).
+  // job (still triggerable via KeyS hotkey) and sets the speed
+  // slot directly.  When skip mode is active, no segment is
+  // highlighted — skip overrides everything.
   const speedSegItems = document.querySelectorAll<HTMLButtonElement>('#seg-speed [data-speed-idx]');
-  const skipBtn = document.getElementById('btn-skip');
 
   function updateSpeedSegmented(): void {
     const skipping = skipUntilGen !== null;
@@ -474,11 +474,6 @@ async function bootstrap(): Promise<void> {
       const idx = Number(el.dataset['speedIdx']);
       el.classList.toggle('segmented__item--active', !skipping && idx === speedIdx);
     });
-  }
-  function updateSkipButton(): void {
-    if (!(skipBtn instanceof HTMLButtonElement)) return;
-    skipBtn.textContent = skipUntilGen !== null ? t('panel.skipping') : t('panel.skipTen');
-    skipBtn.classList.toggle('btn--active', skipUntilGen !== null);
   }
 
   function applyHeadless(): void {
@@ -498,30 +493,11 @@ async function bootstrap(): Promise<void> {
       if (skipUntilGen !== null) skipUntilGen = null;
       speedIdx = idx;
       updateSpeedSegmented();
-      updateSkipButton();
       applyHeadless();
       el.blur();
     });
   });
   updateSpeedSegmented();
-  updateSkipButton();
-  // The skip button's text depends on *both* skip-mode and the
-  // current locale (panel.skipTen vs panel.skipping).  Re-apply
-  // on every locale flip so applyTranslations doesn't reset it
-  // back to the data-i18n default while we're mid-skip.
-  $locale.subscribe(() => updateSkipButton());
-
-  if (skipBtn instanceof HTMLButtonElement) {
-    skipBtn.addEventListener('click', () => {
-      // Set a target generation; the tick loop takes care of forcing
-      // top speed + headless mode until we get there.
-      skipUntilGen = generation + SKIP_AMOUNT;
-      updateSpeedSegmented();
-      updateSkipButton();
-      applyHeadless();
-      skipBtn.blur();
-    });
-  }
 
   let session: Session | null = null;
 
@@ -598,7 +574,6 @@ async function bootstrap(): Promise<void> {
         if (skipUntilGen !== null && generation >= skipUntilGen) {
           skipUntilGen = null;
           updateSpeedSegmented();
-          updateSkipButton();
           applyHeadless();
         }
         const effective = effectiveSpeed();

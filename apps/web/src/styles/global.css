@@ -351,10 +351,35 @@ button {
 .hud-side {
   position: absolute;
   top: var(--sp-4);
+  /* Bound to the visible viewport so the stack never spills off
+     screen on short displays (≤ 900 px tall — typical 13" laptop).
+     Content beyond what fits scrolls inside the panel.  Bottom
+     padding leaves room for the legend strip pinned to the canvas
+     bottom. */
+  bottom: calc(var(--sp-4) + 36px);
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
   z-index: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Hide the scrollbar gutter so the panel width doesn't shift
+     between "fits" and "scrolls" states. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+.hud-side::-webkit-scrollbar {
+  width: 6px;
+}
+
+.hud-side::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hud-side::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
 }
 
 .hud-side--left {
@@ -401,13 +426,19 @@ button {
 
 .hud-card--legend {
   position: absolute;
-  bottom: var(--sp-4);
-  left: var(--sp-4);
+  /* Pinned to bottom-centre so it stays clear of the left + right
+     scrollable panels at any viewport size.  Was bottom-left in
+     v1.11; on shorter screens that overlapped the bottom of the
+     left HUD stack and clipped the slider values. */
+  bottom: var(--sp-3);
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   gap: var(--sp-5);
   font-size: var(--fs-xs);
   color: var(--color-fg-muted);
   letter-spacing: 0.04em;
+  white-space: nowrap;
   z-index: 1;
 }
 

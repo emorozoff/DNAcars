@@ -80,7 +80,16 @@ const gaParams: GAParams = {
  * baseline track matches v0.9.26 until the user touches a slider.
  */
 const trackTuning: { obstacles: ObstacleConfig } = {
-  obstacles: { pit: 0, bump: 0, wall: 0, ceiling: 0, cliff: 0, killzone: 0 },
+  obstacles: {
+    pit: 0,
+    bump: 0,
+    wall: 0,
+    ceiling: 0,
+    cliff: 0,
+    killzone: 0,
+    slick: 0,
+    bouncy: 0,
+  },
 };
 
 /**
@@ -595,6 +604,14 @@ function bindControls(): void {
   });
   bindSlider('ctrl-killzones', 'ctrl-killzones-val', (v) => {
     trackTuning.obstacles.killzone = v / 100;
+    return `${v}%`;
+  });
+  bindSlider('ctrl-slick', 'ctrl-slick-val', (v) => {
+    trackTuning.obstacles.slick = v / 100;
+    return `${v}%`;
+  });
+  bindSlider('ctrl-bouncy', 'ctrl-bouncy-val', (v) => {
+    trackTuning.obstacles.bouncy = v / 100;
     return `${v}%`;
   });
 }

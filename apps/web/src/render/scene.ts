@@ -47,8 +47,12 @@ const COLORS = {
   wheel: 0x8b8b94,
   wheelGround: 0xa8ff60,
   highlight: 0xffd166,
-  /** Walls + ceilings — same red palette as the record marker for "hazard". */
+  /** Walls + ceilings + kill-zones — hazard red, matches the record marker. */
   obstacle: 0xd05d5d,
+  /** Slick patch — light blue, "ice-like".  Drawn over the track polyline. */
+  slick: 0x7ec8ff,
+  /** Bouncy patch — warm orange, "trampoline-like". */
+  bouncy: 0xffb96e,
 } as const;
 
 const HIGHLIGHT_MS = 1500;
@@ -260,11 +264,12 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     }
     trackGfx.stroke({ color: COLORS.track, width: 0.08, alpha: 1 });
 
-    // Discrete obstacles — walls (vertical posts), ceilings
-    // (horizontal beams), and kill-zones (translucent overhead
-    // boxes).  Drawn in the hazard-red palette so the player sees
-    // them at a glance; geometry mirrors the actual colliders /
-    // trigger regions so what they see is what hits the cars.
+    // Discrete obstacles — walls, ceilings, kill-zones, plus the
+    // surface modifiers (slick / bouncy) drawn as a coloured stroke
+    // along the actual track curve where they apply.  Geometry
+    // mirrors the simulation side: walls + ceilings are real
+    // colliders, kill-zones are AABB triggers, slick/bouncy are
+    // friction/restitution overrides on the surface segments.
     obstaclesGfx.clear();
     for (const ob of trackPhysicalObstacles) {
       if (ob.kind === 'wall') {
@@ -277,7 +282,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         // 16 cm, centred at xCenter.
         obstaclesGfx.rect(ob.xCenter - ob.halfWidth, ob.y - 0.08, ob.halfWidth * 2, 0.16);
         obstaclesGfx.fill({ color: COLORS.obstacle, alpha: 0.95 });
-      } else {
+      } else if (ob.kind === 'killzone') {
         // Kill-zone: translucent red shaded region from yFloor up
         // 6 m.  6 m is plenty of vertical span — anything flying
         // higher than that has long since hit the floor edge.
@@ -288,6 +293,25 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         obstaclesGfx.fill({ color: COLORS.obstacle, alpha: 0.18 });
         obstaclesGfx.moveTo(ob.x1, ob.yFloor).lineTo(ob.x2, ob.yFloor);
         obstaclesGfx.stroke({ color: COLORS.obstacle, width: 0.06, alpha: 0.9 });
+      } else {
+        // Slick + bouncy: re-trace the track polyline between x1
+        // and x2 in the modifier's signature colour.  Drawn at a
+        // touch heavier stroke than the grey track so it reads as
+        // an overlay rather than blending in.
+        const color = ob.kind === 'slick' ? COLORS.slick : COLORS.bouncy;
+        const stride = 0.6;
+        let first = true;
+        for (let x = ob.x1; x <= ob.x2 + 1e-4; x += stride) {
+          const xc = Math.min(x, ob.x2);
+          const y = sampleTrackY(trackPoints, xc);
+          if (first) {
+            obstaclesGfx.moveTo(xc, y);
+            first = false;
+          } else {
+            obstaclesGfx.lineTo(xc, y);
+          }
+        }
+        obstaclesGfx.stroke({ color, width: 0.16, alpha: 0.95 });
       }
     }
 

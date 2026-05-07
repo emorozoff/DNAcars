@@ -340,6 +340,19 @@ export type ObstacleConfig = {
    * is fatal.
    */
   killzone: number;
+  /**
+   * Slick-patch intensity, 0..1.  Track segments inside a slick
+   * region have friction reduced from 1.0 to ≈ 0.05 — wheels lose
+   * grip and slide.  Higher intensity = longer/denser regions.
+   */
+  slick: number;
+  /**
+   * Bouncy-patch intensity, 0..1.  Track segments inside a bouncy
+   * region have restitution bumped from 0.05 to ≈ 0.7 — the chassis
+   * trampolines back up after impact.  Higher intensity = longer
+   * and denser regions.
+   */
+  bouncy: number;
 };
 
 /**
@@ -356,6 +369,11 @@ export type PhysicalObstacle =
       x2: number;
       /** World-y of the killzone floor (everything above is fatal). */
       yFloor: number;
+    }
+  | {
+      kind: 'slick' | 'bouncy';
+      x1: number;
+      x2: number;
     };
 
 export type Track = {
@@ -397,7 +415,16 @@ const DEFAULT_TRACK: TrackOptions = {
    * This keeps the baseline track identical for anyone who hasn't
    * touched the new controls.
    */
-  obstacles: { pit: 0, bump: 0, wall: 0, ceiling: 0, cliff: 0, killzone: 0 },
+  obstacles: {
+    pit: 0,
+    bump: 0,
+    wall: 0,
+    ceiling: 0,
+    cliff: 0,
+    killzone: 0,
+    slick: 0,
+    bouncy: 0,
+  },
 };
 
 /** Frequency where the high-frequency "sharpness" octaves wake up (m). */
@@ -569,6 +596,24 @@ function placeObstacles(
       x += meanGap * (0.55 + rng() * 0.9);
     }
   }
+
+  // Slick + bouncy surface modifiers — both work the same way:
+  // a span of x where the surface segments get a friction or
+  // restitution override.  Region length scales with intensity:
+  // 5 m at low intensities, up to ≈ 22 m at full.
+  const placeSurfaceMod = (kind: 'slick' | 'bouncy', intensity: number): void => {
+    if (intensity <= 0) return;
+    const meanGap = gapFor(intensity);
+    let x = OBSTACLE_START + rng() * meanGap;
+    while (x < trackLength - 5) {
+      const length = lerp(5, 22, intensity) * (0.7 + rng() * 0.5);
+      const x2 = Math.min(trackLength - 1, x + length);
+      physical.push({ kind, x1: x, x2 });
+      x = x2 + meanGap * (0.55 + rng() * 0.9);
+    }
+  };
+  placeSurfaceMod('slick', obstacles.slick);
+  placeSurfaceMod('bouncy', obstacles.bouncy);
 
   // Sort terrain by x so the per-track-point loop can stop scanning early.
   terrain.sort((a, b) => a.x - b.x);
@@ -1057,6 +1102,22 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
 function buildTrackColliders(world: RAPIER.World, track: Track): void {
   const ground = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
 
+  // Pre-collect surface modifier regions (slick / bouncy).  Each
+  // segment trapezoid below looks up its friction and restitution
+  // by checking whether its midpoint lies inside any region.  Done
+  // once up front so we don't iterate `track.physicalObstacles`
+  // every segment.
+  const slickRegions: { x1: number; x2: number }[] = [];
+  const bouncyRegions: { x1: number; x2: number }[] = [];
+  for (const ob of track.physicalObstacles) {
+    if (ob.kind === 'slick') slickRegions.push({ x1: ob.x1, x2: ob.x2 });
+    else if (ob.kind === 'bouncy') bouncyRegions.push({ x1: ob.x1, x2: ob.x2 });
+  }
+  const inAnyRegion = (regions: { x1: number; x2: number }[], x: number): boolean => {
+    for (const r of regions) if (x >= r.x1 && x <= r.x2) return true;
+    return false;
+  };
+
   // Thick "earth" — each track segment becomes a trapezoid extending
   // 100 m down to a virtual floor.  Adjacent trapezoids share an edge
   // so the surface is gap-free.  Crucial for heavy bodies: a thin
@@ -1073,9 +1134,16 @@ function buildTrackColliders(world: RAPIER.World, track: Track): void {
     const verts = new Float32Array([a.x, a.y, b.x, b.y, b.x, floorY, a.x, floorY]);
     const desc = RAPIER.ColliderDesc.convexHull(verts);
     if (!desc) continue;
+    // Per-segment friction/restitution.  Defaults match the
+    // pre-v0.9.30 single-value setup; slick regions drop friction
+    // to a near-ice 0.05, bouncy regions raise restitution from
+    // 0.05 to 0.7 (≈ 70 % bounce-back).
+    const segCenter = (a.x + b.x) / 2;
+    const friction = inAnyRegion(slickRegions, segCenter) ? 0.05 : 1.0;
+    const restitution = inAnyRegion(bouncyRegions, segCenter) ? 0.7 : 0.05;
     desc
-      .setFriction(1.0)
-      .setRestitution(0.05)
+      .setFriction(friction)
+      .setRestitution(restitution)
       .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL));
     world.createCollider(desc, ground);
   }
@@ -1119,9 +1187,13 @@ function buildTrackColliders(world: RAPIER.World, track: Track): void {
           .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL)),
         ground,
       );
-      // Kill-zones aren't real colliders — they're checked per-tick
-      // against the chassis position in checkKillZones.  Drawn by
-      // the renderer for player visibility.
+      // Kill-zones, slick + bouncy aren't real colliders here:
+      //   - Kill-zones are AABB triggers checked per-tick against
+      //     the chassis position in checkKillZones.
+      //   - Slick + bouncy modify the friction/restitution of the
+      //     surface segments above; that lookup ran in the segment
+      //     loop a few lines up.
+      // All three are drawn by the renderer for player visibility.
     }
   }
 }

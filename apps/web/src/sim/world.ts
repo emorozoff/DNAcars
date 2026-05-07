@@ -65,6 +65,23 @@ export const TUNING = {
      */
     linearDamping: 0.65,
     angularDamping: 0.2,
+    /**
+     * Damping bumps that kick in only when no wheel is grounded
+     * (i.e. the chassis is airborne).  Real cars experience
+     * aerodynamic drag; ours is a 2D simulation so we emulate it
+     * with elevated linear + angular damping while in flight.
+     *
+     * The point isn't realism — it's that a chassis tumbling
+     * uncontrollably in the air keeps its angular velocity in
+     * check, so when it lands the body isn't stabbing into the
+     * track *edge-first* at high angular velocity.  Edge-first
+     * impacts are the failure mode that produces the explosive
+     * solver-ejection we see in the timeline (0.14 s impulse of
+     * +15 m/s vy that velocity-clamp catches at 22 m/s and the
+     * car ends up flying ballistic).
+     */
+    airborneLinearDamping: 1.5,
+    airborneAngularDamping: 2.0,
   },
   wheel: {
     minCount: 1,
@@ -396,6 +413,12 @@ type CarRuntime = {
   stallTimer: number;
   /** Once true, motor is off and bodies are pinned in place forever. */
   finished: boolean;
+  /**
+   * True when no wheel was grounded the last tick.  Used to switch
+   * the chassis between "ground" damping (low) and "air" damping
+   * (high) on transition, instead of writing damping every tick.
+   */
+  airborne: boolean;
   /** Trajectory record — periodic samples + immediate event entries. */
   timeline: TimelineEntry[];
   /** Sim time of the last periodic sample. */
@@ -486,6 +509,7 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
             continue;
           }
           updateWheelContacts(car, opts.track);
+          updateAirborneDamping(car);
           applyMotor(car);
         }
         world.step();
@@ -597,8 +621,11 @@ function buildCar(
   const chassis = world.createRigidBody(
     RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(spawnX, spawnY)
-      .setLinearDamping(TUNING.chassis.linearDamping)
-      .setAngularDamping(TUNING.chassis.angularDamping)
+      // Spawn airborne, so use the higher airborne damping.  Switches
+      // to ground damping in step() when the first wheel makes
+      // contact (handled by updateAirborneDamping).
+      .setLinearDamping(TUNING.chassis.airborneLinearDamping)
+      .setAngularDamping(TUNING.chassis.airborneAngularDamping)
       .setCcdEnabled(true),
   );
 
@@ -683,6 +710,12 @@ function buildCar(
     ageSec: 0,
     stallTimer: 0,
     finished: false,
+    // Cars spawn ≈ 1.6 m above the track surface, so they're literally
+    // airborne for the first beat.  Initial damping is set to the
+    // airborne values below in buildCar so the spawn drop is gentle;
+    // the very first updateAirborneDamping call after the wheels touch
+    // down switches them back to ground damping.
+    airborne: true,
     timeline: [],
     lastSampleT: -Infinity,
     eventCounts: { velClamp: 0 },
@@ -694,6 +727,35 @@ function buildCar(
 function updateWheelContacts(car: CarRuntime, track: Track): void {
   for (const w of car.wheels) {
     w.onGround = wheelOnGround(w.body, w.radius, track);
+  }
+}
+
+/**
+ * Switch the chassis between "ground" and "airborne" damping
+ * profiles only when the airborne state actually changes.  Setting
+ * Rapier damping every tick is cheap but pointless; this also keeps
+ * the diff small (one body update at takeoff and one at landing).
+ *
+ * Reading: airborne when no wheel of the car is currently inside the
+ * ground tolerance.  See updateWheelContacts for the per-wheel test.
+ */
+function updateAirborneDamping(car: CarRuntime): void {
+  let grounded = false;
+  for (const w of car.wheels) {
+    if (w.onGround) {
+      grounded = true;
+      break;
+    }
+  }
+  const isAirborne = !grounded;
+  if (isAirborne === car.airborne) return;
+  car.airborne = isAirborne;
+  if (isAirborne) {
+    car.chassis.setLinearDamping(TUNING.chassis.airborneLinearDamping);
+    car.chassis.setAngularDamping(TUNING.chassis.airborneAngularDamping);
+  } else {
+    car.chassis.setLinearDamping(TUNING.chassis.linearDamping);
+    car.chassis.setAngularDamping(TUNING.chassis.angularDamping);
   }
 }
 

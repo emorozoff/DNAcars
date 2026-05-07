@@ -310,7 +310,11 @@ button {
   top: var(--sp-4);
   left: 50%;
   transform: translateX(-50%);
-  width: min(420px, calc(100vw - 540px));
+  /* Was 420 px in v0.9.10; bumped 3× to 1260 px max so the user
+     can read individual car dots more clearly during ×32 / +10
+     gens runs.  Still respects the side-stack widths via
+     calc(100vw - 540 px). */
+  width: min(1260px, calc(100vw - 540px));
   height: 44px;
   background: rgba(22, 22, 26, 0.78);
   border: 1px solid var(--color-border);

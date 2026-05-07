@@ -45,7 +45,7 @@ npm run build
 ## Roadmap
 
 See [`ROADMAP.md`](./ROADMAP.md) — the living plan with current status,
-done items, and what's next.  Updated on every meaningful release.
+done items, and what's next. Updated on every meaningful release.
 
 ## License
 

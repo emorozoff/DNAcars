@@ -1,9 +1,9 @@
 # DNAcars Roadmap
 
-Living document — updated on every release.  Tracks **what works now**,
+Living document — updated on every release. Tracks **what works now**,
 **what's next**, and the long-term direction.
 
-Current version: **0.8.2**.  Live at <https://emorozoff.github.io/DNAcars/>.
+Current version: **0.8.2**. Live at <https://emorozoff.github.io/DNAcars/>.
 
 ## Legend
 
@@ -18,46 +18,46 @@ A spectacular browser-only "watch them evolve" sandbox in 2D minimalism,
 inspired by **Genetic Cars 2** and **BoxCar2D** — but with believable
 physics, a calmer feel, and a daily challenge to share.
 
-Stack: TypeScript + Vite + PixiJS + Rapier2D in a Web Worker.  Cloudflare
+Stack: TypeScript + Vite + PixiJS + Rapier2D in a Web Worker. Cloudflare
 Pages for the front, Cloudflare Workers + KV for the leaderboard later.
 
 ---
 
 ## Phase 1 — Foundation (✅ done, v0.5.0)
 
-| | What | Where it lives |
-| - | - | - |
-| ✅ | TS-strict monorepo (npm workspaces) | `apps/web`, `apps/server`, `packages/shared` |
-| ✅ | Vite + PixiJS v8 dev shell, dark minimalist tokens | `apps/web/src/styles` |
-| ✅ | i18n shim EN/RU with localStorage persistence | `apps/web/src/i18n` |
-| ✅ | Rapier2D in a Web Worker (compat-WASM build) | `apps/web/src/sim`, `apps/web/src/worker` |
-| ✅ | Genetic algorithm core (selection / crossover / mutation) | `apps/web/src/ga` |
-| ✅ | Procedural track generator (layered sines + warm-up) | `apps/web/src/sim/track.ts` |
-| ✅ | Vitest unit tests for PRNG, track, genome, GA, sphere convergence | `apps/web/src/**/__tests__` |
-| ✅ | GitHub Actions CI: format, lint, typecheck, test, build | `.github/workflows/ci.yml` |
-| ✅ | GitHub Pages auto-deploy from this branch | `.github/workflows/deploy.yml` |
-| ✅ | Visible version badge in the top bar | `apps/web/src/main.ts` |
+|     | What                                                              | Where it lives                               |
+| --- | ----------------------------------------------------------------- | -------------------------------------------- |
+| ✅  | TS-strict monorepo (npm workspaces)                               | `apps/web`, `apps/server`, `packages/shared` |
+| ✅  | Vite + PixiJS v8 dev shell, dark minimalist tokens                | `apps/web/src/styles`                        |
+| ✅  | i18n shim EN/RU with localStorage persistence                     | `apps/web/src/i18n`                          |
+| ✅  | Rapier2D in a Web Worker (compat-WASM build)                      | `apps/web/src/sim`, `apps/web/src/worker`    |
+| ✅  | Genetic algorithm core (selection / crossover / mutation)         | `apps/web/src/ga`                            |
+| ✅  | Procedural track generator (layered sines + warm-up)              | `apps/web/src/sim/track.ts`                  |
+| ✅  | Vitest unit tests for PRNG, track, genome, GA, sphere convergence | `apps/web/src/**/__tests__`                  |
+| ✅  | GitHub Actions CI: format, lint, typecheck, test, build           | `.github/workflows/ci.yml`                   |
+| ✅  | GitHub Pages auto-deploy from this branch                         | `.github/workflows/deploy.yml`               |
+| ✅  | Visible version badge in the top bar                              | `apps/web/src/main.ts`                       |
 
 ## Phase 2 — Convincing Physics (🔄 in iteration, v0.6.0 → 0.8.2)
 
 The user's recurring goal: cars must move in physically believable ways.
 Each release closed a specific "this looks fake" complaint.
 
-| Version | Change | Why |
-| - | - | - |
-| 0.6.0 | Genome v2: dropped suspension, friction, reverse, gear ratio | Less noise for evolution |
-| 0.6.0 | Camera follows the leader, not the lowest-index car | "I want to see whoever is winning" |
-| 0.7.0 | Slippery chassis (`friction=0`), motor only fires for grounded wheels | "Cars shouldn't drive on their roof" |
-| 0.7.1 | Ground check via `sampleTrackY` instead of Rapier raycast | `castRay` was unreliable in compat-WASM |
-| 0.7.1 | Heavy chassis vs light wheels | Low CG → flips for real reasons, not random |
-| 0.7.2 | Camera follows max `position.x` (was `travel`) | Showed back of pack on staggered spawns |
-| 0.7.2 | Two-sided "wheel on ground" check | Caught wheels that fell through the polyline |
-| 0.8.0 | All cars spawn at the same point | Honest comparisons; Test Arena requires it |
-| 0.8.0 | **Test Arena** mode: 6 hand-crafted physics regression cars | Visual debugging for physics rules |
-| 0.8.1 | Spawn at x=12 with a back wall at x=0 | Cars no longer fall off the start of the world |
-| 0.8.2 | Heavy + sticky chassis (density 250-450, friction 0.8) | Body-on-track now decelerates hard |
-| 0.8.2 | Death rule = **only "no forward progress"** (stall + sliding window) | User: "kill it only if it can't move" |
-| 0.8.2 | Wider ground tolerance (12 cm) | Wheels register on slopes more reliably |
+| Version | Change                                                                | Why                                            |
+| ------- | --------------------------------------------------------------------- | ---------------------------------------------- |
+| 0.6.0   | Genome v2: dropped suspension, friction, reverse, gear ratio          | Less noise for evolution                       |
+| 0.6.0   | Camera follows the leader, not the lowest-index car                   | "I want to see whoever is winning"             |
+| 0.7.0   | Slippery chassis (`friction=0`), motor only fires for grounded wheels | "Cars shouldn't drive on their roof"           |
+| 0.7.1   | Ground check via `sampleTrackY` instead of Rapier raycast             | `castRay` was unreliable in compat-WASM        |
+| 0.7.1   | Heavy chassis vs light wheels                                         | Low CG → flips for real reasons, not random    |
+| 0.7.2   | Camera follows max `position.x` (was `travel`)                        | Showed back of pack on staggered spawns        |
+| 0.7.2   | Two-sided "wheel on ground" check                                     | Caught wheels that fell through the polyline   |
+| 0.8.0   | All cars spawn at the same point                                      | Honest comparisons; Test Arena requires it     |
+| 0.8.0   | **Test Arena** mode: 6 hand-crafted physics regression cars           | Visual debugging for physics rules             |
+| 0.8.1   | Spawn at x=12 with a back wall at x=0                                 | Cars no longer fall off the start of the world |
+| 0.8.2   | Heavy + sticky chassis (density 250-450, friction 0.8)                | Body-on-track now decelerates hard             |
+| 0.8.2   | Death rule = **only "no forward progress"** (stall + sliding window)  | User: "kill it only if it can't move"          |
+| 0.8.2   | Wider ground tolerance (12 cm)                                        | Wheels register on slopes more reliably        |
 
 ### Still to do in this phase
 
@@ -105,6 +105,7 @@ The GA already runs; this phase makes it **understandable**.
 ## Versioning convention
 
 `MAJOR.MINOR.PATCH`, semver-ish, pre-1.0:
+
 - `MAJOR` = 0 (everything still in flux)
 - `MINOR` bumps on user-visible behavioural shifts (camera rule changes, new arena, schema breaks)
 - `PATCH` bumps on every commit that the user can verify by reloading the page

@@ -182,17 +182,26 @@ export const TUNING = {
     maxDvPerSubstep: 2,
   },
   lifecycle: {
-    /** Speed below which a car counts as "not moving" (m/s). */
-    stallSpeed: 0.15,
-    /** Continuous stall time after which a car's run is finished (s). */
+    /**
+     * Continuous time (s) without forward progress (no growth in
+     * maxX) after which a car's run is finished.  Was speed-based in
+     * earlier versions but speed-based fired on cars that were
+     * legitimately mid-jump (vy != 0); progress-based correctly
+     * captures the intended meaning of "stalled" — "not getting any
+     * further along the track".
+     */
     stallSeconds: 5,
     /**
-     * Hard cap on a single generation's wall time (s).  If for any
-     * reason cars keep moving for this long without anyone finishing,
-     * we force-finish all of them and move on so evolution doesn't
-     * grind to a halt on a degenerate seed.
+     * Absolute hard cap on a single generation's *simulated* time
+     * (s).  Per-car stall detection (above) is the primary mechanism
+     * for ending a generation; this cap exists only as a fail-safe
+     * for hypothetical bugs where some car keeps creeping forward
+     * forever without anyone stalling.  Bumped 60 → 600 in v0.9.22:
+     * 60 was firing during normal play once cars evolved enough to
+     * drive far, killing 20+ moving cars at once.  10 minutes of sim
+     * time is plenty for any legitimate run.
      */
-    maxGenerationSec: 60,
+    maxGenerationSec: 600,
     /** Grace period at the start of each car's run before stall logic kicks in (s). */
     graceSeconds: 1.5,
   },
@@ -427,8 +436,14 @@ type CarRuntime = {
   maxX: number;
   /** Total simulated time the car has been in the world (s). */
   ageSec: number;
-  /** Continuous stall time (s) — reset when the car makes progress. */
-  stallTimer: number;
+  /**
+   * Sim time (in this car's `ageSec` clock) at which `maxX` last
+   * grew.  Stall = `ageSec - lastProgressTime` exceeds the threshold.
+   * Was a "speed-based" timer in earlier versions but speed-based
+   * fired on cars mid-jump (vy != 0); progress-based correctly
+   * matches the intuition of "stalled = not getting any further".
+   */
+  lastProgressTime: number;
   /** Once true, motor is off and bodies are pinned in place forever. */
   finished: boolean;
   /**
@@ -551,7 +566,10 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
         if (car.finished) continue;
         car.ageSec += SIM_DT;
         const x = car.chassis.translation().x;
-        if (x > car.maxX) car.maxX = x;
+        if (x > car.maxX) {
+          car.maxX = x;
+          car.lastProgressTime = car.ageSec;
+        }
         clampInsaneVelocity(car, opts.track, time);
         const wasFinished = car.finished;
         updateLifecycle(car);
@@ -740,7 +758,7 @@ function buildCar(
     spawnX,
     maxX: spawnX,
     ageSec: 0,
-    stallTimer: 0,
+    lastProgressTime: 0,
     finished: false,
     // Cars spawn ≈ 1.6 m above the track surface, so they're literally
     // airborne for the first beat.  Initial damping is set to the
@@ -857,23 +875,27 @@ function totalMassOf(car: CarRuntime): number {
 }
 
 /**
- * Per-tick lifecycle: track how long the car has been "not moving" and
- * mark it finished once that exceeds the stall threshold.  Travel
- * distance (`maxX`) was already updated for this tick by the caller —
- * we just need to decide whether the car has stopped earning new
- * travel.  A short grace period at the start means a car that has just
- * spawned and is settling under gravity isn't immediately killed.
+ * Per-tick lifecycle: mark the car finished once it's gone too long
+ * without any new forward progress.  `lastProgressTime` was updated
+ * by the caller on the same tick whenever `maxX` grew, so the right
+ * test here is just "ageSec − lastProgressTime ≥ stallSeconds".
+ *
+ * Why progress-based instead of speed-based?  A car mid-jump has
+ * |v| ≫ 0 but is also gaining no track distance; the previous
+ * speed-based test would *not* fire on it (speed was high), so a
+ * car launched off a hill could stay airborne for ages without
+ * stalling.  Conversely, a car oscillating in place has zero net
+ * progress but its instantaneous speed swings well above any
+ * sensible threshold.  "Did maxX grow?" cleanly captures both
+ * cases — and is exactly what the genome is being selected on
+ * anyway.
+ *
+ * A short grace period at the very start lets a freshly-spawned
+ * car settle under gravity before the test arms.
  */
 function updateLifecycle(car: CarRuntime): void {
   if (car.ageSec < TUNING.lifecycle.graceSeconds) return;
-  const v = car.chassis.linvel();
-  const speed = Math.hypot(v.x, v.y);
-  if (speed < TUNING.lifecycle.stallSpeed) {
-    car.stallTimer += SIM_DT;
-  } else {
-    car.stallTimer = 0;
-  }
-  if (car.stallTimer >= TUNING.lifecycle.stallSeconds) {
+  if (car.ageSec - car.lastProgressTime >= TUNING.lifecycle.stallSeconds) {
     car.finished = true;
   }
 }

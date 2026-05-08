@@ -405,6 +405,14 @@ export type Track = {
   options: TrackOptions;
   points: { x: number; y: number }[];
   /**
+   * X coordinate of the visual finish line — sits a few metres in
+   * front of the finish wall in the basin.  Cars cross this x to
+   * register a finishTime; the wall (at x = length) just stops them
+   * physically afterwards.  Renderer draws a checkered marker here
+   * so the player sees the "achievement" line clearly.
+   */
+  finishLineX: number;
+  /**
    * Discrete physical obstacles (walls, ceilings) that need their
    * own Rapier colliders.  Computed in generateTrack alongside the
    * Y-profile and consumed by buildTrackColliders.  Pure-Y
@@ -503,6 +511,17 @@ const CLIFF_WIDTH_M = 1;
  * terrain can't clear it.
  */
 const WALL_HEIGHT_M = 18;
+/**
+ * Distance (m) from the finish wall back to the in-basin "finish
+ * line" — the visual checkered marker that fires the per-car
+ * `finishTime`.  Cars cross the line, get credit for finishing, and
+ * then continue forward and bump into the wall (which still stops
+ * them).  Without this offset the wall is *exactly* at x=length and
+ * a chassis with radius 1+m can never get its centre that far;
+ * finishTime would never trigger.  3 m is comfortable for any
+ * chassis size up to TUNING.chassis.maxRadius.
+ */
+const FINISH_LINE_OFFSET_M = 3;
 
 /**
  * One placed terrain obstacle.  Currently only cliffs — deep
@@ -796,7 +815,12 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
     }
     return p;
   });
-  return { options: o, points, physicalObstacles: resolved };
+  return {
+    options: o,
+    points,
+    finishLineX: o.length - FINISH_LINE_OFFSET_M,
+    physicalObstacles: resolved,
+  };
 }
 
 /** Linear-interpolated y at a given world-x against an even-spaced point list. */
@@ -1190,11 +1214,15 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
           car.lastProgressX = x;
           car.lastProgressTime = car.ageSec;
         }
-        // First time the chassis crosses the track-end x: stamp the
-        // finish time.  The car keeps running (it'll bump into the
-        // finish wall and stall normally), but speed-mode fitness
-        // uses this exact moment as the metric.
-        if (car.finishTime === null && x >= opts.track.options.length) {
+        // First time the chassis crosses the visual finish line:
+        // stamp the finish time.  The line sits a few metres in
+        // front of the wall (see FINISH_LINE_OFFSET_M) so a chassis
+        // of any radius can actually reach it — without this offset
+        // the wall blocked the chassis centre from ever reaching
+        // x = length and finishTime would never trigger.  The car
+        // keeps physically running afterwards (it'll bump into the
+        // wall and stall normally).
+        if (car.finishTime === null && x >= opts.track.finishLineX) {
           car.finishTime = car.ageSec;
         }
         clampInsaneVelocity(car, opts.track, time);

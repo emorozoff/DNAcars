@@ -1319,7 +1319,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
   const sessionSpeedMode = opts.speedMode;
 
   const track = generateTrack(trackSeed, trackOpts ?? {});
-  scene.setTrack(track.points, track.physicalObstacles);
+  scene.setTrack(track.points, track.physicalObstacles, track.finishLineX);
 
   const world = await createWorld({
     track,

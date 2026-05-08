@@ -1222,6 +1222,94 @@ button {
   justify-content: flex-end;
 }
 
+/* Advanced settings modal — same backdrop / centring scaffolding as
+   modal-confirm, but a wider panel and a list of toggle rows with
+   inline descriptions instead of a single confirm prompt. */
+.modal-settings {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  animation: modal-fade 0.16s ease-out;
+}
+
+.modal-settings[hidden] {
+  display: none;
+}
+
+.modal-settings__panel {
+  width: min(34rem, calc(100vw - 2 * var(--sp-4)));
+  background: rgba(22, 22, 26, 0.98);
+  border: 1px solid var(--color-panel-accent);
+  border-radius: var(--r-md);
+  padding: var(--sp-4) var(--sp-5);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  animation: confirm-pop 0.16s ease-out;
+}
+
+.modal-settings__heading {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-panel-accent);
+}
+
+.modal-settings__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-4);
+}
+
+.modal-settings__item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--sp-3);
+  align-items: start;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.modal-settings__item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.modal-settings__item .ctrl__checkbox {
+  margin-top: 0.15rem;
+}
+
+.modal-settings__item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.modal-settings__item-label {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--color-fg);
+}
+
+.modal-settings__item-desc {
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--color-fg-muted);
+}
+
+.modal-settings__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 @keyframes modal-fade {
   from {
     opacity: 0;

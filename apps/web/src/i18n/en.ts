@@ -44,6 +44,10 @@ const enRaw = {
   'ribbon.seed': 'SEED',
   'ribbon.throughput': 'SPEED',
   'panel.fastForward': 'Fast-forward',
+  'panel.fastForwardHint':
+    'End the generation early once every still-alive car is a cached elite from the previous gen. Skips replay of already-known outcomes; turn off to watch every elite drive its full distance again.',
+  'panel.advancedSettings': 'Advanced settings',
+  'panel.advancedOpen': 'Advanced',
   'panel.speedMode': 'Speed mode',
   'panel.speedModeHint':
     'Race against the clock — the elite slot goes to the fastest finisher. With it off, distance travelled wins.',

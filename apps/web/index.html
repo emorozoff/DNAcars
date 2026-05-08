@@ -135,29 +135,14 @@
               />
               <span class="ctrl__value" id="ctrl-elite-val">2</span>
             </label>
-            <label
-              class="ctrl ctrl--inline ctrl--toggle"
-              data-i18n-title="panel.speedModeHint"
+            <button
+              class="btn btn--ghost"
+              id="btn-advanced"
+              type="button"
+              data-i18n="panel.advancedOpen"
             >
-              <input class="ctrl__checkbox" type="checkbox" id="ctrl-speed-mode" />
-              <span class="ctrl__label" data-i18n="panel.speedMode">Speed mode</span>
-            </label>
-            <label
-              class="ctrl ctrl--inline ctrl--toggle"
-              data-i18n-title="panel.pureMutationHint"
-            >
-              <input class="ctrl__checkbox" type="checkbox" id="ctrl-pure-mutation" />
-              <span class="ctrl__label" data-i18n="panel.pureMutation">Pure mutation</span>
-            </label>
-            <label
-              class="ctrl ctrl--inline ctrl--toggle"
-              data-i18n-title="panel.strictDeterminismHint"
-            >
-              <input class="ctrl__checkbox" type="checkbox" id="ctrl-strict-determinism" />
-              <span class="ctrl__label" data-i18n="panel.strictDeterminism">
-                Strict determinism
-              </span>
-            </label>
+              Advanced
+            </button>
           </div>
 
           <div class="dock__row dock__row--actions">
@@ -337,6 +322,75 @@
               </div>
               <button class="btn btn--primary" id="btn-charts" data-i18n="panel.chartsToggle">
                 Stats
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Advanced settings — centred modal grouping the four
+             behaviour-changing toggles (fast-forward, speed mode,
+             pure mutation, strict determinism).  Each toggle pairs
+             a label with a one-line description so the modal is
+             self-documenting without relying on hover tooltips. -->
+        <div class="modal-settings" id="settings-modal" hidden>
+          <div class="modal-settings__panel">
+            <h3 class="modal-settings__heading" data-i18n="panel.advancedSettings">
+              Advanced settings
+            </h3>
+            <div class="modal-settings__list">
+              <label class="modal-settings__item">
+                <input class="ctrl__checkbox" type="checkbox" id="ctrl-fast-forward" />
+                <div class="modal-settings__item-text">
+                  <span class="modal-settings__item-label" data-i18n="panel.fastForward">
+                    Fast-forward
+                  </span>
+                  <span class="modal-settings__item-desc" data-i18n="panel.fastForwardHint">
+                    End the generation early once only cached elites are still alive.
+                  </span>
+                </div>
+              </label>
+              <label class="modal-settings__item">
+                <input class="ctrl__checkbox" type="checkbox" id="ctrl-speed-mode" />
+                <div class="modal-settings__item-text">
+                  <span class="modal-settings__item-label" data-i18n="panel.speedMode">
+                    Speed mode
+                  </span>
+                  <span class="modal-settings__item-desc" data-i18n="panel.speedModeHint">
+                    Race against the clock — fastest finisher wins the elite slot.
+                  </span>
+                </div>
+              </label>
+              <label class="modal-settings__item">
+                <input class="ctrl__checkbox" type="checkbox" id="ctrl-pure-mutation" />
+                <div class="modal-settings__item-text">
+                  <span class="modal-settings__item-label" data-i18n="panel.pureMutation">
+                    Pure mutation
+                  </span>
+                  <span class="modal-settings__item-desc" data-i18n="panel.pureMutationHint">
+                    Only the top car teaches the next generation.
+                  </span>
+                </div>
+              </label>
+              <label class="modal-settings__item">
+                <input class="ctrl__checkbox" type="checkbox" id="ctrl-strict-determinism" />
+                <div class="modal-settings__item-text">
+                  <span class="modal-settings__item-label" data-i18n="panel.strictDeterminism">
+                    Strict determinism
+                  </span>
+                  <span class="modal-settings__item-desc" data-i18n="panel.strictDeterminismHint">
+                    Same seed produces a bit-identical run. Costs ≈2× CPU.
+                  </span>
+                </div>
+              </label>
+            </div>
+            <div class="modal-settings__actions">
+              <button
+                class="btn btn--primary"
+                id="settings-modal-close"
+                type="button"
+                data-i18n="tutorial.close"
+              >
+                Close
               </button>
             </div>
           </div>

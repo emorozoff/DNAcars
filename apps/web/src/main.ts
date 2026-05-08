@@ -236,6 +236,36 @@ function savePureMutation(on: boolean): void {
 }
 gaParams.pureMutation = loadPureMutation();
 
+/**
+ * Fast-forward toggle — when on (default), the strict-det elite
+ * shortcut fires once every alive car is an elite whose outcome is
+ * already cached.  The remainder of the gen is force-finished and
+ * the dashboard "best" reading falls back to the cached `travel`.
+ * When off, the shortcut is suppressed and elites run their full
+ * deterministic course every gen — slower wall-clock, but the
+ * canvas keeps showing live simulation right up to natural end.
+ * Persisted to localStorage.
+ */
+const FAST_FORWARD_KEY = 'dnacars.fastForward';
+function loadFastForward(): boolean {
+  try {
+    const raw = localStorage.getItem(FAST_FORWARD_KEY);
+    // Default ON: every previous version had the shortcut always
+    // active.  Players upgrading from <1.26 see no behaviour change.
+    return raw === null ? true : raw === '1';
+  } catch {
+    return true;
+  }
+}
+function saveFastForward(on: boolean): void {
+  try {
+    localStorage.setItem(FAST_FORWARD_KEY, on ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+let fastForwardEnabled = loadFastForward();
+
 function loadSeedHistory(): number[] {
   try {
     const raw = localStorage.getItem(SEED_HISTORY_KEY);
@@ -1065,6 +1095,57 @@ async function bootstrap(): Promise<void> {
     });
   }
 
+  // Fast-forward toggle.  Takes effect on the *next* generation
+  // (the in-flight gen already captured shortcutCtx, so its
+  // shortcut behaviour is locked in).
+  const fastForwardInput = document.getElementById('ctrl-fast-forward');
+  if (fastForwardInput instanceof HTMLInputElement) {
+    fastForwardInput.checked = fastForwardEnabled;
+    fastForwardInput.addEventListener('change', () => {
+      fastForwardEnabled = fastForwardInput.checked;
+      saveFastForward(fastForwardEnabled);
+    });
+  }
+
+  // Advanced-settings modal: button in the dock opens it; close on
+  // X-button click, click on the backdrop, or Escape.  The toggles
+  // inside (fast-forward / speed-mode / pure-mutation / strict-det)
+  // are wired by their own handlers above — the modal is just a
+  // host element, so opening/closing it doesn't touch their state.
+  const settingsModal = document.getElementById('settings-modal');
+  const settingsBtn = document.getElementById('btn-advanced');
+  const settingsClose = document.getElementById('settings-modal-close');
+  if (
+    settingsModal instanceof HTMLElement &&
+    settingsBtn instanceof HTMLButtonElement &&
+    settingsClose instanceof HTMLButtonElement
+  ) {
+    const openSettings = (): void => {
+      settingsModal.hidden = false;
+    };
+    const closeSettings = (): void => {
+      settingsModal.hidden = true;
+    };
+    settingsBtn.addEventListener('click', () => {
+      openSettings();
+      settingsBtn.blur();
+    });
+    settingsClose.addEventListener('click', closeSettings);
+    settingsModal.addEventListener('click', (ev) => {
+      // Backdrop click only — clicks on the inner panel bubble up but
+      // their target is the panel, not the modal root.
+      if (ev.target === settingsModal) closeSettings();
+    });
+    window.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && !settingsModal.hidden) {
+        // Don't preventDefault — the strict-det warning may be open
+        // on top of this and wants Escape too.  Each modal closes
+        // its own state independently.
+        closeSettings();
+      }
+    });
+  }
+
   window.addEventListener('keydown', (ev) => {
     // Don't interfere when typing into a slider / button.
     const target = ev.target;
@@ -1222,6 +1303,7 @@ async function bootstrap(): Promise<void> {
     const currentTrackHash = trackConfigHash(trackSeed, trackParams.opts);
     const cacheValid =
       strictDeterminism &&
+      fastForwardEnabled &&
       eliteCache !== null &&
       eliteCache.trackHash === currentTrackHash &&
       gaParams.eliteCount > 0 &&

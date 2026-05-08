@@ -454,19 +454,26 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   function applyTransform(): void {
     const w = app.renderer.width / (window.devicePixelRatio || 1);
     const h = app.renderer.height / (window.devicePixelRatio || 1);
-    // World vertical anchor — chosen so the track sits roughly mid-
-    // frame with extra "sky" above the cars (the part of the canvas
-    // we actually paint).  Bumped 0.6 → 0.72 in v1.12.2 by player
-    // request: at 0.6 the cars sat near the top third of the canvas
-    // and the lower half was empty dark space.
-    world.position.set(w / 2 - camera.x * zoom, h * 0.72 + camera.y * zoom);
+    // World vertical anchor — adaptive to the canvas aspect ratio.
+    // Wide canvases (desktop, aspect > 1.4) keep the v1.12.2 0.72
+    // anchor: cars in the lower third with lots of "what's coming"
+    // sky above.  On a portrait phone the same 0.72 lands the cars
+    // way too low — 72 % of a 500-px-tall canvas is 360 px down,
+    // leaving only ~140 px of underground and *all* the sky pinned
+    // at the top.  Center the framing for portrait so the cars
+    // sit near vertical mid + sky and underground share the room
+    // more evenly.
+    const aspect = w / h;
+    const anchor = aspect > 1.4 ? 0.72 : 0.55;
+    world.position.set(w / 2 - camera.x * zoom, h * anchor + camera.y * zoom);
     world.scale.set(zoom, -zoom);
     // Parallax silhouettes — partial camera follow so they appear
-    // farther away.  Each layer has its own ZOOM so the same world
-    // coordinates produce different on-screen positions.
-    bgFar.position.set(w / 2 - camera.x * PARALLAX_FAR * zoom, h * 0.74 + camera.y * 0.05 * zoom);
+    // farther away.  Track the same anchor so the silhouettes line
+    // up with the world's track surface regardless of aspect.
+    const bgAnchor = anchor + 0.02;
+    bgFar.position.set(w / 2 - camera.x * PARALLAX_FAR * zoom, h * bgAnchor + camera.y * 0.05 * zoom);
     bgFar.scale.set(zoom, -zoom);
-    bgNear.position.set(w / 2 - camera.x * PARALLAX_NEAR * zoom, h * 0.74 + camera.y * 0.1 * zoom);
+    bgNear.position.set(w / 2 - camera.x * PARALLAX_NEAR * zoom, h * bgAnchor + camera.y * 0.1 * zoom);
     bgNear.scale.set(zoom, -zoom);
   }
 
@@ -642,10 +649,10 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         : cameraTarget.y;
       cameraTarget = { x: freeCameraX, y: groundY };
     } else if (cameraMode.type === 'car' && pickedCar) {
-      cameraTarget = { x: pickedCar.position.x, y: pickedCar.position.y };
+      cameraTarget = visualCenter(pickedCar);
     } else {
       const leader = runningLead ?? anyLead;
-      if (leader) cameraTarget = { x: leader.position.x, y: leader.position.y };
+      if (leader) cameraTarget = visualCenter(leader);
     }
 
     // Minimap is SVG and ~30–50 attribute writes per call; cheap
@@ -948,6 +955,41 @@ function updateCarView(
 }
 
 /* ─── Helpers ──────────────────────────────────────────────────────────── */
+
+/**
+ * World-space "visual middle" of a car — the chassis polygon's
+ * centroid (averaged local vertices) transformed by the chassis's
+ * world position + rotation.  Used as the camera-follow target
+ * instead of the bare chassis position so that asymmetric
+ * polygons (e.g. a chassis with one long radius pulling the
+ * polygon to one side) sit visually centered on screen.
+ *
+ * The chassis position is the body's physics anchor, which is at
+ * (0, 0) in local coords — but the *visible* shape can drift
+ * far off that anchor when vertex radii are uneven (max chassis
+ * radius is 3.5 m, so the visual centroid can be metres away
+ * from the physics anchor).  Without this offset the leader
+ * tended to render visibly off-center on narrow portrait
+ * canvases.
+ */
+function visualCenter(car: CarSnapshot): { x: number; y: number } {
+  const verts = car.vertices;
+  if (verts.length === 0) return { x: car.position.x, y: car.position.y };
+  let cx = 0;
+  let cy = 0;
+  for (const v of verts) {
+    cx += v.x;
+    cy += v.y;
+  }
+  cx /= verts.length;
+  cy /= verts.length;
+  const cos = Math.cos(car.angle);
+  const sin = Math.sin(car.angle);
+  return {
+    x: car.position.x + cx * cos - cy * sin,
+    y: car.position.y + cx * sin + cy * cos,
+  };
+}
 
 function sampleTrackY(points: { x: number; y: number }[], x: number): number {
   if (x <= 0) return points[0]?.y ?? 0;

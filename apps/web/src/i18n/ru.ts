@@ -38,7 +38,6 @@ export const ru: Dictionary = {
   'panel.chartWindow': 'Последние',
   'panel.chartWindowAll': 'Все',
   'panel.headlessBanner': 'Без рендера · скорость ×32',
-  'panel.hint': 'Пробел — пауза   ·   кнопка — новая популяция',
   'panel.tutorialOpen': 'Учебник',
   'ribbon.gen': 'ПОКОЛЕНИЕ',
   'ribbon.lead': 'ЛИДЕР',
@@ -112,8 +111,6 @@ export const ru: Dictionary = {
     'Сбалансированная мутация — быстрая сходимость и достаточно "разгуляться" чтобы найти новые трюки.',
   'tutorial.s2.hintHighElite':
     'Большой процент элиты защищает лучших, но обедняет генофонд. Видно как среднее быстро догоняет лучшего.',
-  'legend.wheelAir': 'В воздухе',
-  'legend.wheelGround': 'На земле',
   // Графики (дашборд статистики)
   'chart.best': 'Лучший результат',
   'chart.mean': 'Средний результат',

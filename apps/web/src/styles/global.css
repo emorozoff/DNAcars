@@ -86,18 +86,6 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
-.topbar__hint {
-  flex: 1;
-  text-align: center;
-  color: var(--color-fg-dim);
-  font-size: var(--fs-xs);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* ─── Buttons ────────────────────────────────────────────────────────────── */
 
 .btn {
@@ -632,22 +620,6 @@ button {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--sp-2) var(--sp-4);
-}
-
-/* ─── Bottom-left legend ───────────────────────────────────────────────── */
-
-.legend {
-  position: absolute;
-  bottom: var(--sp-3);
-  left: var(--sp-4);
-  display: flex;
-  gap: var(--sp-4);
-  font-size: 0.6875rem;
-  color: var(--color-fg-muted);
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  z-index: 1;
-  pointer-events: none;
 }
 
 .seed-input-row {
@@ -1257,23 +1229,6 @@ button {
   to {
     opacity: 1;
   }
-}
-
-.swatch {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: var(--sp-2);
-  vertical-align: middle;
-}
-
-.swatch--grey {
-  background: var(--color-car-wheel);
-}
-
-.swatch--green {
-  background: var(--color-accent);
 }
 
 /* ─── Minimap ────────────────────────────────────────────────────────────── */
@@ -1897,10 +1852,6 @@ button {
 /* ─── Mobile ─────────────────────────────────────────────────────────────── */
 
 @media (max-width: 720px) {
-  .topbar__hint {
-    display: none;
-  }
-
   /* On narrow screens the stats block collapses to a single column
      so it doesn't elbow out into the canvas. */
   .ribbon-stats {

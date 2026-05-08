@@ -36,7 +36,6 @@ const enRaw = {
   'panel.chartWindow': 'Last',
   'panel.chartWindowAll': 'All',
   'panel.headlessBanner': 'Render off · ×32 speed',
-  'panel.hint': 'Space — pause   ·   button — new population',
   'panel.tutorialOpen': 'Tutorial',
   'ribbon.gen': 'GENERATION',
   'ribbon.lead': 'LEADER',
@@ -110,8 +109,6 @@ const enRaw = {
     'Balanced mutation — fast convergence with enough wiggle to discover new tricks.',
   'tutorial.s2.hintHighElite':
     'High elite count protects the best cars but starves the gene pool of fresh blood. Watch how the mean catches up to best very quickly.',
-  'legend.wheelAir': 'Wheel in air',
-  'legend.wheelGround': 'Wheel on ground',
   // Chart titles (stats dashboard)
   'chart.best': 'Best distance',
   'chart.mean': 'Mean distance',

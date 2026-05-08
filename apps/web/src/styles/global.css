@@ -1442,6 +1442,14 @@ button {
   pointer-events: none;
 }
 
+/* Elite carryover from prev gen — warm coral.  Slightly thicker
+   stroke than the default so they stand out at a glance even when
+   most of the population is leading. */
+.minimap__car--elite {
+  stroke: var(--color-accent-warm);
+  stroke-width: 2;
+}
+
 /* ─── Stats / charts panel ──────────────────────────────────────────────── */
 
 .charts-panel {

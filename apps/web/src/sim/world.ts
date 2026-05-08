@@ -982,6 +982,10 @@ type CarRuntime = {
   chassis: RAPIER.RigidBody;
   wheels: WheelRuntime[];
   spawnX: number;
+  /** True for cars that came in as a deep-cloned elite from the
+   *  prev gen.  Read by the renderer for chassis tint + minimap
+   *  tick colour. */
+  isElite: boolean;
   maxX: number;
   /** Total simulated time the car has been in the world (s). */
   ageSec: number;
@@ -1076,6 +1080,13 @@ export type CarSnapshot = {
    * fitness for the GA).
    */
   finishTime: number | null;
+  /**
+   * True for cars that started this gen as an elite carryover from
+   * the previous gen.  Renderer tints these chassis warm so the
+   * player can spot when last gen's champions are still on top vs
+   * being overtaken by mutated children.
+   */
+  isElite: boolean;
   vertices: { x: number; y: number }[];
   wheels: {
     position: { x: number; y: number };
@@ -1168,6 +1179,17 @@ export type CreateWorldOptions = {
    * the player toggles it via the UI when they want repeatable runs.
    */
   isolated?: boolean;
+  /**
+   * How many of the leading genomes are deep-cloned elite carryover
+   * from the previous generation.  By construction (population.ts /
+   * nextGeneration), these are at indices 0..eliteCount-1 of the
+   * `genomes` array.  Used purely for rendering — the per-car
+   * `isElite` flag in CarSnapshot lets the renderer tint elite
+   * chassis warm so the player can see whether last gen's champions
+   * are still leading or being overtaken.  Pass 0 for gen 0 (no
+   * carryover from anywhere).
+   */
+  eliteCount?: number;
 };
 
 export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle> {
@@ -1219,7 +1241,10 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
   // the airborne damping handles the longer fall.
   const sy = sampleTrackY(opts.track, sx) + 3.2;
 
-  const cars: CarRuntime[] = opts.genomes.map((g, i) => buildCar(carWorld[i]!, g, i, sx, sy));
+  const eliteCount = opts.eliteCount ?? 0;
+  const cars: CarRuntime[] = opts.genomes.map((g, i) =>
+    buildCar(carWorld[i]!, g, i, sx, sy, i < eliteCount),
+  );
 
   let time = 0;
 
@@ -1502,6 +1527,7 @@ function buildCar(
   index: number,
   spawnX: number,
   spawnY: number,
+  isElite: boolean,
 ): CarRuntime {
   const verts = chassisVertices(genome);
 
@@ -1606,6 +1632,7 @@ function buildCar(
     chassis,
     wheels,
     spawnX,
+    isElite,
     maxX: spawnX,
     ageSec: 0,
     lastProgressTime: 0,
@@ -1964,6 +1991,7 @@ function snapshotCar(car: CarRuntime): CarSnapshot {
     travel: Math.max(0, car.maxX - car.spawnX),
     finished: car.finished,
     finishTime: car.finishTime,
+    isElite: car.isElite,
     vertices: car.vertices,
     wheels: car.wheels.map((w) => {
       const wp = w.body.translation();

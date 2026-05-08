@@ -61,6 +61,15 @@ const COLORS = {
    *  swatch so finishers visually pair with the rest of the
    *  positive-feedback palette. */
   finisher: 0xa8ff60,
+  /** Chassis tint for elite carryover (top-N from prev gen, deep
+   *  cloned).  Warm coral so the player can spot last gen's
+   *  champions and see whether they're still leading or being
+   *  overtaken by their mutated children. */
+  elite: 0xe8845a,
+  /** Chassis tint for the current real-time leader (most-forward
+   *  alive car).  Same accent green as wheel-on-ground to read as
+   *  "this car is winning right now". */
+  leader: 0xa8ff60,
   /** Walls + ceilings — hazard red, matches the record marker. */
   obstacle: 0xd05d5d,
   /** Slick patch — light blue, "ice-like".  Drawn over the track polyline. */
@@ -219,6 +228,14 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   const camera = { x: 0, y: 0 };
   let cameraTarget = { x: 0, y: 0 };
   let cameraMode: CameraMode = { type: 'leader' };
+  /**
+   * Most recent leader index seen across setSnapshot calls.  When
+   * it changes — i.e. some car overtook the previous leader by even
+   * 1 cm — we kick the new leader's CarView into the same brief
+   * celebrate animation used at finish-line crossing, so the
+   * transition gets a visible ping (scale-pop + green tint).
+   */
+  let lastLeaderIdx: number | null = null;
   /** Sticky world-x for free-camera mode.  Updated each minimap drag. */
   let freeCameraX = 0;
   let cameraChangeHandler: CameraChangeHandler | null = null;
@@ -536,6 +553,23 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       if (car.index === followedIdx) pickedCar = car;
     }
 
+    // Leader-change ping.  Whenever the running-leader's index
+    // differs from the previous frame's, we kick the new leader's
+    // CarView into a brief celebrate animation (scale-pop + green
+    // tint) — even a 1-cm overtake therefore produces a visible
+    // cue.  Skip during the very first snapshot (lastLeaderIdx is
+    // null) since "leader" hasn't been established yet.
+    const newLeaderIdx = runningLead?.index ?? null;
+    if (
+      newLeaderIdx !== null &&
+      lastLeaderIdx !== null &&
+      newLeaderIdx !== lastLeaderIdx
+    ) {
+      const newView = carViews.get(newLeaderIdx);
+      if (newView) newView.celebrateUntil = performance.now() + 700;
+    }
+    lastLeaderIdx = newLeaderIdx;
+
     // Resolve the actual camera target based on mode.  `free` mode
     // parks at freeCameraX (no per-frame update); `car` falls back
     // to leader if the picked car isn't in the snapshot any more.
@@ -579,7 +613,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         carsLayer.addChild(view.container);
         carViews.set(car.index, view);
       }
-      updateCarView(view, car, tier);
+      updateCarView(view, car, tier, car.index === newLeaderIdx);
     }
 
     for (const [k, v] of carViews) {
@@ -739,7 +773,12 @@ function makeCarView(car: CarSnapshot, onClick: ((idx: number) => void) | null):
   return view;
 }
 
-function updateCarView(view: CarView, car: CarSnapshot, tier: RenderTier): void {
+function updateCarView(
+  view: CarView,
+  car: CarSnapshot,
+  tier: RenderTier,
+  isLeader: boolean,
+): void {
   // Skip the entire per-car update once a finished car has been
   // rendered in its final pose at least once — the body is fixed
   // in world.ts so its position will never change again.  Saves
@@ -777,12 +816,24 @@ function updateCarView(view: CarView, car: CarSnapshot, tier: RenderTier): void 
     view.container.scale.set(1, 1);
   }
 
-  // Chassis tint priority: click-highlight > celebration > finisher
-  // (accent green) > default body colour.
+  // Chassis tint priority (highest wins):
+  //   click-highlight  — yellow flash, 600 ms
+  //   celebration      — accent green + scale-pop
+  //   finisher         — accent green steady
+  //   leader           — accent green steady (same colour as
+  //                      celebration so a leader-change ping reads
+  //                      as "this car is now winning")
+  //   elite carryover  — warm coral so last gen's champions stand
+  //                      out even when not leading
+  //   default          — white body
   if (now < view.highlightUntil) {
     view.body.tint = COLORS.highlight;
   } else if (celebrating || isFinisher) {
     view.body.tint = COLORS.finisher;
+  } else if (isLeader) {
+    view.body.tint = COLORS.leader;
+  } else if (car.isElite) {
+    view.body.tint = COLORS.elite;
   } else {
     view.body.tint = COLORS.body;
   }

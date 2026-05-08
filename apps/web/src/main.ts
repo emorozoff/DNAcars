@@ -1175,11 +1175,16 @@ async function bootstrap(): Promise<void> {
           onTrigger: flashShortcutBanner,
         }
       : null;
+    // Elite carryover only makes sense from gen 1 onward — gen 0
+    // has no parents to inherit from; everyone is random.
+    const sessionEliteCount =
+      generation > 0 && lastResults ? gaParams.eliteCount : 0;
     session = await startSession({
       trackSeed,
       trackOpts: trackParams.opts,
       generation,
       genomes,
+      eliteCount: sessionEliteCount,
       scene,
       hud,
       shortcutCtx,
@@ -1410,6 +1415,11 @@ type StartOptions = {
   trackOpts?: Partial<TrackOptions>;
   generation: number;
   genomes: Genome[];
+  /** How many of the leading genomes are deep-cloned elite carryover
+   *  from the prev gen.  Threaded into createWorld → CarSnapshot so
+   *  the renderer can tint elite chassis distinctly.  Pass 0 for
+   *  gen 0 (no elites yet) or when eliteCount is configured to 0. */
+  eliteCount: number;
   scene: SceneHandle;
   hud: Hud;
   onGenerationEnd: (results: Scored[]) => void;
@@ -1459,6 +1469,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
     genomes,
     spawnX: SPAWN_X,
     isolated: strictDeterminism,
+    eliteCount: opts.eliteCount,
   });
 
   hud.total.textContent = String(genomes.length);

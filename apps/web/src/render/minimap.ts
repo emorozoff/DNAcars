@@ -220,6 +220,11 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
         dot.setAttribute('x1', dx.toFixed(1));
         dot.setAttribute('x2', dx.toFixed(1));
         dot.setAttribute('opacity', car.finished ? '0.35' : '0.75');
+        // Elite tick — warm coral so last gen's champions are
+        // visually distinct from the mutated children.  Class is
+        // toggled per frame because the same dot pool gets reused
+        // across populations.
+        dot.classList.toggle('minimap__car--elite', car.isElite);
 
         if (!leader || car.position.x > leader.x) leader = { x: car.position.x, y: car.position.y };
         if (!car.finished && (!leaderRunning || car.position.x > leaderRunning.x)) {

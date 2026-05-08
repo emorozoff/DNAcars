@@ -1086,10 +1086,32 @@ export type WorldSnapshot = {
 
 /* ─── World ────────────────────────────────────────────────────────────── */
 
+/**
+ * Per-step tuning, picked by the host based on the current speed
+ * tier.  Lets ×64 / ×128 trade simulation precision for throughput
+ * while ×1 / ×8 / ×32 stay on the v0.9.6 stable defaults.
+ */
+export type StepOptions = {
+  /** Solver substeps per game tick (2 = stable, 1 = fast). */
+  substeps?: number;
+  /** Rapier per-step constraint iterations (8 = stable, 4 = fast). */
+  solverIterations?: number;
+};
+
 export type WorldHandle = {
-  step(): void;
+  step(opts?: StepOptions): void;
   snapshot(): WorldSnapshot;
   allFinished(): boolean;
+  /**
+   * Lightweight per-tick check used by the strict-det shortcut:
+   * "is every still-alive car an elite (i.e. index < eliteCount)?"
+   * Avoids building the full snapshot at high speeds where the
+   * snapshot itself is the limiting cost.  Returns false if no cars
+   * are alive (gen has ended).
+   */
+  allAliveAreElites(eliteCount: number): boolean;
+  /** Number of cars currently still moving.  Cheap — no snapshot. */
+  aliveCount(): number;
   forceFinishAll(): void;
   /** Return the recorded trajectory + event entries for car `idx`. */
   getCarTimeline(idx: number): TimelineEntry[];
@@ -1183,18 +1205,21 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
   let time = 0;
 
   return {
-    step(): void {
-      // Run PHYSICS_SUBSTEPS sub-steps per game tick.  Motor torque is
-      // applied before each sub-step so the "addTorque" accumulator
-      // gets properly integrated over the smaller dt, instead of
-      // applying one frame's worth of torque to one of two sub-steps.
-      for (let s = 0; s < PHYSICS_SUBSTEPS; s++) {
+    step(stepOpts): void {
+      // Per-tier physics knobs: lower substeps + iterations on
+      // ×64 / ×128 for ~2-3× throughput; ×1..×32 use the stable
+      // v0.9.6 defaults (2 substeps, 8 iterations).
+      const substeps = stepOpts?.substeps ?? PHYSICS_SUBSTEPS;
+      const solverIter = stepOpts?.solverIterations ?? TUNING.solver.numIterations;
+      const subDt = SIM_DT / substeps;
+      for (const w of worlds) {
+        w.timestep = subDt;
+        w.integrationParameters.numSolverIterations = solverIter;
+      }
+      for (let s = 0; s < substeps; s++) {
         for (let i = 0; i < cars.length; i++) {
           const car = cars[i]!;
           if (car.finished) {
-            // freezeCar is a one-shot — first call after `finished`
-            // flips to true does the setBodyType conversion; later
-            // calls return immediately on the `frozen` guard.
             freezeCar(car);
             continue;
           }
@@ -1203,13 +1228,8 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
           applyMotor(car);
         }
         for (const w of worlds) w.step();
-        // Detect explosive impulses INSIDE the substep loop so the
-        // clipped velocity feeds back into the next substep — if we
-        // only checked once per game-tick, the spike could propagate
-        // chassis position by ~17 cm before being caught.
         for (const car of cars) {
-          if (!car.finished)
-            clampImpulseSpike(car, opts.track, time + (s + 1) * (SIM_DT / PHYSICS_SUBSTEPS));
+          if (!car.finished) clampImpulseSpike(car, opts.track, time + (s + 1) * subDt);
         }
       }
       time += SIM_DT;
@@ -1277,6 +1297,20 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
       for (const car of cars) if (!car.finished) return false;
       return true;
     },
+    allAliveAreElites(eliteCount: number): boolean {
+      let alive = 0;
+      for (const car of cars) {
+        if (car.finished) continue;
+        alive++;
+        if (car.index >= eliteCount) return false;
+      }
+      return alive > 0;
+    },
+    aliveCount(): number {
+      let c = 0;
+      for (const car of cars) if (!car.finished) c++;
+      return c;
+    },
     /**
      * Force every still-running car to finish *now*.  Used by the host
      * tick loop as a hard cap on generation length, so a degenerate
@@ -1304,46 +1338,79 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
 function buildTrackColliders(world: RAPIER.World, track: Track): void {
   const ground = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
 
-  // Pre-collect slick regions so each surface trapezoid can look
-  // up its friction by midpoint-in-region.  Done once up front to
-  // avoid re-iterating `track.physicalObstacles` every segment.
+  // Pre-collect slick regions so we can split the surface polyline
+  // along friction boundaries.
   const slickRegions: { x1: number; x2: number }[] = [];
   for (const ob of track.physicalObstacles) {
     if (ob.kind === 'slick') slickRegions.push({ x1: ob.x1, x2: ob.x2 });
   }
-  const inAnyRegion = (regions: { x1: number; x2: number }[], x: number): boolean => {
-    for (const r of regions) if (x >= r.x1 && x <= r.x2) return true;
+  const isSlickAt = (x: number): boolean => {
+    for (const r of slickRegions) if (x >= r.x1 && x <= r.x2) return true;
     return false;
   };
 
-  // Thick "earth" — each track segment becomes a trapezoid extending
-  // 100 m down to a virtual floor.  Adjacent trapezoids share an edge
-  // so the surface is gap-free.  Crucial for heavy bodies: a thin
-  // polyline + heavy chassis can get tunneled-into at sharp corners
-  // even with CCD, and the constraint solver then ejects the body
-  // with an explosive vertical impulse (we observed 30 + m altitudes
-  // above the highest hill).  With a solid volume below the surface
-  // the body can't penetrate into geometry — it's pushed back out
-  // along the surface normal, smoothly, by accumulated contacts.
-  const floorY = -100;
-  for (let i = 0; i < track.points.length - 1; i++) {
-    const a = track.points[i]!;
-    const b = track.points[i + 1]!;
-    const verts = new Float32Array([a.x, a.y, b.x, b.y, b.x, floorY, a.x, floorY]);
-    const desc = RAPIER.ColliderDesc.convexHull(verts);
-    if (!desc) continue;
-    // Per-segment friction.  Default 1.0; slick regions drop to
-    // near-ice 0.05.  Restitution is uniform at 0.05 since the
-    // bouncy obstacle was retired in v1.4.0.
-    const segCenter = (a.x + b.x) / 2;
-    const friction = inAnyRegion(slickRegions, segCenter) ? 0.05 : 1.0;
-    const restitution = 0.05;
-    desc
-      .setFriction(friction)
-      .setRestitution(restitution)
-      .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL));
-    world.createCollider(desc, ground);
+  // Track surface is one polyline collider per friction "run" (a
+  // contiguous span of segments that share friction).  In v1.18 we
+  // had ~833 trapezoid colliders (one per segment); replacing those
+  // with O(1)-O(5) polylines cuts broadphase pair tests by two
+  // orders of magnitude — the dominant per-step cost at high speed
+  // multipliers.
+  //
+  // The v0.9.x version of this code went the trapezoid route to
+  // dodge "thin polyline + heavy chassis tunnels through and the
+  // solver ejects it 30 m up".  Modern safeguards (CCD on every
+  // body, clampImpulseSpike per substep, clampInsaneVelocity, 8
+  // solver iterations) keep that failure mode rare.  The catcher
+  // floor below catches the rare tunneller and stall logic finishes
+  // it off — far better trade than 100× more colliders all the
+  // time.
+  const segCount = track.points.length - 1;
+  if (segCount > 0) {
+    const segCenter = (i: number): number =>
+      (track.points[i]!.x + track.points[i + 1]!.x) / 2;
+    let runStart = 0;
+    let runSlick = isSlickAt(segCenter(0));
+    const flush = (endIdx: number, slick: boolean): void => {
+      // Build a polyline from track.points[runStart..endIdx] (inclusive).
+      const count = endIdx - runStart + 1;
+      if (count < 2) return;
+      const verts = new Float32Array(count * 2);
+      for (let j = 0; j < count; j++) {
+        const p = track.points[runStart + j]!;
+        verts[j * 2] = p.x;
+        verts[j * 2 + 1] = p.y;
+      }
+      const desc = RAPIER.ColliderDesc.polyline(verts);
+      desc
+        .setFriction(slick ? 0.05 : 1.0)
+        .setRestitution(0.05)
+        .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL));
+      world.createCollider(desc, ground);
+    };
+    for (let i = 1; i < segCount; i++) {
+      const segSlick = isSlickAt(segCenter(i));
+      if (segSlick !== runSlick) {
+        flush(i, runSlick);
+        runStart = i;
+        runSlick = segSlick;
+      }
+    }
+    flush(segCount, runSlick);
   }
+
+  // Catcher floor — large flat cuboid far below the surface that
+  // catches any chassis that tunnels through the polyline (rare but
+  // possible at extreme velocities or low-substep modes).  The car
+  // stalls down here and the lifecycle finishes it normally.
+  const trackLen = track.options.length;
+  world.createCollider(
+    RAPIER.ColliderDesc.cuboid(trackLen / 2 + 100, 1)
+      .setTranslation(trackLen / 2, -100)
+      .setFriction(0.5)
+      .setRestitution(0)
+      .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL)),
+    ground,
+  );
 
   // Back wall at x=0 so a car bumped backwards can't roll off the world.
   world.createCollider(

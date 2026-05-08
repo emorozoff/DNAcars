@@ -275,13 +275,130 @@ function updateUrlSeed(seed: number | null): void {
   window.history.replaceState({}, '', url.toString());
 }
 
-type SpeedState = { multiplier: number; headless: boolean };
+/**
+ * Each row is one speed-segmented button.  Beyond the multiplier
+ * itself, each tier has its own physics knobs:
+ *
+ *   substeps         — solver substeps per game tick.  Lowering trades
+ *                      stability for throughput (2 is the v0.9.6
+ *                      default for collision robustness; 1 is "fast
+ *                      and slightly glitchy").
+ *   solverIterations — Rapier's per-step constraint iterations.
+ *                      Lowering speeds up world.step() linearly at
+ *                      the cost of contact precision.
+ *   uiThrottleMs     — minimum real-time gap between HUD/minimap
+ *                      updates.  At ×1 / ×8 the player is watching;
+ *                      throttle 0 = update every frame.  At ×32+
+ *                      the canvas is hidden, so we skip most UI
+ *                      writes to free CPU for physics.
+ */
+type SpeedState = {
+  multiplier: number;
+  headless: boolean;
+  substeps: number;
+  solverIterations: number;
+  uiThrottleMs: number;
+};
 const SPEED_STATES: SpeedState[] = [
-  { multiplier: 1, headless: false },
-  { multiplier: 8, headless: false },
-  { multiplier: 32, headless: true },
+  { multiplier: 1, headless: false, substeps: 2, solverIterations: 8, uiThrottleMs: 0 },
+  { multiplier: 8, headless: false, substeps: 2, solverIterations: 8, uiThrottleMs: 33 },
+  { multiplier: 32, headless: true, substeps: 2, solverIterations: 8, uiThrottleMs: 100 },
+  { multiplier: 64, headless: true, substeps: 1, solverIterations: 4, uiThrottleMs: 150 },
+  { multiplier: 128, headless: true, substeps: 1, solverIterations: 4, uiThrottleMs: 200 },
 ];
 let speedIdx = 0;
+
+/**
+ * Throughput tracking — module-level so the in-session tick loop
+ * (which lives inside startSession) and the bootstrap-level UI
+ * updater (updateThroughputDisplay) share the same state without
+ * threading callbacks through every option bag.
+ *
+ *   simSecAccum     — total simulated seconds since page load (across
+ *                     gens).  Increments by SIM_DT each physics step.
+ *   lastPerfSampleMs / lastPerfSimSec — paired markers for the
+ *                     "real seconds since last UI tick" delta.
+ *                     realSpeed = (simSec - lastSim) / ((nowMs - lastMs) / 1000).
+ *   smoothedRealSpeed — EMA-smoothed real/requested speed ratio for
+ *                     a stable ribbon readout.
+ *   smoothedFrameMs   — EMA-smoothed per-tick wall-clock work time.
+ *                     Drives the predictive "would tier X work?"
+ *                     colour coding on the speed buttons.
+ */
+let simSecAccum = 0;
+let lastPerfSampleMs = performance.now();
+let lastPerfSimSec = 0;
+let smoothedRealSpeed = 1;
+let smoothedFrameMs = 16.7;
+const PERF_SMOOTHING = 0.18;
+
+/**
+ * Refresh the throughput readout (ribbon "ТЕМП" stat) and the
+ * predictive colour-coding on the speed segmented buttons.
+ *
+ *   ribbon shows "× actual" with a colour state depending on
+ *   how close `actual` is to the requested multiplier:
+ *     - ≥ 95 % of requested:  ok (default)
+ *     - 70–95 %:               tight (yellow tint)
+ *     - < 70 %:                saturated — show "× actual / × M" red
+ *
+ *   speed buttons get a `--load-ok / --load-tight / --load-saturated`
+ *   modifier based on the predicted utilisation at that tier:
+ *     predictedFrameMs(T) = currentFrameMs * (T / currentMultiplier)
+ *   compared against the 16.7 ms 60-fps frame budget.  The currently
+ *   active tier skips the modifier — its existing "active" pill
+ *   styling already says "you're here".
+ */
+function updateThroughputDisplay(): void {
+  const eff = SPEED_STATES[speedIdx] ?? SPEED_STATES[0]!;
+  const requested = eff.multiplier;
+  const actual = smoothedRealSpeed;
+  const ratio = requested > 0 ? actual / requested : 0;
+  const throughputEl = document.getElementById('stat-throughput');
+  if (throughputEl) {
+    const prettyActual = actual >= 10 ? actual.toFixed(0) : actual.toFixed(1);
+    const prettyReq = requested.toString();
+    let label: string;
+    let cls: 'ok' | 'tight' | 'saturated';
+    if (ratio >= 0.95) {
+      label = `×${prettyActual}`;
+      cls = 'ok';
+    } else if (ratio >= 0.7) {
+      label = `×${prettyActual} / ×${prettyReq}`;
+      cls = 'tight';
+    } else {
+      label = `×${prettyActual} / ×${prettyReq}`;
+      cls = 'saturated';
+    }
+    throughputEl.textContent = label;
+    throughputEl.classList.toggle('ribbon__value--ok', cls === 'ok');
+    throughputEl.classList.toggle('ribbon__value--tight', cls === 'tight');
+    throughputEl.classList.toggle('ribbon__value--saturated', cls === 'saturated');
+  }
+
+  const FRAME_BUDGET_MS = 16.7;
+  const speedButtons = document.querySelectorAll<HTMLButtonElement>(
+    '#seg-speed [data-speed-idx]',
+  );
+  speedButtons.forEach((btn) => {
+    const idx = Number(btn.dataset['speedIdx']);
+    const tier = SPEED_STATES[idx];
+    btn.classList.remove(
+      'segmented__item--load-ok',
+      'segmented__item--load-tight',
+      'segmented__item--load-saturated',
+    );
+    if (!tier) return;
+    if (idx === speedIdx) return; // current tier — skip extra hint
+    const predictedMs = smoothedFrameMs * (tier.multiplier / requested);
+    const u = predictedMs / FRAME_BUDGET_MS;
+    let pred: 'load-ok' | 'load-tight' | 'load-saturated';
+    if (u < 0.7) pred = 'load-ok';
+    else if (u < 1.0) pred = 'load-tight';
+    else pred = 'load-saturated';
+    btn.classList.add(`segmented__item--${pred}`);
+  });
+}
 
 /**
  * Wall-time budget per RAF frame for physics steps, in ms.  At ×1 we
@@ -547,6 +664,7 @@ async function bootstrap(): Promise<void> {
       shortcutBannerTimer = null;
     }, 700);
   }
+
 
   function freshRun(keepSeed: number | null = null): void {
     generation = 0;
@@ -1384,10 +1502,12 @@ async function startSession(opts: StartOptions): Promise<Session> {
   let elapsed = 0;
   let frameCount = 0;
   let shortcutApplied = false;
+  let lastUiUpdateMs = 0;
 
   function tick(): void {
     if (!running) return;
-    const now = performance.now();
+    const tickStart = performance.now();
+    const now = tickStart;
     const eff = effectiveSpeed();
     // While paused, the accumulator stays empty (no physics steps)
     // and lastTime is still updated so resuming doesn't dump a huge
@@ -1409,63 +1529,70 @@ async function startSession(opts: StartOptions): Promise<Session> {
     // budget and the next RAF picks up the leftover acc — UI never
     // blocks for more than ~25 ms regardless of the multiplier.
     const stepBudgetEnd = now + STEP_DEADLINE_MS;
+    const stepOpts = { substeps: eff.substeps, solverIterations: eff.solverIterations };
     while (acc >= SIM_DT && performance.now() < stepBudgetEnd) {
-      world.step();
+      world.step(stepOpts);
       acc -= SIM_DT;
       elapsed += SIM_DT;
+      simSecAccum += SIM_DT;
     }
     if (elapsed >= TUNING.lifecycle.maxGenerationSec) {
       world.forceFinishAll();
     }
-    const snap = world.snapshot();
 
-    // Strict-determinism fast-forward: if every alive car is an
-    // elite whose final distance is already known (cached from the
-    // previous gen, valid only because strict-det runs each car in
-    // its own deterministic isolated world on the same track), end
-    // the gen now — there's nothing left to learn from running the
-    // elites to completion.  shortcutApplied gates this so we only
-    // trigger once per gen.
+    // Strict-determinism fast-forward — uses the lightweight
+    // `allAliveAreElites` query so we don't have to build a full
+    // snapshot every tick at high speeds.
     if (!shortcutApplied && shortcutCtx && shortcutCtx.eliteCount > 0) {
-      let onlyCachedElitesAlive = true;
-      let aliveCount = 0;
-      for (const car of snap.cars) {
-        if (car.finished) continue;
-        aliveCount++;
-        if (
-          car.index >= shortcutCtx.eliteCount ||
-          car.index >= shortcutCtx.cachedEntries.length
-        ) {
-          onlyCachedElitesAlive = false;
-          break;
-        }
-      }
-      if (aliveCount > 0 && onlyCachedElitesAlive) {
+      const safeEliteN = Math.min(
+        shortcutCtx.eliteCount,
+        shortcutCtx.cachedEntries.length,
+      );
+      if (safeEliteN > 0 && world.allAliveAreElites(safeEliteN)) {
         shortcutApplied = true;
         world.forceFinishAll();
         shortcutCtx.onTrigger();
       }
     }
-    // Pick the render tier from speedIdx:
-    //   ×1   → 'full' — wheel tints, all visual fidelity
-    //   ×8   → 'lite' — skip wheel tints, also throttle to every
-    //          other RAF frame (cars zoom faster than the eye
-    //          can track anyway, and this halves per-car Pixi
-    //          attribute writes — main perf bottleneck on busy
-    //          first generations with 60 cars).
-    //   ×32  → 'none' — canvas hidden, only camera + minimap
-    //          update.
-    let tier: 'full' | 'lite' | 'none' = 'full';
-    if (eff.headless) tier = 'none';
-    else if (speedIdx === 1) tier = 'lite';
-    frameCount++;
-    const skipPixiThisFrame = tier === 'lite' && (frameCount & 1) === 1;
-    scene.setSnapshot(snap, { tier: skipPixiThisFrame ? 'none' : tier });
-    updateHud(hud, snap);
+
+    // UI updates throttled per speed tier.  At ×32+ the canvas is
+    // hidden anyway, so HUD/minimap doesn't need 60 Hz refresh —
+    // dropping to ~10 Hz at ×32 and ~5 Hz at ×128 frees most of
+    // the per-frame budget for physics.
+    const uiDue = now - lastUiUpdateMs >= eff.uiThrottleMs;
+    if (uiDue) {
+      // Throughput sample: realSpeed = (sim seconds advanced since
+      // last sample) / (real seconds since last sample).  Smoothed
+      // with an EMA so the readout doesn't flicker.
+      const dtRealMs = now - lastPerfSampleMs;
+      if (dtRealMs > 0) {
+        const dtSim = simSecAccum - lastPerfSimSec;
+        const realSpeed = dtSim / (dtRealMs / 1000);
+        smoothedRealSpeed =
+          smoothedRealSpeed * (1 - PERF_SMOOTHING) + realSpeed * PERF_SMOOTHING;
+      }
+      lastPerfSampleMs = now;
+      lastPerfSimSec = simSecAccum;
+
+      lastUiUpdateMs = now;
+      const snap = world.snapshot();
+      let tier: 'full' | 'lite' | 'none' = 'full';
+      if (eff.headless) tier = 'none';
+      else if (speedIdx === 1) tier = 'lite';
+      frameCount++;
+      const skipPixiThisFrame = tier === 'lite' && (frameCount & 1) === 1;
+      scene.setSnapshot(snap, { tier: skipPixiThisFrame ? 'none' : tier });
+      updateHud(hud, snap);
+      updateThroughputDisplay();
+    }
 
     if (!endNotified && world.allFinished()) {
       endNotified = true;
       running = false;
+      // Build a fresh snapshot so the gen-end results are based on
+      // the very last physics state (the throttled UI snap above
+      // may be a few ticks stale).
+      const snap = world.snapshot();
       const trackLength = track.options.length;
       const results: Scored[] = genomes.map((genome, i) => {
         const car = snap.cars[i];
@@ -1509,6 +1636,12 @@ async function startSession(opts: StartOptions): Promise<Session> {
       });
       return;
     }
+    // Frame-time EMA for the speed-button colour predictor.  Captures
+    // *this* tick's wall-clock work — physics + UI — so a saturated
+    // run shows up immediately as red on heavier tiers.
+    const tickEnd = performance.now();
+    const work = tickEnd - tickStart;
+    smoothedFrameMs = smoothedFrameMs * (1 - PERF_SMOOTHING) + work * PERF_SMOOTHING;
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);

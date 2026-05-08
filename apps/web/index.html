@@ -79,6 +79,11 @@
                 —
               </button>
             </span>
+            <span class="ribbon__sep" aria-hidden="true"></span>
+            <span class="ribbon__stat ribbon__stat--throughput">
+              <span class="ribbon__label" data-i18n="ribbon.throughput">SPEED</span>
+              <span class="ribbon__value" id="stat-throughput">×—</span>
+            </span>
           </div>
           <svg class="minimap" id="minimap" viewBox="0 0 1500 86" preserveAspectRatio="none">
             <polyline class="minimap__track" id="minimap-track" />
@@ -154,6 +159,8 @@
                 <button class="segmented__item" data-speed-idx="0" type="button">×1</button>
                 <button class="segmented__item" data-speed-idx="1" type="button">×8</button>
                 <button class="segmented__item" data-speed-idx="2" type="button">×32</button>
+                <button class="segmented__item" data-speed-idx="3" type="button">×64</button>
+                <button class="segmented__item" data-speed-idx="4" type="button">×128</button>
               </div>
             </div>
 

@@ -43,6 +43,7 @@ const enRaw = {
   'ribbon.best': 'BEST',
   'ribbon.alive': 'ALIVE',
   'ribbon.seed': 'SEED',
+  'ribbon.throughput': 'SPEED',
   'panel.fastForward': 'Fast-forward',
   'panel.speedMode': 'Speed mode',
   'stats.speed': 'Best finish time',

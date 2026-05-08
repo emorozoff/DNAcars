@@ -224,6 +224,38 @@ button {
   color: rgba(0, 0, 0, 0.9);
 }
 
+/* Predictive load colouring for speed-tier buttons.  The host
+   updates these classes each UI tick based on the EMA of frame
+   work-time × predicted-multiplier ratio, so the player can see
+   at a glance which tiers are safe to push to.  The current
+   (active) tier ignores these — it has its own pill styling. */
+.segmented__item--load-ok {
+  box-shadow: inset 0 0 0 1px rgba(168, 255, 96, 0.55);
+}
+
+.segmented__item--load-tight {
+  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.65);
+}
+
+.segmented__item--load-saturated {
+  box-shadow: inset 0 0 0 1px rgba(208, 93, 93, 0.7);
+  color: rgba(208, 93, 93, 0.9);
+}
+
+/* Ribbon throughput ("ТЕМП") cell colours by saturation state. */
+.ribbon__value--ok {
+  color: var(--color-fg);
+}
+
+.ribbon__value--tight {
+  color: #ffd166;
+}
+
+.ribbon__value--saturated {
+  color: #ff8c8c;
+  font-weight: 600;
+}
+
 .btn--floating {
   position: absolute;
   top: calc(var(--sp-4) + 3.75rem);

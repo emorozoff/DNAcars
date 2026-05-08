@@ -45,6 +45,7 @@ export const ru: Dictionary = {
   'ribbon.best': 'РЕКОРД',
   'ribbon.alive': 'ЕДУТ',
   'ribbon.seed': 'СИД',
+  'ribbon.throughput': 'ТЕМП',
   'panel.fastForward': 'Перемотка',
   'panel.speedMode': 'Гонка на время',
   'stats.speed': 'Лучшее время финиша',

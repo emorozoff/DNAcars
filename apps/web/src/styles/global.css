@@ -2057,33 +2057,111 @@ button {
   }
 }
 
-/* Phone-portrait — tightens the dock so all controls fit a 390-pt
-   iPhone width.  Both rows wrap, sliders span full width, action
-   buttons stay 40 pt+ tall for comfortable thumb taps.  Charts
-   panel switches to a full-screen overlay so its body scrolls
-   independently of the stage.  Stage-level minimap + ribbon are
-   already responsive via the rule above. */
+/* Phone-portrait — switch the whole shell from a viewport-filling
+   absolute layout to a scrollable column.  The desktop dance of
+   "canvas fills the stage and chrome floats on top" doesn't fit a
+   narrow screen: with the dock + charts overlapping the canvas and
+   nothing scrollable, half the controls get clipped past the
+   viewport edge.  On mobile we instead stack:
+
+       topbar (sticky)
+       canvas (60 dvh — game stays visible while at scroll-top)
+       minimap
+       ribbon-stats
+       dock
+       charts-panel (when open)
+
+   Everything below the canvas is naturally scrollable, so the
+   player can flick down to reach every control + read every chart
+   without anything getting clipped.  Floating overlays (follow-
+   leader button, headless banner, shortcut banner) are hidden on
+   phone — they're nice-to-haves, the user already has direct
+   touch access to the same actions through the dock + idle-return
+   timer. */
 @media (max-width: 640px) {
+  body {
+    /* Page scrolls.  The whole point of the stack is being able to
+       flick past the canvas to reach controls. */
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  #app {
+    /* Drop the desktop fixed-grid; let children flow vertically and
+       grow the page height to fit. */
+    position: static;
+    display: flex;
+    flex-direction: column;
+    min-height: 100dvh;
+    grid-template-rows: none;
+  }
+
   .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
     padding: 0 var(--sp-3);
     gap: var(--sp-2);
   }
 
   .brand__name {
-    /* The brand wordmark is decorative — drop it on tight widths so
-       the version chip + tutorial + lang toggle all keep room. */
+    /* Drop the wordmark — version chip + tutorial + lang are what
+       the player actually clicks on a phone. */
     display: none;
   }
 
-  .dock {
-    /* Pin to the bottom edge with a small inset; the dock's own
-       max-width: calc(100vw - 2*sp-4) keeps it inside the viewport,
-       and rows below wrap as needed. */
-    bottom: var(--sp-2);
-    width: calc(100vw - 2 * var(--sp-2));
-    max-width: none;
+  /* Stage becomes a flex column that flows children naturally.
+     Children that were absolute-positioned overlays (canvas,
+     minimap, ribbon-stats, dock, charts-panel) all switch back to
+     static below so they pile up in document order. */
+  .stage {
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+    padding: var(--sp-3);
   }
 
+  .stage__canvas {
+    /* The visible game viewport — 60 dvh is a comfortable slice of
+       canvas that stays readable, with enough screen left below
+       for a peek at the minimap so the player knows there's more
+       to scroll to.  flex-shrink: 0 prevents the canvas from
+       collapsing if the page contents push above the viewport. */
+    position: relative;
+    inset: auto;
+    width: 100%;
+    height: 60dvh;
+    border-radius: var(--r-md);
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .minimap {
+    position: static;
+    top: auto;
+    left: auto;
+    width: 100%;
+  }
+
+  .ribbon-stats {
+    position: static;
+    top: auto;
+    left: auto;
+    width: 100%;
+  }
+
+  .dock {
+    position: static;
+    transform: none;
+    width: 100%;
+    max-width: none;
+    bottom: auto;
+    left: auto;
+  }
+
+  /* Dock rows wrap so each slider gets its full width — easier to
+     drag with a thumb than a 6-rem-wide stub. */
   .dock__row {
     flex-wrap: wrap;
     gap: var(--sp-2);
@@ -2095,14 +2173,10 @@ button {
   }
 
   .dock__row--params .ctrl--inline {
-    /* Each slider takes the full row, value chip stays right-
-       aligned via the existing flex layout inside .ctrl. */
     flex-basis: 100%;
   }
 
   .dock__sep {
-    /* Hairline separators don't read on a wrapped flex; let them
-       collapse so the buttons don't get oddly bisected. */
     display: none;
   }
 
@@ -2111,32 +2185,66 @@ button {
     gap: var(--sp-2);
   }
 
-  /* Bigger touch targets on the speed segmented + transport buttons
-     so they hit Apple's 44 × 44 pt minimum.  Cars are watched, not
-     micro-managed, so making the controls comfy beats keeping them
-     compact. */
+  /* Bigger touch targets — Apple HIG says 44 × 44 pt minimum.  Cars
+     are watched, not micro-managed; comfy beats compact. */
   .segmented__item,
   .dock__toggle,
   .btn {
     min-height: 2.5rem;
   }
 
-  /* Charts panel takes over the screen below the topbar — easier
-     to scroll an 800-px-tall dashboard on a phone than to read it
-     squeezed into a 200-px slice. */
-  .charts-panel {
-    position: fixed;
-    inset: var(--topbar-h) 0 0 0;
-    width: auto;
-    max-width: none;
-    z-index: 3;
-    overflow-y: auto;
-    padding: var(--sp-3);
+  /* Drawers (Seed / Track) are positioned absolute relative to
+     their dock section.  On phone the dock is at the bottom of the
+     visible chunk; popping the drawer downward (instead of upward
+     into the canvas) keeps it within the scrollable area, and a
+     full-width drawer is easier to read than the desktop's fixed
+     17.5 rem / 37.5 rem widths. */
+  .dock-drawer--seed,
+  .dock-drawer--wide {
+    width: calc(100vw - 2 * var(--sp-3));
+    left: var(--sp-3);
+    bottom: auto;
+    top: calc(100% + var(--sp-2));
   }
 
-  /* The advanced-settings modal already has a panel that caps its
-     own size; just make sure the panel has breathing room from the
-     viewport edges on narrow screens. */
+  /* Charts panel flows like everything else.  No more fullscreen-
+     overlay trick from the v1.34.0 attempt — the page already
+     scrolls, the panel just sits in the column. */
+  .charts-panel {
+    position: static;
+    inset: auto;
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    z-index: auto;
+  }
+
+  /* In headless mode (×32+) the desktop rules stretch the charts
+     panel to fill the empty canvas area; on phone we already give
+     it full width via the rule above, so cancel the desktop
+     positioning. */
+  .mode-headless .charts-panel {
+    position: static;
+    transform: none;
+    inset: auto;
+    width: 100%;
+    max-width: none;
+    bottom: auto;
+    top: auto;
+    left: auto;
+  }
+
+  /* Floating overlays sit on top of the canvas via fixed/absolute
+     positioning, which would have them hover over controls when
+     scrolled.  Hide outright — the player has direct access to the
+     same state via the dock + the 10-s idle-return timer. */
+  .btn--floating,
+  .headless-banner,
+  .shortcut-banner {
+    display: none;
+  }
+
+  /* Modal panels: keep the breathing-room rules from v1.34.0. */
   .modal-settings__panel,
   .modal-confirm__panel {
     width: calc(100vw - 2 * var(--sp-3));

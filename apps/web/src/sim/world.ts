@@ -476,49 +476,29 @@ const CLIFF_EDGE_M = 0.05;
  */
 const OBSTACLE_START = 80;
 /**
- * Layout of the finish zone at the end of every track:
+ * Finish-zone layout — kept deliberately simple after the v1.31.x
+ * cliff + basin experiments.  Ambient terrain runs all the way to
+ * the very end of the track, where a vertical wall blocks anything
+ * past the finish line.  The visible finish marker sits a long
+ * way *before* the wall so the wall reads as "here's where the
+ * track ends" rather than "the wall and the finish are the same
+ * thing".
  *
- *     length-FINISH_ZONE_M ─── cliffEdge ─ wallX = length
- *     |     pre-cliff      |   |  basin (flat, BASIN_Y)  | wall
- *
- *     ambient ──┐
- *               │ sharp cliff (1 m horizontal, multi-m vertical)
- *               └──────────────────── flat ──────────────│
- *                                                          ║ vertical wall
- *                                                          ║ + finish flag
- *
- * Designed for a clear "you've reached the end" reading: the
- * approach signals an ending via a brief flat lead-in, the cliff
- * gives a dramatic plunge, the basin is the stage for the wall,
- * and the wall (+ flag) is the literal finish line.  No falling
- * since the basin floor catches the chassis.
+ *     0 ─────────── ambient terrain ────────── finishLineX ── runout ── length (wall)
+ *                                                  │             │         ║
+ *                                                  ▼             ▼         ║ wall (90°)
+ *                                          dashed marker     run-out       ║
  */
-const FINISH_ZONE_M = 24;
-/** World-y of the basin floor (flat after the cliff). */
-const BASIN_Y = -10;
-/**
- * Width of the sharp cliff (m).  At 1 m wide and a typical
- * `ambient - BASIN_Y` of 8–14 m, the slope works out to 80–86°
- * — visually "almost vertical".
- */
-const CLIFF_WIDTH_M = 1;
-/**
- * Vertical wall height (m) above the basin floor.  Tall enough
- * that even a chassis launching at full speed off ambient
- * terrain can't clear it.
- */
+/** Distance (m) from the visible finish-line marker to the wall at
+ *  the very end of the track.  25 m gives finishers a generous
+ *  run-out so the wall + finish marker read as separate elements;
+ *  cars also get a comfortable braking / coasting distance after
+ *  registering their finish. */
+const WALL_RUNOUT_M = 25;
+/** Vertical wall height (m) above the ambient ground at the
+ *  track's end — tall enough that a chassis launching at full
+ *  speed off any preceding hill can't clear it. */
 const WALL_HEIGHT_M = 18;
-/**
- * Distance (m) from the finish wall back to the in-basin "finish
- * line" — the visual checkered marker that fires the per-car
- * `finishTime`.  Cars cross the line, get credit for finishing, and
- * then continue forward and bump into the wall (which still stops
- * them).  Without this offset the wall is *exactly* at x=length and
- * a chassis with radius 1+m can never get its centre that far;
- * finishTime would never trigger.  3 m is comfortable for any
- * chassis size up to TUNING.chassis.maxRadius.
- */
-const FINISH_LINE_OFFSET_M = 3;
 
 /**
  * One placed terrain obstacle.  Currently only cliffs — deep
@@ -691,25 +671,19 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
   // upper bound at `finishZoneStart` so no obstacles spawn inside
   // the cliff/basin/wall region — that area is reserved for the
   // finish line.
-  const finishZoneStart = o.length - FINISH_ZONE_M;
-  const cliffEdge = finishZoneStart;
-  const basinStart = cliffEdge + CLIFF_WIDTH_M;
+  // Keep procedurally-placed obstacles out of the run-out zone so
+  // the player can read the finish-line + wall transition cleanly.
+  const finishZoneStart = o.length - WALL_RUNOUT_M;
   const placed = placeObstacles(rng, o.obstacles, finishZoneStart);
   const obstacles = placed.terrain;
   const physicalObstacles = placed.physical;
-  // Always-present finish wall at the very end of the track.
-  // Hangs off the same physical-obstacle list so buildTrackColliders
-  // gets it for free.  Height stretches the full WALL_HEIGHT_M
-  // above the basin floor — even a chassis flying off the cliff
-  // at top speed can't clear it.
-  physicalObstacles.push({
-    kind: 'finish',
-    x: o.length,
-    yBase: BASIN_Y,
-    height: WALL_HEIGHT_M,
-  });
 
   const points: { x: number; y: number }[] = [];
+  // Captured the first time the loop crosses into the run-out zone;
+  // re-used for every later sample so the polyline is a clean flat
+  // line instead of inheriting the sine-wave Y.  Also feeds the
+  // wall's `yBase` so the wall sits on the run-out surface.
+  let yAtFinishZoneStart: number | null = null;
   const difficultyEnd = o.warmup + o.difficultyDistance;
   for (let x = 0; x <= o.length + 1e-4; x += o.step) {
     // Spawn-pad: 0 → 1 over warmup.  Guarantees the first 25 m is
@@ -764,24 +738,30 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
       // placement (gaps ≥ pit width), so it's safe to break.
       break;
     }
-    // Finish zone: at `cliffEdge` the surface plunges in 1 m
-    // horizontal to the basin floor (BASIN_Y), then stays flat
-    // until x = length.  The plunge interpolates from whatever
-    // ambient was at cliffEdge down to BASIN_Y, so the *visual*
-    // depth of the cliff varies with the local terrain (a hill at
-    // the cliff edge → deeper plunge, a valley → shallower).  No
-    // amplitude scaling here; this is a rigid game boundary.
-    if (x >= cliffEdge) {
-      if (x < basinStart) {
-        const t = (x - cliffEdge) / CLIFF_WIDTH_M;
-        y = lerp(y, BASIN_Y, t);
-      } else {
-        y = BASIN_Y;
-      }
+    // Run-out zone: from `finishZoneStart` to `length` the track
+    // is held flat at whatever Y the terrain happened to be at the
+    // start of the zone.  Gives a stable platform for finishers to
+    // coast onto + a clear "here's the end" silhouette without a
+    // dramatic cliff.
+    if (x >= finishZoneStart) {
+      if (yAtFinishZoneStart === null) yAtFinishZoneStart = y;
+      y = yAtFinishZoneStart;
     }
     points.push({ x, y });
   }
   if (points[0]) points[0].y = 0;
+  // Vertical wall at x = length, sitting on whatever Y the run-out
+  // zone settled at.  Pushed onto the physical-obstacle list so
+  // buildTrackColliders builds a real cuboid for it; the renderer
+  // draws a matching grey vertical line so it reads as "the track
+  // bends 90° upward".
+  const wallY = yAtFinishZoneStart ?? 0;
+  physicalObstacles.push({
+    kind: 'finish',
+    x: o.length,
+    yBase: wallY,
+    height: WALL_HEIGHT_M,
+  });
   // Resolve absolute world-y for ceilings (their `y` field carries
   // the *relative* clearance during placement; we add the local
   // surface height now that the points array exists).
@@ -815,7 +795,7 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
   return {
     options: o,
     points,
-    finishLineX: o.length - FINISH_LINE_OFFSET_M,
+    finishLineX: o.length - WALL_RUNOUT_M,
     physicalObstacles: resolved,
   };
 }
@@ -1289,13 +1269,10 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
           car.lastProgressTime = car.ageSec;
         }
         // First time the chassis crosses the visual finish line:
-        // stamp the finish time.  The line sits a few metres in
-        // front of the wall (see FINISH_LINE_OFFSET_M) so a chassis
-        // of any radius can actually reach it — without this offset
-        // the wall blocked the chassis centre from ever reaching
-        // x = length and finishTime would never trigger.  The car
-        // keeps physically running afterwards (it'll bump into the
-        // wall and stall normally).
+        // stamp the finish time.  The line sits well in front of
+        // the end-of-track wall (WALL_RUNOUT_M metres) so cars get
+        // credit for finishing while still rolling forward; they
+        // bump into the wall later and stall normally.
         //
         // Sub-tick interpolation: the chassis moves several cm per
         // tick, so snapping finishTime to the discrete tick boundary
@@ -1494,14 +1471,14 @@ function buildTrackColliders(world: RAPIER.World, track: Track): void {
         ground,
       );
     } else if (ob.kind === 'finish') {
-      // Finish wall: a tall vertical cuboid sitting on the basin
-      // floor at the very end of the track.  Half-thickness 0.1 m
-      // (= 20 cm wide post) — wider than regular walls so the
-      // visual stripe pattern reads at a glance.  Friction and
-      // restitution match the ground so a chassis crashing into
-      // it stops cleanly.
+      // End-of-track wall: a thin vertical cuboid sitting on the
+      // ambient run-out surface.  Half-thickness 0.05 m (= 10 cm
+      // wide) so it reads as a continuation of the track's grey
+      // line bending 90° upward, not a chunky rectangular slab.
+      // Friction and restitution match the ground so a chassis
+      // crashing into it stops cleanly.
       world.createCollider(
-        RAPIER.ColliderDesc.cuboid(0.1, ob.height / 2)
+        RAPIER.ColliderDesc.cuboid(0.05, ob.height / 2)
           .setTranslation(ob.x, ob.yBase + ob.height / 2)
           .setFriction(1.0)
           .setRestitution(0.0)

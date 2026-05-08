@@ -82,12 +82,9 @@ const COLORS = {
   obstacle: 0xd05d5d,
   /** Slick patch — light blue, "ice-like".  Drawn over the track polyline. */
   slick: 0x7ec8ff,
-  /** Finish-line stripes alternate between these. */
-  finishDark: 0x1a1a1f,
+  /** Dashed finish-line stroke — soft white that reads against the
+   *  dark canvas without overpowering the cars + track. */
   finishLight: 0xf2f2f5,
-  /** Finish flag fabric — warm accent so it reads at a distance. */
-  finishFlag: 0xffd166,
-  finishPole: 0xc8c8d0,
 } as const;
 
 /**
@@ -509,36 +506,15 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         obstaclesGfx.rect(ob.xCenter - ob.halfWidth, ob.y - 0.08, ob.halfWidth * 2, 0.16);
         obstaclesGfx.fill({ color: COLORS.obstacle, alpha: 0.95 });
       } else if (ob.kind === 'finish') {
-        // Finish line: a 20 cm wide vertical wall striped in
-        // alternating dark/light bands like a real finish flag,
-        // capped with a flag flying off the top.  Geometry sits
-        // exactly where the collider in buildTrackColliders is.
-        const stripeBand = 0.6; // m per band — readable from a distance
-        const halfThickness = 0.1;
-        const bandsCount = Math.max(1, Math.ceil(ob.height / stripeBand));
-        for (let i = 0; i < bandsCount; i++) {
-          const yA = ob.yBase + i * stripeBand;
-          const yB = Math.min(ob.yBase + ob.height, yA + stripeBand);
-          obstaclesGfx.rect(ob.x - halfThickness, yA, halfThickness * 2, yB - yA);
-          obstaclesGfx.fill({
-            color: i % 2 === 0 ? COLORS.finishDark : COLORS.finishLight,
-            alpha: 1,
-          });
-        }
-        // Flag pole — extends an extra 1.5 m above the wall top so
-        // the flag sits clearly above the structure.
-        const poleTop = ob.yBase + ob.height + 1.5;
-        obstaclesGfx.moveTo(ob.x, ob.yBase + ob.height).lineTo(ob.x, poleTop);
-        obstaclesGfx.stroke({ color: COLORS.finishPole, width: 0.06, alpha: 1 });
-        // Triangular flag flying *backwards* from the pole (toward
-        // the approach side, x < ob.x), so a car crossing reads
-        // "I've reached the flag".
+        // End-of-track wall — drawn as a continuation of the grey
+        // track polyline bending 90° upward, not a striped post +
+        // flag.  Same colour and stroke width as the regular track
+        // line so the eye reads it as "the track ends here, going
+        // up".  The wall sits on the run-out surface.
         obstaclesGfx
-          .moveTo(ob.x, poleTop)
-          .lineTo(ob.x - 1.4, poleTop - 0.4)
-          .lineTo(ob.x, poleTop - 0.8)
-          .closePath();
-        obstaclesGfx.fill({ color: COLORS.finishFlag, alpha: 1 });
+          .moveTo(ob.x, ob.yBase)
+          .lineTo(ob.x, ob.yBase + ob.height);
+        obstaclesGfx.stroke({ color: COLORS.track, width: 0.08, alpha: 1 });
       } else {
         // Slick patches: re-trace the track polyline between x1
         // and x2 in light blue.  Drawn at a touch heavier stroke
@@ -560,35 +536,24 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       }
     }
 
-    // Visual finish line — a checkered vertical strip at
-    // track.finishLineX, sitting in the basin a few metres before
-    // the wall.  Cars cross this line to register their finishTime
-    // (the wall is just a stopper afterwards).  Render as a stack
-    // of alternating dark/light squares so it reads like a real
-    // race finish line rather than another obstacle.
+    // Visual finish line — a dashed white vertical line at
+    // track.finishLineX.  Short dashes with small gaps so it reads
+    // as "marker" rather than "wall"; thin stroke keeps it from
+    // overpowering the cars + track.
     if (trackFinishLineX !== null) {
       const lineX = trackFinishLineX;
       const baseY = sampleTrackY(trackPoints, lineX);
       const totalH = 4; // 4 m tall — visible without dominating
-      const square = 0.5; // ½ m per checker square
-      const halfW = 0.18;
-      const rows = Math.ceil(totalH / square);
-      for (let r = 0; r < rows; r++) {
-        const yA = baseY + r * square;
-        const yB = Math.min(baseY + totalH, yA + square);
-        // Two columns per row (left / right halves) so the checker
-        // alternates both vertically AND horizontally — classic
-        // 2×N checkerboard pattern.
-        for (let col = 0; col < 2; col++) {
-          const xL = lineX - halfW + col * halfW;
-          const dark = (r + col) % 2 === 0;
-          obstaclesGfx.rect(xL, yA, halfW, yB - yA);
-          obstaclesGfx.fill({
-            color: dark ? COLORS.finishDark : COLORS.finishLight,
-            alpha: 1,
-          });
-        }
+      const dashLen = 0.25;
+      const gapLen = 0.1;
+      const stride = dashLen + gapLen;
+      let y = baseY;
+      while (y < baseY + totalH) {
+        const yEnd = Math.min(baseY + totalH, y + dashLen);
+        obstaclesGfx.moveTo(lineX, y).lineTo(lineX, yEnd);
+        y += stride;
       }
+      obstaclesGfx.stroke({ color: COLORS.finishLight, width: 0.05, alpha: 1 });
     }
 
     // Parallax layers: two silhouette ridges generated by procedural

@@ -94,12 +94,12 @@ const gaParams: GAParams = {
  *   obstacles  — discrete-hazard intensities, all 0..1, default 0.
  */
 const trackTuning: {
-  /** Track length in metres.  Slider range 200..3000, default 500. */
+  /** Track length in metres.  Slider range 200..2000, default 200. */
   length: number;
   difficulty: number;
   obstacles: ObstacleConfig;
 } = {
-  length: 500,
+  length: 200,
   difficulty: 40,
   obstacles: {
     wall: 0,

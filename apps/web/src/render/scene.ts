@@ -30,7 +30,15 @@ const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 const ZOOM_DEFAULT = 35;
 const ZOOM_MIN = 12;
 const ZOOM_MAX = 90;
-const ZOOM_WHEEL_FACTOR = 1.12;
+/**
+ * Zoom-per-wheel-tick multiplier.  1.04 means each notch changes the
+ * pixels-per-metre by 4 % — gentle enough that holding the wheel for
+ * a second still lands you near the desired scale instead of
+ * jump-cutting past it.  Bumped from 1.12 in v1.27 by player
+ * request: 12 % per tick was zooming clear past the leader on a
+ * single notch.
+ */
+const ZOOM_WHEEL_FACTOR = 1.04;
 const CAMERA_LERP = 0.08;
 /**
  * After the user takes manual control of the camera (drag on the

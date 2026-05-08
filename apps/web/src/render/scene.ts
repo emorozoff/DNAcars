@@ -55,7 +55,6 @@ const COLORS = {
   body: 0xe6e6e9,
   wheel: 0x8b8b94,
   wheelGround: 0xa8ff60,
-  highlight: 0xffd166,
   /** Chassis tint for cars that have crossed the finish line —
    *  same accent green as the leader marker / "wheel on ground"
    *  swatch so finishers visually pair with the rest of the
@@ -82,10 +81,6 @@ const COLORS = {
   finishFlag: 0xffd166,
   finishPole: 0xc8c8d0,
 } as const;
-
-const HIGHLIGHT_MS = 1500;
-
-export type CarClickHandler = (carIndex: number) => void;
 
 /**
  * How much rendering work to do per frame.  Mapped from the host's
@@ -139,8 +134,6 @@ export type SceneHandle = {
    *                   no per-car Pixi work at all.
    */
   setSnapshot(s: WorldSnapshot, opts?: { tier?: RenderTier; headless?: boolean }): void;
-  /** Register (or clear) the callback fired when the user clicks a car. */
-  onCarClick(handler: CarClickHandler | null): void;
   /**
    * Pass an array of world-x values for the recent record-setting
    * positions on the current track, oldest → newest.  The minimap
@@ -210,7 +203,6 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   let trackPhysicalObstacles: readonly PhysicalObstacle[] = [];
   let trackFinishLineX: number | null = null;
   const carViews = new Map<number, CarView>();
-  let onCarClickHandler: CarClickHandler | null = null;
   /**
    * World-x values of the recent record-setting positions on the
    * current track, oldest → newest.  Passed to the minimap on every
@@ -275,15 +267,9 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   // current zoom and applied directly to freeCameraX so the
   // viewport tracks the cursor 1:1.  Pointer-capture means the
   // gesture survives leaving the canvas bounds while the button
-  // is still held.
-  //
-  // Two-stage state machine to distinguish clicks from drags:
-  //   primed = pointer is down but we haven't seen enough motion
-  //            to call it a drag yet.  Click-on-car (whose Pixi
-  //            handler fires the debug-bundle copy) lives entirely
-  //            inside this stage and never switches camera mode.
-  //   dragging = motion has crossed DRAG_THRESHOLD_PX, the gesture
-  //              is now confirmed as a camera pan.
+  // is still held.  We only promote to "dragging" once the pointer
+  // has moved past DRAG_THRESHOLD_PX, so a tiny accidental motion
+  // doesn't immediately yank the camera into free-mode.
   const DRAG_THRESHOLD_PX = 4;
   let primed = false;
   let dragging = false;
@@ -610,7 +596,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       seen.add(car.index);
       let view = carViews.get(car.index);
       if (!view) {
-        view = makeCarView(car, (idx) => onCarClickHandler?.(idx));
+        view = makeCarView(car);
         carsLayer.addChild(view.container);
         carViews.set(car.index, view);
       }
@@ -665,9 +651,6 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       lastManualInputAt = 0;
     },
     setSnapshot,
-    onCarClick(handler): void {
-      onCarClickHandler = handler;
-    },
     setRecordHistory(worldXs): void {
       recordHistory = worldXs;
     },
@@ -704,8 +687,6 @@ type CarView = {
   container: Container;
   body: Graphics;
   wheels: Graphics[];
-  /** When > performance.now(), the chassis tints highlight-yellow (post-click). */
-  highlightUntil: number;
   /**
    * When > performance.now(), the chassis is mid-celebration after
    * crossing the finish line — bright accent tint + scale pop +
@@ -723,7 +704,7 @@ type CarView = {
   finalDrawn: boolean;
 };
 
-function makeCarView(car: CarSnapshot, onClick: ((idx: number) => void) | null): CarView {
+function makeCarView(car: CarSnapshot): CarView {
   const container = new Container();
   const body = new Graphics();
   body.poly(car.vertices.map((v) => ({ x: v.x, y: v.y })));
@@ -750,28 +731,14 @@ function makeCarView(car: CarSnapshot, onClick: ((idx: number) => void) | null):
     container.addChild(g);
   }
 
-  const view: CarView = {
+  return {
     container,
     body,
     wheels,
-    highlightUntil: 0,
     celebrateUntil: 0,
     hadFinishTime: false,
     finalDrawn: false,
   };
-
-  // Click on a car: flash chassis yellow for 1.5 s and fire the
-  // external handler so the host can dump a debug bundle to the
-  // clipboard.  The flash is the player's confirmation that *this*
-  // is the car they meant.
-  container.eventMode = 'static';
-  container.cursor = 'pointer';
-  container.on('pointerdown', () => {
-    view.highlightUntil = performance.now() + HIGHLIGHT_MS;
-    onClick?.(car.index);
-  });
-
-  return view;
 }
 
 function updateCarView(
@@ -817,15 +784,18 @@ function updateCarView(
     view.container.scale.set(1, 1);
   }
 
-  // Chassis tint priority (highest wins):
-  //   click-highlight  — yellow flash, 600 ms
+  // Chassis tint policy:
+  //   tier !== 'full'  — neutral white body for everyone, no
+  //                      accents.  At ×8+ the strobing of leader
+  //                      tints + finisher flashes is unreadable
+  //                      and just burns GPU cycles.
   //   celebration      — accent green + scale-pop (finish or leader change)
   //   finisher         — accent green steady
   //   leader & elite   — accent green steady ("old champion still leads")
   //   leader & !elite  — warm red-orange ("newcomer overtook the elite")
   //   default          — white body, used by every non-leader car
-  if (now < view.highlightUntil) {
-    view.body.tint = COLORS.highlight;
+  if (tier !== 'full') {
+    view.body.tint = COLORS.body;
   } else if (celebrating || isFinisher) {
     view.body.tint = COLORS.finisher;
   } else if (isLeader) {
@@ -836,12 +806,15 @@ function updateCarView(
 
   const cos = Math.cos(-car.angle);
   const sin = Math.sin(-car.angle);
-  // Wheel tinting policy:
-  //   'full' (×1)  — green flash on grounded wheels every frame
-  //   'lite' (×8)  — neutral grey only.  At ×8 the green strobe
-  //                  is unreadable and a previously-set green tint
-  //                  would otherwise stick if we just skipped the
-  //                  write (the bug this comment is replacing).
+  // Per-tier wheel work:
+  //   'full' (×1)  — full update.  Position, spin angle, and
+  //                  green flash on grounded wheels.
+  //   'lite' (×8+) — position only.  Spin animation is invisible
+  //                  at ×8 anyway (wheels would have to spin
+  //                  hundreds of times per frame to read), and
+  //                  the green strobe is unreadable too.  We keep
+  //                  setting a neutral grey tint to overwrite any
+  //                  green left over from the last 'full' frame.
   for (let i = 0; i < view.wheels.length; i++) {
     const wg = view.wheels[i]!;
     const ws = car.wheels[i];
@@ -849,8 +822,8 @@ function updateCarView(
     const dx = ws.position.x - car.position.x;
     const dy = ws.position.y - car.position.y;
     wg.position.set(dx * cos - dy * sin, dx * sin + dy * cos);
-    wg.rotation = ws.angle - car.angle;
     if (tier === 'full') {
+      wg.rotation = ws.angle - car.angle;
       wg.tint = ws.onGround && !car.finished ? COLORS.wheelGround : COLORS.wheel;
     } else {
       wg.tint = COLORS.wheel;

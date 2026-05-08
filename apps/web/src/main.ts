@@ -38,7 +38,6 @@ import {
   generateTrack,
   makeRng,
   randomGenome,
-  sampleTrackY,
   SIM_DT,
   TUNING,
   type Genome,
@@ -1480,49 +1479,6 @@ async function startSession(opts: StartOptions): Promise<Session> {
   hud.trackLength.textContent = `${track.options.length}m`;
   hud.seed.textContent = trackSeed.toString(16).padStart(8, '0');
   hud.generation.textContent = String(generation);
-
-  // Click on a car → bundle (seed, gen, genome, current snapshot) goes
-  // to the clipboard as JSON.  The bundle has everything needed for
-  // somebody else (me) to recreate the exact situation locally.
-  scene.onCarClick((carIndex) => {
-    const genome = genomes[carIndex];
-    const snap = world.snapshot();
-    const carSnap = snap.cars.find((c) => c.index === carIndex);
-    if (!genome || !carSnap) return;
-    const trackY = sampleTrackY(track, carSnap.position.x);
-    // Pull the per-car trajectory + safety-event counts.  The
-    // timeline tuples are documented in apps/web/src/sim/world.ts:
-    //   [t, x, y, vx, vy, ang, hAt, onBits, ev]
-    // ev codes: 0 sample / 1 velClamp / 3 finish / 4 spike.
-    const timeline = world.getCarTimeline(carIndex);
-    const eventCounts = world.getCarEventCounts(carIndex);
-    const bundle = {
-      version: __APP_VERSION__,
-      trackSeed: trackSeed.toString(16).padStart(8, '0'),
-      generation,
-      carIndex,
-      genome,
-      snapshot: {
-        position: carSnap.position,
-        velocity: carSnap.velocity,
-        angle: carSnap.angle,
-        speed: carSnap.speed,
-        travel: carSnap.travel,
-        finished: carSnap.finished,
-        trackYHere: Number(trackY.toFixed(3)),
-        heightAboveTrack: Number((carSnap.position.y - trackY).toFixed(3)),
-      },
-      eventCounts,
-      timelineHelp:
-        'tuple = [t, x, y, vx, vy, ang, heightAboveTrack, onGroundBitmask, eventCode]; eventCode 0=sample 1=velClamp 3=finish 4=spike',
-      timeline,
-    };
-    const json = JSON.stringify(bundle, null, 2);
-    void navigator.clipboard
-      .writeText(json)
-      .catch((err) => console.warn('clipboard write failed', err));
-    console.info('[debug bundle]', bundle);
-  });
 
   let running = true;
   let endNotified = false;

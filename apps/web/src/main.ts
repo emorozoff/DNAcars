@@ -266,6 +266,32 @@ function saveFastForward(on: boolean): void {
 }
 let fastForwardEnabled = loadFastForward();
 
+/**
+ * Render-top-only toggle — when on, the scene only updates Pixi
+ * views for the top K (= TOP_K_CARS) cars by current world-x.  At
+ * population sizes near 100, drawing every car each frame at ×1 is
+ * a real fraction of the per-frame budget on a low-end CPU, and
+ * the back-of-pack cars rarely teach the player anything visually
+ * (most are stalled non-finishers anyway).  Default off — current
+ * behaviour preserved for upgrades.
+ */
+const RENDER_TOP_ONLY_KEY = 'dnacars.renderTopOnly';
+function loadRenderTopOnly(): boolean {
+  try {
+    return localStorage.getItem(RENDER_TOP_ONLY_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function saveRenderTopOnly(on: boolean): void {
+  try {
+    localStorage.setItem(RENDER_TOP_ONLY_KEY, on ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+let renderTopOnly = loadRenderTopOnly();
+
 function loadSeedHistory(): number[] {
   try {
     const raw = localStorage.getItem(SEED_HISTORY_KEY);
@@ -1107,6 +1133,18 @@ async function bootstrap(): Promise<void> {
     });
   }
 
+  // Render-top-only toggle.  Effect is per-frame — flipping while a
+  // generation is in flight immediately starts hiding / re-showing
+  // back-of-pack cars on the next setSnapshot call.
+  const renderTopOnlyInput = document.getElementById('ctrl-render-top-only');
+  if (renderTopOnlyInput instanceof HTMLInputElement) {
+    renderTopOnlyInput.checked = renderTopOnly;
+    renderTopOnlyInput.addEventListener('change', () => {
+      renderTopOnly = renderTopOnlyInput.checked;
+      saveRenderTopOnly(renderTopOnly);
+    });
+  }
+
   // Advanced-settings modal: button in the dock opens it; close on
   // X-button click, click on the backdrop, or Escape.  The toggles
   // inside (fast-forward / speed-mode / pure-mutation / strict-det)
@@ -1742,6 +1780,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
       scene.setSnapshot(snap, {
         tier: skipPixiThisFrame ? 'none' : tier,
         headless: eff.headless,
+        renderTopOnly,
       });
       updateHud(hud, snap);
       updateThroughputDisplay();

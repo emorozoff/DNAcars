@@ -103,7 +103,7 @@
                 type="range"
                 id="ctrl-population"
                 min="8"
-                max="60"
+                max="100"
                 step="1"
                 value="24"
               />
@@ -346,6 +346,17 @@
                   </span>
                   <span class="modal-settings__item-desc" data-i18n="panel.fastForwardHint">
                     End the generation early once only cached elites are still alive.
+                  </span>
+                </div>
+              </label>
+              <label class="modal-settings__item">
+                <input class="ctrl__checkbox" type="checkbox" id="ctrl-render-top-only" />
+                <div class="modal-settings__item-text">
+                  <span class="modal-settings__item-label" data-i18n="panel.renderTopOnly">
+                    Draw only leaders
+                  </span>
+                  <span class="modal-settings__item-desc" data-i18n="panel.renderTopOnlyHint">
+                    Only the top cars by current position are drawn each frame.
                   </span>
                 </div>
               </label>

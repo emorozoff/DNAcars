@@ -141,7 +141,21 @@ export type SceneHandle = {
    *   'none' (×32) — headless.  Camera + minimap still update;
    *                   no per-car Pixi work at all.
    */
-  setSnapshot(s: WorldSnapshot, opts?: { tier?: RenderTier; headless?: boolean }): void;
+  setSnapshot(
+    s: WorldSnapshot,
+    opts?: {
+      tier?: RenderTier;
+      headless?: boolean;
+      /**
+       * When true, only the top K cars by current world-x are
+       * drawn — back-of-pack views are kept around but flipped
+       * to invisible so per-frame attribute writes are skipped.
+       * Trades the "visible swarm" look for noticeably less
+       * per-frame Pixi work at large populations.
+       */
+      renderTopOnly?: boolean;
+    },
+  ): void;
   /**
    * Pass an array of world-x values for the recent record-setting
    * positions on the current track, oldest → newest.  The minimap
@@ -517,9 +531,15 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     drawParallaxLayer(bgNearGfx, last.x, 0.09, 1.0, 0.4, COLORS.bgNear);
   }
 
+  /** How many cars to keep visually drawn when renderTopOnly is on.
+   *  Picked by current world-x.  10 fits the front pack at typical
+   *  populations without obscuring the GA "front line" the player
+   *  cares about. */
+  const TOP_K_CARS = 10;
+
   function setSnapshot(
     snap: WorldSnapshot,
-    opts: { tier?: RenderTier; headless?: boolean } = {},
+    opts: { tier?: RenderTier; headless?: boolean; renderTopOnly?: boolean } = {},
   ): void {
     const tier: RenderTier = opts.tier ?? 'full';
     // `headless` is the session-level flag the host knows about
@@ -614,14 +634,36 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     // canvas is already invisible, so nobody sees the stale views.
     if (!renderCars) return;
 
+    // Optional culling: when the host wants only the front pack
+    // drawn, pick TOP_K_CARS cars by world-x and skip per-frame
+    // updates for everyone else.  Skipped views aren't destroyed —
+    // they keep their last-drawn pose and are flipped invisible, so
+    // toggling the flag mid-run is cheap and doesn't lose state.
+    let drawSet: Set<number> | null = null;
+    if (opts.renderTopOnly && snap.cars.length > TOP_K_CARS) {
+      const sorted = [...snap.cars].sort((a, b) => b.position.x - a.position.x);
+      drawSet = new Set<number>();
+      for (let i = 0; i < TOP_K_CARS; i++) drawSet.add(sorted[i]!.index);
+    }
+
     const seen = new Set<number>();
     for (const car of snap.cars) {
       seen.add(car.index);
       let view = carViews.get(car.index);
+      const shouldDraw = drawSet === null || drawSet.has(car.index);
+      if (!shouldDraw) {
+        // Hide existing view (don't allocate a new one for cars
+        // that won't be visible anyway — saves a Container + N
+        // Graphics per skipped car).
+        if (view && view.container.visible) view.container.visible = false;
+        continue;
+      }
       if (!view) {
         view = makeCarView(car);
         carsLayer.addChild(view.container);
         carViews.set(car.index, view);
+      } else if (!view.container.visible) {
+        view.container.visible = true;
       }
       updateCarView(view, car, tier, car.index === newLeaderIdx);
     }

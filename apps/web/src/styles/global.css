@@ -77,7 +77,7 @@ button {
 .brand__version {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  color: var(--color-accent);
+  color: var(--color-fg);
   letter-spacing: 0.04em;
   margin-left: var(--sp-2);
   padding: 2px 8px;
@@ -1433,9 +1433,13 @@ button {
 
 .minimap__car {
   stroke: var(--color-fg);
-  stroke-width: 2;
-  stroke-linecap: round;
-  cursor: pointer;
+  stroke-width: 1.5;
+  stroke-linecap: butt;
+  /* Cars are no longer individually clickable on the minimap (the
+     follow-this-car gesture was removed in v1.20.1).  Pointer
+     events fall through to the surrounding minimap surface so
+     drag-to-pan works across the ticks. */
+  pointer-events: none;
 }
 
 /* ─── Stats / charts panel ──────────────────────────────────────────────── */

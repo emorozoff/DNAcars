@@ -57,16 +57,11 @@ export type MinimapHandle = {
    * Subscribe to "user clicked or dragged on the minimap surface".
    * The handler is called with the world-x corresponding to the
    * cursor position.  Used by the host to enter free-camera mode.
-   * Click on a specific car dot does NOT fire this — those have
-   * their own pointerdown handler that stops propagation.
+   * Click anywhere fires this — there's no per-car affordance on
+   * the minimap any more (was removed in v1.20.1; the player can
+   * still click a car directly on the canvas to follow it).
    */
   onJump(handler: ((worldX: number) => void) | null): void;
-  /**
-   * Subscribe to "user clicked a specific car dot on the minimap".
-   * The handler is called with that car's snapshot index.  Host
-   * uses this to enter follow-this-car mode.
-   */
-  onCarSelect(handler: ((carIdx: number) => void) | null): void;
   /**
    * Switch the minimap into "headless" presentation: hide the camera
    * viewport rectangle (no canvas to anchor it to) and stretch each
@@ -125,24 +120,10 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
   }
 
   let jumpHandler: ((worldX: number) => void) | null = null;
-  let carSelectHandler: ((idx: number) => void) | null = null;
   let dragging = false;
 
-  // Clicking a car-dot is a "follow this car" gesture; the handler
-  // stops propagation so the surrounding minimap-surface listener
-  // doesn't *also* treat it as a free-camera jump.  Dot indices are
-  // stored in dataset and updated each frame in update() — this lets
-  // a single delegated listener service the whole pool.
-  carsGroup.addEventListener('pointerdown', (e) => {
-    if (!(e.target instanceof SVGElement)) return;
-    const idxStr = e.target.dataset['carIdx'];
-    if (idxStr === undefined) return;
-    e.stopPropagation();
-    carSelectHandler?.(Number(idxStr));
-  });
-
-  // Click or drag anywhere else on the minimap → manual camera jump
-  // to that world-x.  Uses pointer capture so the drag keeps tracking
+  // Click or drag anywhere on the minimap → manual camera jump to
+  // that world-x.  Uses pointer capture so the drag keeps tracking
   // even if the cursor leaves the SVG bounds while still pressed.
   function emitJumpFromEvent(e: PointerEvent): void {
     if (!jumpHandler || trackLength === 0) return;
@@ -214,8 +195,12 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
         viewportEl.removeAttribute('opacity');
       }
 
-      // Render every car as a tiny dot AND pick the running leader.
-      const yRange = trackMaxY - trackMinY || 1;
+      // Render every car as a full-height vertical tick.  Cars
+       // span the entire minimap height regardless of speed tier so
+       // the player gets a clean "barcode" of population positions
+       // across the track at any zoom.  Headless mode also hides
+       // the camera-viewport rect (nothing to reference) but the
+       // car layout is identical.
       let leader: { x: number; y: number } | null = null;
       let leaderRunning: { x: number; y: number } | null = null;
       for (let i = 0; i < snap.cars.length; i++) {
@@ -226,32 +211,14 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
           dot = document.createElementNS(SVG_NS, 'line');
           dot.setAttribute('class', 'minimap__car');
           dot.setAttribute('vector-effect', 'non-scaling-stroke');
+          dot.setAttribute('y1', '0');
+          dot.setAttribute('y2', String(VIEW_H));
           carsGroup.appendChild(dot);
           carDots[i] = dot;
         }
-        // Stamp the car index on the DOM node so the delegated
-        // pointerdown listener on `carsGroup` can read it back when
-        // the user clicks.  Re-set every frame because the pool is
-        // reused across populations.
-        dot.dataset['carIdx'] = String(car.index);
         const dx = xToView(car.position.x);
-        // Vertical tick at x = dx.  In headless mode the tick spans
-        // the full minimap height (full-height "barcode" reading
-        // — the population's positions across the track is the only
-        // useful visualisation when the main canvas is off).  In
-        // normal mode it's centred on the car's local y so the
-        // player can see whether a car is in a valley vs on a peak.
         dot.setAttribute('x1', dx.toFixed(1));
         dot.setAttribute('x2', dx.toFixed(1));
-        if (headless) {
-          dot.setAttribute('y1', '0');
-          dot.setAttribute('y2', String(VIEW_H));
-        } else {
-          const dy =
-            VIEW_H - PAD_Y - ((car.position.y - trackMinY) / yRange) * (VIEW_H - 2 * PAD_Y);
-          dot.setAttribute('y1', (dy - CAR_TICK_HALF).toFixed(1));
-          dot.setAttribute('y2', (dy + CAR_TICK_HALF).toFixed(1));
-        }
         dot.setAttribute('opacity', car.finished ? '0.35' : '0.75');
 
         if (!leader || car.position.x > leader.x) leader = { x: car.position.x, y: car.position.y };
@@ -269,15 +236,8 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
         const lx = xToView(lead.x);
         leaderEl.setAttribute('x1', String(lx));
         leaderEl.setAttribute('x2', String(lx));
-        if (headless) {
-          leaderEl.setAttribute('y1', '0');
-          leaderEl.setAttribute('y2', String(VIEW_H));
-        } else {
-          const ly =
-            VIEW_H - PAD_Y - ((lead.y - trackMinY) / yRange) * (VIEW_H - 2 * PAD_Y);
-          leaderEl.setAttribute('y1', String(ly - LEADER_TICK_HALF));
-          leaderEl.setAttribute('y2', String(ly + LEADER_TICK_HALF));
-        }
+        leaderEl.setAttribute('y1', '0');
+        leaderEl.setAttribute('y2', String(VIEW_H));
         leaderEl.setAttribute('opacity', '1');
       } else {
         leaderEl.setAttribute('opacity', '0');
@@ -311,9 +271,6 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
     },
     onJump(handler): void {
       jumpHandler = handler;
-    },
-    onCarSelect(handler): void {
-      carSelectHandler = handler;
     },
     setHeadless(on: boolean): void {
       headless = on;

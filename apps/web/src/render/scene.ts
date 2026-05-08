@@ -250,11 +250,6 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       markManualInput();
       emitCameraChange();
     });
-    minimap.onCarSelect((idx) => {
-      cameraMode = { type: 'car', idx };
-      markManualInput();
-      emitCameraChange();
-    });
   }
 
   // Drag on the main canvas → free-camera mode.  The drag delta

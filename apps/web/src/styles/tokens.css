@@ -28,6 +28,12 @@
      in a calm black-white-gray palette. */
   --color-panel-accent: #e6e6e9;
 
+  /* Warm secondary accent — muted red-orange / coral.  Available
+     for callouts where the cool green wouldn't fit.  Tuned to read
+     clearly without the in-your-face saturation of --color-bad. */
+  --color-accent-warm: #e8845a;
+  --color-accent-warm-soft: rgba(232, 132, 90, 0.18);
+
   /* Semantic */
   --color-good: #a8ff60;
   --color-warn: #ffd166;
@@ -107,6 +113,8 @@
   --color-accent: #4a8a26;
   --color-accent-soft: rgba(74, 138, 38, 0.12);
   --color-panel-accent: #0e0e10;
+  --color-accent-warm: #c95e2a;
+  --color-accent-warm-soft: rgba(201, 94, 42, 0.16);
   --color-track: #d6d6dd;
   --color-car-body: #1a1a1f;
   --color-car-wheel: #5a5a63;

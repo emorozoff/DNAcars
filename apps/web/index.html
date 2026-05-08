@@ -29,7 +29,17 @@
       </header>
 
       <main class="stage">
-        <div id="pixi-root" class="stage__canvas"></div>
+        <div id="pixi-root" class="stage__canvas">
+          <!-- Floating "back to leader" button lives INSIDE the canvas
+               wrapper so its `position: absolute` positions against the
+               canvas section regardless of mobile vs desktop layout —
+               on mobile the canvas wrapper is the only "above the
+               fold" reference, and the button needs to sit clearly
+               below the topbar.  Pixi's <canvas> appends after this
+               button at runtime; .btn--floating's z-index keeps it
+               on top. -->
+          <button class="btn btn--floating" id="btn-camera-leader" hidden>Follow leader</button>
+        </div>
 
         <!-- Top of stage: minimap pinned to the very top across the full
              width, then a compact stat block in the top-left underneath
@@ -511,8 +521,6 @@
             </div>
           </div>
         </div>
-
-        <button class="btn btn--floating" id="btn-camera-leader" hidden>Follow leader</button>
 
         <div class="headless-banner" data-i18n="panel.headlessBanner">Render off · ×32 speed</div>
 

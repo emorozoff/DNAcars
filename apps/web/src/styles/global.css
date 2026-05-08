@@ -30,6 +30,20 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow: hidden;
+  /* Mobile-friendly defaults: keep iOS Safari from interpreting
+     edge-swipes as page nav, kill the blue tap-highlight on
+     buttons, and let the canvas swallow gestures cleanly without
+     the page bouncing under it. */
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+button,
+label,
+input,
+select {
+  -webkit-tap-highlight-color: transparent;
 }
 
 #app {
@@ -2040,5 +2054,91 @@ button {
 
   .dock-drawer__grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Phone-portrait — tightens the dock so all controls fit a 390-pt
+   iPhone width.  Both rows wrap, sliders span full width, action
+   buttons stay 40 pt+ tall for comfortable thumb taps.  Charts
+   panel switches to a full-screen overlay so its body scrolls
+   independently of the stage.  Stage-level minimap + ribbon are
+   already responsive via the rule above. */
+@media (max-width: 640px) {
+  .topbar {
+    padding: 0 var(--sp-3);
+    gap: var(--sp-2);
+  }
+
+  .brand__name {
+    /* The brand wordmark is decorative — drop it on tight widths so
+       the version chip + tutorial + lang toggle all keep room. */
+    display: none;
+  }
+
+  .dock {
+    /* Pin to the bottom edge with a small inset; the dock's own
+       max-width: calc(100vw - 2*sp-4) keeps it inside the viewport,
+       and rows below wrap as needed. */
+    bottom: var(--sp-2);
+    width: calc(100vw - 2 * var(--sp-2));
+    max-width: none;
+  }
+
+  .dock__row {
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-3);
+  }
+
+  .dock__row--params {
+    gap: var(--sp-2) var(--sp-3);
+  }
+
+  .dock__row--params .ctrl--inline {
+    /* Each slider takes the full row, value chip stays right-
+       aligned via the existing flex layout inside .ctrl. */
+    flex-basis: 100%;
+  }
+
+  .dock__sep {
+    /* Hairline separators don't read on a wrapped flex; let them
+       collapse so the buttons don't get oddly bisected. */
+    display: none;
+  }
+
+  .dock__section {
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+  }
+
+  /* Bigger touch targets on the speed segmented + transport buttons
+     so they hit Apple's 44 × 44 pt minimum.  Cars are watched, not
+     micro-managed, so making the controls comfy beats keeping them
+     compact. */
+  .segmented__item,
+  .dock__toggle,
+  .btn {
+    min-height: 2.5rem;
+  }
+
+  /* Charts panel takes over the screen below the topbar — easier
+     to scroll an 800-px-tall dashboard on a phone than to read it
+     squeezed into a 200-px slice. */
+  .charts-panel {
+    position: fixed;
+    inset: var(--topbar-h) 0 0 0;
+    width: auto;
+    max-width: none;
+    z-index: 3;
+    overflow-y: auto;
+    padding: var(--sp-3);
+  }
+
+  /* The advanced-settings modal already has a panel that caps its
+     own size; just make sure the panel has breathing room from the
+     viewport edges on narrow screens. */
+  .modal-settings__panel,
+  .modal-confirm__panel {
+    width: calc(100vw - 2 * var(--sp-3));
   }
 }

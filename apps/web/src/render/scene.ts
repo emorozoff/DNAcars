@@ -293,24 +293,56 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     });
   }
 
-  // Drag on the main canvas → free-camera mode.  The drag delta
-  // (in screen pixels) is converted to world-metres via the
-  // current zoom and applied directly to freeCameraX so the
-  // viewport tracks the cursor 1:1.  Pointer-capture means the
-  // gesture survives leaving the canvas bounds while the button
-  // is still held.  We only promote to "dragging" once the pointer
-  // has moved past DRAG_THRESHOLD_PX, so a tiny accidental motion
-  // doesn't immediately yank the camera into free-mode.
+  // Drag on the main canvas → free-camera mode.  Two simultaneous
+  // pointers → pinch-zoom (so iPhone players have a way to zoom
+  // without a mouse wheel).  Mechanics:
+  //
+  //   single pointer:  the existing 1-finger drag, untouched.
+  //   two pointers:    first pinch sample latches the initial
+  //                    distance + zoom; subsequent moves scale
+  //                    `zoom` by the current/initial-distance
+  //                    ratio, clamped to ZOOM_MIN..ZOOM_MAX.
+  //                    A pinch *suppresses* drag for the duration
+  //                    so the camera doesn't lurch sideways while
+  //                    the fingers are converging.
+  //
+  // `activePointers` keys by pointerId so a finger lifting mid-pinch
+  // gracefully reverts to a single-pointer drag at whatever its
+  // remaining position is.
   const DRAG_THRESHOLD_PX = 4;
   let primed = false;
   let dragging = false;
   let dragStartClientX = 0;
   let dragStartClientY = 0;
   let dragLastClientX = 0;
+  type Pt = { x: number; y: number };
+  const activePointers = new Map<number, Pt>();
+  let pinchStartDistance = 0;
+  let pinchStartZoom = ZOOM_DEFAULT;
+  function pinchActive(): boolean {
+    return activePointers.size >= 2;
+  }
+  function currentPinchDistance(): number {
+    if (activePointers.size < 2) return 0;
+    const [a, b] = [...activePointers.values()];
+    return Math.hypot(a!.x - b!.x, a!.y - b!.y);
+  }
   host.addEventListener('pointerdown', (e) => {
     // Only the primary button (left mouse / first finger) drives
     // the camera — leave middle/right click for browser defaults.
     if (e.button !== 0) return;
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (activePointers.size >= 2) {
+      // Second finger landed — open a pinch gesture.  Cancel any
+      // in-flight 1-finger drag state so the camera stops sliding
+      // while the user zooms.
+      primed = false;
+      dragging = false;
+      host.classList.remove('stage__canvas--dragging');
+      pinchStartDistance = currentPinchDistance();
+      pinchStartZoom = zoom;
+      return;
+    }
     primed = true;
     dragging = false;
     dragStartClientX = e.clientX;
@@ -319,6 +351,17 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     host.setPointerCapture(e.pointerId);
   });
   host.addEventListener('pointermove', (e) => {
+    if (activePointers.has(e.pointerId)) {
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    if (pinchActive()) {
+      const d = currentPinchDistance();
+      if (pinchStartDistance > 0 && d > 0) {
+        const next = pinchStartZoom * (d / pinchStartDistance);
+        zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, next));
+      }
+      return;
+    }
     if (!primed) return;
     if (!dragging) {
       // Still inside the click-vs-drag dead zone.  Promote to
@@ -346,10 +389,19 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     markManualInput();
   });
   const stopHostDragging = (e: PointerEvent): void => {
+    activePointers.delete(e.pointerId);
     primed = false;
     dragging = false;
     host.classList.remove('stage__canvas--dragging');
     if (host.hasPointerCapture(e.pointerId)) host.releasePointerCapture(e.pointerId);
+    // If the user lifted one of two fingers mid-pinch, re-anchor
+    // the pinch baseline so the next move tick doesn't snap the
+    // zoom level (the remaining distance shouldn't suddenly
+    // re-scale relative to the original two-finger gap).
+    if (activePointers.size >= 2) {
+      pinchStartDistance = currentPinchDistance();
+      pinchStartZoom = zoom;
+    }
   };
   host.addEventListener('pointerup', stopHostDragging);
   host.addEventListener('pointercancel', stopHostDragging);

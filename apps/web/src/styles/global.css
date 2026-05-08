@@ -1442,12 +1442,12 @@ button {
   pointer-events: none;
 }
 
-/* Elite carryover from prev gen — warm coral.  Slightly thicker
-   stroke than the default so they stand out at a glance even when
-   most of the population is leading. */
-.minimap__car--elite {
+/* Leader-line colour switches to the warm accent when the running
+   leader is NOT a prev-gen elite — i.e. a newcomer just overtook
+   the inherited champions.  Mirrors the chassis tint on canvas so
+   both views agree on "fresh blood vs old champion". */
+.minimap__leader--newcomer {
   stroke: var(--color-accent-warm);
-  stroke-width: 2;
 }
 
 /* ─── Stats / charts panel ──────────────────────────────────────────────── */

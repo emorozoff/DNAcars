@@ -61,15 +61,16 @@ const COLORS = {
    *  swatch so finishers visually pair with the rest of the
    *  positive-feedback palette. */
   finisher: 0xa8ff60,
-  /** Chassis tint for elite carryover (top-N from prev gen, deep
-   *  cloned).  Warm coral so the player can spot last gen's
-   *  champions and see whether they're still leading or being
-   *  overtaken by their mutated children. */
-  elite: 0xe8845a,
-  /** Chassis tint for the current real-time leader (most-forward
-   *  alive car).  Same accent green as wheel-on-ground to read as
-   *  "this car is winning right now". */
-  leader: 0xa8ff60,
+  /** Chassis tint for the current real-time leader when that
+   *  leader IS an elite carryover from prev gen — "old champion
+   *  still on top".  Same accent green as the wheel-on-ground
+   *  swatch / finish flash. */
+  leaderElite: 0xa8ff60,
+  /** Chassis tint for the current real-time leader when it's NOT
+   *  an elite — i.e. a mutated child or random gen-0 car has
+   *  overtaken the inherited champions.  Warm red-orange to read
+   *  as "fresh blood in front". */
+  leaderNewcomer: 0xe8845a,
   /** Walls + ceilings — hazard red, matches the record marker. */
   obstacle: 0xd05d5d,
   /** Slick patch — light blue, "ice-like".  Drawn over the track polyline. */
@@ -818,22 +819,17 @@ function updateCarView(
 
   // Chassis tint priority (highest wins):
   //   click-highlight  — yellow flash, 600 ms
-  //   celebration      — accent green + scale-pop
+  //   celebration      — accent green + scale-pop (finish or leader change)
   //   finisher         — accent green steady
-  //   leader           — accent green steady (same colour as
-  //                      celebration so a leader-change ping reads
-  //                      as "this car is now winning")
-  //   elite carryover  — warm coral so last gen's champions stand
-  //                      out even when not leading
-  //   default          — white body
+  //   leader & elite   — accent green steady ("old champion still leads")
+  //   leader & !elite  — warm red-orange ("newcomer overtook the elite")
+  //   default          — white body, used by every non-leader car
   if (now < view.highlightUntil) {
     view.body.tint = COLORS.highlight;
   } else if (celebrating || isFinisher) {
     view.body.tint = COLORS.finisher;
   } else if (isLeader) {
-    view.body.tint = COLORS.leader;
-  } else if (car.isElite) {
-    view.body.tint = COLORS.elite;
+    view.body.tint = car.isElite ? COLORS.leaderElite : COLORS.leaderNewcomer;
   } else {
     view.body.tint = COLORS.body;
   }

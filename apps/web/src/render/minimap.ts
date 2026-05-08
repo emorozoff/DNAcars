@@ -201,8 +201,8 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
        // across the track at any zoom.  Headless mode also hides
        // the camera-viewport rect (nothing to reference) but the
        // car layout is identical.
-      let leader: { x: number; y: number } | null = null;
-      let leaderRunning: { x: number; y: number } | null = null;
+      let leader: { x: number; y: number; isElite: boolean } | null = null;
+      let leaderRunning: { x: number; y: number; isElite: boolean } | null = null;
       for (let i = 0; i < snap.cars.length; i++) {
         const car = snap.cars[i]!;
         // Grow the line pool lazily.
@@ -220,15 +220,11 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
         dot.setAttribute('x1', dx.toFixed(1));
         dot.setAttribute('x2', dx.toFixed(1));
         dot.setAttribute('opacity', car.finished ? '0.35' : '0.75');
-        // Elite tick — warm coral so last gen's champions are
-        // visually distinct from the mutated children.  Class is
-        // toggled per frame because the same dot pool gets reused
-        // across populations.
-        dot.classList.toggle('minimap__car--elite', car.isElite);
 
-        if (!leader || car.position.x > leader.x) leader = { x: car.position.x, y: car.position.y };
+        if (!leader || car.position.x > leader.x)
+          leader = { x: car.position.x, y: car.position.y, isElite: car.isElite };
         if (!car.finished && (!leaderRunning || car.position.x > leaderRunning.x)) {
-          leaderRunning = { x: car.position.x, y: car.position.y };
+          leaderRunning = { x: car.position.x, y: car.position.y, isElite: car.isElite };
         }
       }
       // Hide any pool entries that are no longer in use (population shrunk).
@@ -244,6 +240,10 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
         leaderEl.setAttribute('y1', '0');
         leaderEl.setAttribute('y2', String(VIEW_H));
         leaderEl.setAttribute('opacity', '1');
+        // Leader-line colour mirrors the chassis tint policy on
+        // canvas: green when the leader is one of last gen's
+        // elite, warm red-orange when it's a newcomer overtaking.
+        leaderEl.classList.toggle('minimap__leader--newcomer', !lead.isElite);
       } else {
         leaderEl.setAttribute('opacity', '0');
       }

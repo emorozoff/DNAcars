@@ -1007,8 +1007,20 @@ type CarRuntime = {
    * finishers; the car keeps physically running after this point
    * (it'll bump into the finish wall and stall normally), but its
    * time is recorded once and never updated again.
+   *
+   * Stored at sub-tick precision: when the chassis crosses the
+   * line, we linearly interpolate between the previous-tick x
+   * (lastTickX) and the current-tick x to find the fractional
+   * moment within the tick when the crossing happened.  This lets
+   * 0.01-s differences between two close finishers actually rank
+   * apart instead of both snapping to the same 1/60-s tick boundary.
    */
   finishTime: number | null;
+  /**
+   * Chassis x at the end of the previous game tick.  Used solely
+   * for sub-tick interpolation of finishTime — see above.
+   */
+  lastTickX: number;
   /** Once true, motor is off and bodies are pinned in place forever. */
   finished: boolean;
   /**
@@ -1222,9 +1234,23 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
         // x = length and finishTime would never trigger.  The car
         // keeps physically running afterwards (it'll bump into the
         // wall and stall normally).
+        //
+        // Sub-tick interpolation: the chassis moves several cm per
+        // tick, so snapping finishTime to the discrete tick boundary
+        // (multiples of 1/60 s) loses precision a 0.01-s ranking
+        // would care about.  Lerp the crossing moment between
+        // lastTickX (start of tick) and x (end of tick) and weight
+        // the tick's SIM_DT by that fraction.
         if (car.finishTime === null && x >= opts.track.finishLineX) {
-          car.finishTime = car.ageSec;
+          const prevX = car.lastTickX;
+          const dx = x - prevX;
+          const fraction =
+            prevX < opts.track.finishLineX && dx > 0
+              ? (opts.track.finishLineX - prevX) / dx
+              : 1;
+          car.finishTime = car.ageSec - SIM_DT + fraction * SIM_DT;
         }
+        car.lastTickX = x;
         clampInsaneVelocity(car, opts.track, time);
         const wasFinished = car.finished;
         updateLifecycle(car);
@@ -1498,6 +1524,7 @@ function buildCar(
     lastProgressTime: 0,
     lastProgressX: spawnX,
     finishTime: null,
+    lastTickX: spawnX,
     finished: false,
     frozen: false,
     // Cars spawn ≈ 1.6 m above the track surface, so they're literally

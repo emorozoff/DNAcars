@@ -444,7 +444,7 @@ function buildSpeedChart(): Speed {
       }
     }
     bestVal.value.textContent =
-      latestWithFinish !== null ? `${latestWithFinish.bestFinishTime!.toFixed(1)} s` : '—';
+      latestWithFinish !== null ? `${latestWithFinish.bestFinishTime!.toFixed(2)} s` : '—';
 
     // Y range: anchor at 0 (instant finish), top = max finish time
     // we've seen.  Lower line = better (faster).
@@ -489,7 +489,7 @@ function buildSpeedChart(): Speed {
     }
     flush();
 
-    yMaxLabel.textContent = `${maxT.toFixed(1)} s`;
+    yMaxLabel.textContent = `${maxT.toFixed(2)} s`;
     yMinLabel.textContent = '0';
     const firstGen = history[0]!.generation;
     const lastGen = history[history.length - 1]!.generation;

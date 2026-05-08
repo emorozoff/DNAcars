@@ -1544,7 +1544,15 @@ async function startSession(opts: StartOptions): Promise<Session> {
     // budget and the next RAF picks up the leftover acc — UI never
     // blocks for more than ~25 ms regardless of the multiplier.
     const stepBudgetEnd = now + STEP_DEADLINE_MS;
-    const stepOpts = { substeps: eff.substeps, solverIterations: eff.solverIterations };
+    const stepOpts = {
+      substeps: eff.substeps,
+      solverIterations: eff.solverIterations,
+      // Timeline recordings are only useful when the player can
+      // click a car for a debug bundle — pointless in headless
+      // tiers where the canvas is hidden.  Skip there to drop
+      // ~60 cars × allocs/sec of GC pressure.
+      recordTimeline: !eff.headless,
+    };
     while (acc >= SIM_DT && performance.now() < stepBudgetEnd) {
       world.step(stepOpts);
       acc -= SIM_DT;
@@ -1574,7 +1582,24 @@ async function startSession(opts: StartOptions): Promise<Session> {
     // hidden anyway, so HUD/minimap doesn't need 60 Hz refresh —
     // dropping to ~10 Hz at ×32 and ~5 Hz at ×128 frees most of
     // the per-frame budget for physics.
-    const uiDue = now - lastUiUpdateMs >= eff.uiThrottleMs;
+    // Adaptive UI throttle: scale the configured baseline by the
+    // current per-frame load so that on a roomy CPU we update the
+    // HUD/minimap more often (smoother) and on a saturated CPU we
+    // throttle harder (preserve physics throughput).
+    //
+    //   utilisation = smoothedFrameMs / 16.7 ms (60-fps budget)
+    //   factor      = clamp(utilisation, 0.25, 2.0)
+    //   adaptive    = base * factor
+    //
+    // For ×1 / ×8 the base throttle is small (or 0), so the factor
+    // doesn't change the perceived behaviour; the win is on ×32+
+    // where a 100 ms baseline scales down to ~30 ms when CPU is
+    // free, giving ~3× more UI refreshes for the same physics
+    // budget.
+    const utilisation = smoothedFrameMs / 16.7;
+    const adaptiveFactor = Math.max(0.25, Math.min(2, utilisation));
+    const adaptiveThrottle = eff.uiThrottleMs * adaptiveFactor;
+    const uiDue = now - lastUiUpdateMs >= adaptiveThrottle;
     if (uiDue) {
       // Throughput sample: realSpeed = (sim seconds advanced since
       // last sample) / (real seconds since last sample).  Smoothed

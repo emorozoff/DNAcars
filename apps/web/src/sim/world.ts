@@ -1021,6 +1021,14 @@ type CarRuntime = {
    * for sub-tick interpolation of finishTime — see above.
    */
   lastTickX: number;
+  /**
+   * First snapshot built after the chassis + wheels were converted
+   * to Fixed bodies (frozen).  Once latched, snapshotCar() returns
+   * this object instead of re-reading every chassis/wheel field
+   * each tick — the bodies are pinned so the values can't change.
+   * Cleared back to null on world rebuild (next gen).
+   */
+  cachedSnap: CarSnapshot | null;
   /** Once true, motor is off and bodies are pinned in place forever. */
   finished: boolean;
   /**
@@ -1096,6 +1104,17 @@ export type StepOptions = {
   substeps?: number;
   /** Rapier per-step constraint iterations (8 = stable, 4 = fast). */
   solverIterations?: number;
+  /**
+   * When false, skip the periodic timeline-sample writes inside
+   * step() — saves ~60 cars × ~5 entries / sim-second of allocation
+   * + push/shift work that nobody will read at headless tiers (the
+   * timeline is only useful when the player clicks a car for a
+   * debug bundle, which they can't do without rendering).  Safety
+   * events (velClamp / impulse-spike / finish) still record — those
+   * are rare and matter for the post-hoc bundle if the player ever
+   * drops back to ×1 to debug a car.
+   */
+  recordTimeline?: boolean;
 };
 
 export type WorldHandle = {
@@ -1211,6 +1230,7 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
       // v0.9.6 defaults (2 substeps, 8 iterations).
       const substeps = stepOpts?.substeps ?? PHYSICS_SUBSTEPS;
       const solverIter = stepOpts?.solverIterations ?? TUNING.solver.numIterations;
+      const wantTimeline = stepOpts?.recordTimeline ?? true;
       const subDt = SIM_DT / substeps;
       for (const w of worlds) {
         w.timestep = subDt;
@@ -1275,12 +1295,12 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
         const wasFinished = car.finished;
         updateLifecycle(car);
         // Record a periodic sample for this car.  If updateLifecycle
-        // just promoted us to "finished", record an event entry too
-        // so the timeline ends with a clear "this is when it stopped"
-        // marker.
+        // just promoted us to "finished", always record a finish
+        // event so the timeline ends with a clear "this is when it
+        // stopped" marker (even when periodic sampling is off).
         if (!wasFinished && car.finished) {
           recordTimeline(car, opts.track, time, 3);
-        } else {
+        } else if (wantTimeline) {
           recordTimeline(car, opts.track, time, 0);
         }
       }
@@ -1592,6 +1612,7 @@ function buildCar(
     lastProgressX: spawnX,
     finishTime: null,
     lastTickX: spawnX,
+    cachedSnap: null,
     finished: false,
     frozen: false,
     // Cars spawn ≈ 1.6 m above the track surface, so they're literally
@@ -1923,9 +1944,18 @@ function packGroups(membership: number, filter: number): number {
 /* ─── Snapshot ─────────────────────────────────────────────────────────── */
 
 function snapshotCar(car: CarRuntime): CarSnapshot {
+  // Frozen cars are pinned in place by Rapier — chassis + wheel
+  // positions / angles / on-ground flags can't change any more.
+  // Once we've built a snap for this car post-freeze, reuse it on
+  // every subsequent call instead of paying for ~10 Rapier reads
+  // and a fresh allocation per car per UI tick.  Late-gen ticks
+  // (when most cars are dead but the leader is still going) are
+  // dominated by snapshot work — this is the cheapest big win for
+  // headless throughput.
+  if (car.cachedSnap !== null) return car.cachedSnap;
   const pos = car.chassis.translation();
   const vel = car.chassis.linvel();
-  return {
+  const snap: CarSnapshot = {
     index: car.index,
     position: { x: pos.x, y: pos.y },
     velocity: { x: vel.x, y: vel.y },
@@ -1946,4 +1976,6 @@ function snapshotCar(car: CarRuntime): CarSnapshot {
       };
     }),
   };
+  if (car.frozen) car.cachedSnap = snap;
+  return snap;
 }

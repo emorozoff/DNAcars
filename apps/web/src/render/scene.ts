@@ -63,15 +63,16 @@ const COLORS = {
   body: 0xe6e6e9,
   wheel: 0x8b8b94,
   wheelGround: 0xa8ff60,
-  /** Chassis tint for cars that have crossed the finish line —
-   *  same accent green as the leader marker / "wheel on ground"
-   *  swatch so finishers visually pair with the rest of the
-   *  positive-feedback palette. */
-  finisher: 0xa8ff60,
+  /** Chassis + wheel tint for cars that have crossed the finish
+   *  line — bright red so the finisher pops out of the field of
+   *  white bodies.  Distinct from the green leader / record
+   *  palette so "currently leading" and "has finished" are
+   *  visually separate states. */
+  finisher: 0xff3030,
   /** Chassis tint for the current real-time leader when that
    *  leader IS an elite carryover from prev gen — "old champion
    *  still on top".  Same accent green as the wheel-on-ground
-   *  swatch / finish flash. */
+   *  swatch. */
   leaderElite: 0xa8ff60,
   /** Chassis tint for the current real-time leader when it's NOT
    *  an elite — i.e. a mutated child or random gen-0 car has
@@ -85,9 +86,6 @@ const COLORS = {
   /** Finish-line stripes alternate between these. */
   finishDark: 0x1a1a1f,
   finishLight: 0xf2f2f5,
-  /** Finish flag fabric — warm accent so it reads at a distance. */
-  finishFlag: 0xffd166,
-  finishPole: 0xc8c8d0,
 } as const;
 
 /**
@@ -451,37 +449,6 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         // 16 cm, centred at xCenter.
         obstaclesGfx.rect(ob.xCenter - ob.halfWidth, ob.y - 0.08, ob.halfWidth * 2, 0.16);
         obstaclesGfx.fill({ color: COLORS.obstacle, alpha: 0.95 });
-      } else if (ob.kind === 'finish') {
-        // Finish line: a 20 cm wide vertical wall striped in
-        // alternating dark/light bands like a real finish flag,
-        // capped with a flag flying off the top.  Geometry sits
-        // exactly where the collider in buildTrackColliders is.
-        const stripeBand = 0.6; // m per band — readable from a distance
-        const halfThickness = 0.1;
-        const bandsCount = Math.max(1, Math.ceil(ob.height / stripeBand));
-        for (let i = 0; i < bandsCount; i++) {
-          const yA = ob.yBase + i * stripeBand;
-          const yB = Math.min(ob.yBase + ob.height, yA + stripeBand);
-          obstaclesGfx.rect(ob.x - halfThickness, yA, halfThickness * 2, yB - yA);
-          obstaclesGfx.fill({
-            color: i % 2 === 0 ? COLORS.finishDark : COLORS.finishLight,
-            alpha: 1,
-          });
-        }
-        // Flag pole — extends an extra 1.5 m above the wall top so
-        // the flag sits clearly above the structure.
-        const poleTop = ob.yBase + ob.height + 1.5;
-        obstaclesGfx.moveTo(ob.x, ob.yBase + ob.height).lineTo(ob.x, poleTop);
-        obstaclesGfx.stroke({ color: COLORS.finishPole, width: 0.06, alpha: 1 });
-        // Triangular flag flying *backwards* from the pole (toward
-        // the approach side, x < ob.x), so a car crossing reads
-        // "I've reached the flag".
-        obstaclesGfx
-          .moveTo(ob.x, poleTop)
-          .lineTo(ob.x - 1.4, poleTop - 0.4)
-          .lineTo(ob.x, poleTop - 0.8)
-          .closePath();
-        obstaclesGfx.fill({ color: COLORS.finishFlag, alpha: 1 });
       } else {
         // Slick patches: re-trace the track polyline between x1
         // and x2 in light blue.  Drawn at a touch heavier stroke
@@ -913,7 +880,15 @@ function updateCarView(
     wg.position.set(dx * cos - dy * sin, dx * sin + dy * cos);
     if (tier === 'full') {
       wg.rotation = ws.angle - car.angle;
-      wg.tint = ws.onGround && !car.finished ? COLORS.wheelGround : COLORS.wheel;
+      // Finishers (and cars mid-celebration on their first
+      // post-finish frame) get the same bright-red tint as the
+      // chassis so the whole car reads as "I've made it" rather
+      // than a red body riding on the regular grey wheels.
+      if (isFinisher || celebrating) {
+        wg.tint = COLORS.finisher;
+      } else {
+        wg.tint = ws.onGround && !car.finished ? COLORS.wheelGround : COLORS.wheel;
+      }
     } else {
       wg.tint = COLORS.wheel;
     }

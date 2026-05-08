@@ -383,31 +383,15 @@ export type ObstacleConfig = {
 export type PhysicalObstacle =
   | { kind: 'wall'; x: number; height: number }
   | { kind: 'ceiling'; xCenter: number; halfWidth: number; y: number }
-  | { kind: 'slick'; x1: number; x2: number }
-  | {
-      /**
-       * The finish line at the very end of every track — a tall
-       * vertical wall with a flag on top.  Always present (not
-       * controlled by sliders); the renderer draws it with a
-       * checkered finish-line stripe instead of the regular wall
-       * red so the player reads it as "the goal" not "another
-       * obstacle".
-       */
-      kind: 'finish';
-      x: number;
-      yBase: number;
-      height: number;
-    };
+  | { kind: 'slick'; x1: number; x2: number };
 
 export type Track = {
   options: TrackOptions;
   points: { x: number; y: number }[];
   /**
-   * X coordinate of the visual finish line — sits a few metres in
-   * front of the finish wall in the basin.  Cars cross this x to
-   * register a finishTime; the wall (at x = length) just stops them
-   * physically afterwards.  Renderer draws a checkered marker here
-   * so the player sees the "achievement" line clearly.
+   * X coordinate of the visual finish line — the checkered marker
+   * the renderer draws on screen.  Cars register `finishTime` when
+   * their leading edge crosses this x.
    */
   finishLineX: number;
   /**
@@ -478,45 +462,22 @@ const OBSTACLE_START = 80;
 /**
  * Layout of the finish zone at the end of every track:
  *
- *     length-FINISH_ZONE_M ─── cliffEdge ─ wallX = length
- *     |     pre-cliff      |   |  basin (flat, BASIN_Y)  | wall
+ *     length-FINISH_ZONE_M ─── (flat) ─── length
  *
- *     ambient ──┐
- *               │ sharp cliff (1 m horizontal, multi-m vertical)
- *               └──────────────────── flat ──────────────│
- *                                                          ║ vertical wall
- *                                                          ║ + finish flag
- *
- * Designed for a clear "you've reached the end" reading: the
- * approach signals an ending via a brief flat lead-in, the cliff
- * gives a dramatic plunge, the basin is the stage for the wall,
- * and the wall (+ flag) is the literal finish line.  No falling
- * since the basin floor catches the chassis.
+ * From `finishZoneStart` to the end of the track the polyline is
+ * held at whatever ambient Y the terrain happened to be at the
+ * start of the zone — a clean "you've reached the end" platform
+ * for finishers to coast onto, without a wall to stop them.  No
+ * cliff, no basin, no wall: just a short flat run-out.
  */
-const FINISH_ZONE_M = 24;
-/** World-y of the basin floor (flat after the cliff). */
-const BASIN_Y = -10;
+const FINISH_ZONE_M = 8;
 /**
- * Width of the sharp cliff (m).  At 1 m wide and a typical
- * `ambient - BASIN_Y` of 8–14 m, the slope works out to 80–86°
- * — visually "almost vertical".
- */
-const CLIFF_WIDTH_M = 1;
-/**
- * Vertical wall height (m) above the basin floor.  Tall enough
- * that even a chassis launching at full speed off ambient
- * terrain can't clear it.
- */
-const WALL_HEIGHT_M = 18;
-/**
- * Distance (m) from the finish wall back to the in-basin "finish
- * line" — the visual checkered marker that fires the per-car
- * `finishTime`.  Cars cross the line, get credit for finishing, and
- * then continue forward and bump into the wall (which still stops
- * them).  Without this offset the wall is *exactly* at x=length and
- * a chassis with radius 1+m can never get its centre that far;
- * finishTime would never trigger.  3 m is comfortable for any
- * chassis size up to TUNING.chassis.maxRadius.
+ * Distance (m) from the *end of the track* back to the visual
+ * finish-line marker (the checkered strip the player actually
+ * sees).  Cars cross the marker, get credit for finishing, and
+ * roll the rest of the run-out before stalling out naturally.
+ * 3 m past the marker leaves room for the chassis + wheels to
+ * settle without the car visually overrunning the canvas edge.
  */
 const FINISH_LINE_OFFSET_M = 3;
 
@@ -692,24 +653,16 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
   // the cliff/basin/wall region — that area is reserved for the
   // finish line.
   const finishZoneStart = o.length - FINISH_ZONE_M;
-  const cliffEdge = finishZoneStart;
-  const basinStart = cliffEdge + CLIFF_WIDTH_M;
   const placed = placeObstacles(rng, o.obstacles, finishZoneStart);
   const obstacles = placed.terrain;
   const physicalObstacles = placed.physical;
-  // Always-present finish wall at the very end of the track.
-  // Hangs off the same physical-obstacle list so buildTrackColliders
-  // gets it for free.  Height stretches the full WALL_HEIGHT_M
-  // above the basin floor — even a chassis flying off the cliff
-  // at top speed can't clear it.
-  physicalObstacles.push({
-    kind: 'finish',
-    x: o.length,
-    yBase: BASIN_Y,
-    height: WALL_HEIGHT_M,
-  });
 
   const points: { x: number; y: number }[] = [];
+  // Captured on the first sample whose x crosses into the finish
+  // zone — used to flat-hold the rest of the polyline at that
+  // ambient Y so the run-out is a level platform regardless of
+  // where the sine-wave hills happened to land.
+  let yAtFinishZoneStart: number | null = null;
   const difficultyEnd = o.warmup + o.difficultyDistance;
   for (let x = 0; x <= o.length + 1e-4; x += o.step) {
     // Spawn-pad: 0 → 1 over warmup.  Guarantees the first 25 m is
@@ -764,20 +717,14 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
       // placement (gaps ≥ pit width), so it's safe to break.
       break;
     }
-    // Finish zone: at `cliffEdge` the surface plunges in 1 m
-    // horizontal to the basin floor (BASIN_Y), then stays flat
-    // until x = length.  The plunge interpolates from whatever
-    // ambient was at cliffEdge down to BASIN_Y, so the *visual*
-    // depth of the cliff varies with the local terrain (a hill at
-    // the cliff edge → deeper plunge, a valley → shallower).  No
-    // amplitude scaling here; this is a rigid game boundary.
-    if (x >= cliffEdge) {
-      if (x < basinStart) {
-        const t = (x - cliffEdge) / CLIFF_WIDTH_M;
-        y = lerp(y, BASIN_Y, t);
-      } else {
-        y = BASIN_Y;
-      }
+    // Finish zone: from `finishZoneStart` to `length` the track
+    // is held flat at whatever Y the terrain happened to be at
+    // the moment we entered the zone.  No cliff, no wall — just
+    // a level run-out so finishing cars coast smoothly past the
+    // checkered marker.
+    if (x >= finishZoneStart) {
+      if (yAtFinishZoneStart === null) yAtFinishZoneStart = y;
+      y = yAtFinishZoneStart;
     }
     points.push({ x, y });
   }
@@ -1018,10 +965,19 @@ type CarRuntime = {
    */
   finishTime: number | null;
   /**
-   * Chassis x at the end of the previous game tick.  Used solely
+   * Chassis-centre x at the end of the previous game tick.  Used
    * for sub-tick interpolation of finishTime — see above.
    */
   lastTickX: number;
+  /**
+   * Leading-edge world-x at the end of the previous game tick —
+   * the maximum +x extent across all transformed chassis vertices
+   * and all wheel rims.  Snapshot per tick so that when the
+   * leading edge crosses `track.finishLineX` we can lerp between
+   * `lastTickLeadingX` and the current leading edge for the same
+   * sub-tick precision the chassis-centre used to provide.
+   */
+  lastTickLeadingX: number;
   /**
    * First snapshot built after the chassis + wheels were converted
    * to Fixed bodies (frozen).  Once latched, snapshotCar() returns
@@ -1303,16 +1259,27 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
         // would care about.  Lerp the crossing moment between
         // lastTickX (start of tick) and x (end of tick) and weight
         // the tick's SIM_DT by that fraction.
-        if (car.finishTime === null && x >= opts.track.finishLineX) {
-          const prevX = car.lastTickX;
-          const dx = x - prevX;
+        // Leading-edge crossing: the moment the *front-most* part
+        // of the car (not the chassis centre) touches finishLineX.
+        // Players reading the screen expect the timer to fire when
+        // the visible nose crosses the line, not when the centre
+        // does — at chassis radius 3.5 m + wheel 2.5 m the centre
+        // can be 5+ m behind the visible front, which felt visibly
+        // wrong on the screenshot.  Sub-tick interpolation works on
+        // the leading edge series too — lerp between
+        // `lastTickLeadingX` and the current leading edge.
+        const leadingX = leadingEdgeX(car);
+        if (car.finishTime === null && leadingX >= opts.track.finishLineX) {
+          const prevLeading = car.lastTickLeadingX;
+          const dLead = leadingX - prevLeading;
           const fraction =
-            prevX < opts.track.finishLineX && dx > 0
-              ? (opts.track.finishLineX - prevX) / dx
+            prevLeading < opts.track.finishLineX && dLead > 0
+              ? (opts.track.finishLineX - prevLeading) / dLead
               : 1;
           car.finishTime = car.ageSec - SIM_DT + fraction * SIM_DT;
         }
         car.lastTickX = x;
+        car.lastTickLeadingX = leadingX;
         clampInsaneVelocity(car, opts.track, time);
         const wasFinished = car.finished;
         updateLifecycle(car);
@@ -1493,26 +1460,11 @@ function buildTrackColliders(world: RAPIER.World, track: Track): void {
           .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL)),
         ground,
       );
-    } else if (ob.kind === 'finish') {
-      // Finish wall: a tall vertical cuboid sitting on the basin
-      // floor at the very end of the track.  Half-thickness 0.1 m
-      // (= 20 cm wide post) — wider than regular walls so the
-      // visual stripe pattern reads at a glance.  Friction and
-      // restitution match the ground so a chassis crashing into
-      // it stops cleanly.
-      world.createCollider(
-        RAPIER.ColliderDesc.cuboid(0.1, ob.height / 2)
-          .setTranslation(ob.x, ob.yBase + ob.height / 2)
-          .setFriction(1.0)
-          .setRestitution(0.0)
-          .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL)),
-        ground,
-      );
-      // Slick patches don't get their own collider — they modify
-      // the friction of the surface trapezoids in the segment
-      // loop above.  The renderer draws an overlay so the player
-      // sees where they are.
     }
+    // Slick patches don't get their own collider — they modify the
+    // friction of the surface trapezoids in the segment loop above.
+    // The renderer draws an overlay so the player sees where they
+    // are.
   }
 }
 
@@ -1636,6 +1588,14 @@ function buildCar(
     lastProgressX: spawnX,
     finishTime: null,
     lastTickX: spawnX,
+    // Init the leading-edge tracker to the chassis centre; the
+    // very first physics tick will overwrite it with the correct
+    // leadingEdgeX(car) value before any finish-line check runs.
+    // A car spawned with its leading edge already past finishLineX
+    // (impossible at SPAWN_X = 6 vs typical 200-2000 m tracks) would
+    // need a more careful init, but in our spawn geometry this is
+    // fine.
+    lastTickLeadingX: spawnX,
     cachedSnap: null,
     finished: false,
     frozen: false,
@@ -1687,6 +1647,32 @@ function updateAirborneDamping(car: CarRuntime): void {
     car.chassis.setLinearDamping(TUNING.chassis.linearDamping);
     car.chassis.setAngularDamping(TUNING.chassis.angularDamping);
   }
+}
+
+/**
+ * Maximum +x extent of any visible part of the car right now —
+ * the chassis polygon (transformed from local to world by the
+ * current pose) and every wheel rim (`wheelPos.x + wheel.radius`).
+ * Used by the finish-line crossing check so the timer fires the
+ * moment the car's *visible front edge* touches the marker, not
+ * when the chassis centre does.
+ */
+function leadingEdgeX(car: CarRuntime): number {
+  const pos = car.chassis.translation();
+  const angle = car.chassis.rotation();
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  let maxX = pos.x;
+  for (const v of car.vertices) {
+    const wx = pos.x + v.x * cos - v.y * sin;
+    if (wx > maxX) maxX = wx;
+  }
+  for (const w of car.wheels) {
+    const wPos = w.body.translation();
+    const wMaxX = wPos.x + w.radius;
+    if (wMaxX > maxX) maxX = wMaxX;
+  }
+  return maxX;
 }
 
 function applyMotor(car: CarRuntime): void {

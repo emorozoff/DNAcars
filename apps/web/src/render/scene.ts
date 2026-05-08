@@ -200,6 +200,11 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     resolution: window.devicePixelRatio || 1,
     resizeTo: host,
   });
+  // Cap the Pixi-side ticker (camera lerp + applyTransform) at 60 fps
+  // even on 120 Hz / ProMotion displays.  The host's main physics
+  // tick is wallclock-based so cadence is unaffected; this only
+  // limits how often the camera-smoothing ticker fires its callback.
+  app.ticker.maxFPS = 60;
   host.appendChild(app.canvas);
 
   // Parallax layers sit *under* the world container and have their own

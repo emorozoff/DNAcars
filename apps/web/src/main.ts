@@ -468,8 +468,15 @@ function updateThroughputDisplay(): void {
   const actual = smoothedRealSpeed;
   const ratio = requested > 0 ? actual / requested : 0;
   const throughputEl = document.getElementById('stat-throughput');
-  if (throughputEl) {
-    const prettyActual = actual >= 10 ? actual.toFixed(0) : actual.toFixed(1);
+  if (throughputEl instanceof HTMLElement) {
+    // Round the actual speed to integer when the number isn't tiny
+    // — the EMA still ticks fractionally on a 60 Hz tick clock and
+    // showing "×1.0 → ×1.1 → ×0.9" reads as flicker.  Sub-1 keeps
+    // one decimal so the player can tell the GA is choking (×0.7
+    // means 70 % real-time, important info), and sub-2 keeps half-
+    // decimal precision (×1.5).  Above 2× the integer is enough.
+    const prettyActual =
+      actual < 1 ? actual.toFixed(1) : actual < 2 ? actual.toFixed(1) : actual.toFixed(0);
     const prettyReq = requested.toString();
     let label: string;
     let cls: 'ok' | 'tight' | 'saturated';
@@ -483,7 +490,7 @@ function updateThroughputDisplay(): void {
       label = `×${prettyActual} / ×${prettyReq}`;
       cls = 'saturated';
     }
-    throughputEl.textContent = label;
+    setText(throughputEl, label);
     throughputEl.classList.toggle('ribbon-stat__value--ok', cls === 'ok');
     throughputEl.classList.toggle('ribbon-stat__value--tight', cls === 'tight');
     throughputEl.classList.toggle('ribbon-stat__value--saturated', cls === 'saturated');
@@ -1732,6 +1739,17 @@ async function startSession(opts: StartOptions): Promise<Session> {
   let frameCount = 0;
   let shortcutApplied = false;
   let lastUiUpdateMs = 0;
+  /**
+   * Separate clock for HUD text writes (leader / alive / темп) so
+   * they update at most ~4 Hz regardless of the render tier.  The
+   * scene + minimap stay on their per-tier throttle so motion
+   * looks smooth, but the ribbon-stat strings only re-rendering 4
+   * times a second kills the visible flicker on bouncy values
+   * (especially "темп" — its EMA wobbles within a multiplier and
+   * the integer/decimal alternation flickered at 60 Hz).
+   */
+  let lastHudTextMs = 0;
+  const HUD_TEXT_INTERVAL_MS = 250;
 
   function tick(): void {
     if (!running) return;
@@ -1812,7 +1830,12 @@ async function startSession(opts: StartOptions): Promise<Session> {
     // budget.
     const utilisation = smoothedFrameMs / 16.7;
     const adaptiveFactor = Math.max(0.25, Math.min(2, utilisation));
-    const adaptiveThrottle = eff.uiThrottleMs * adaptiveFactor;
+    // Clamp the per-frame throttle to 16 ms (= 60 Hz) so the canvas
+    // never tries to redraw faster than that, even on a 120 Hz
+    // iPhone display where RAF would otherwise fire at 8 ms.  The
+    // physics accumulator is wallclock-based so simulation cadence
+    // is unaffected by the render cap.
+    const adaptiveThrottle = Math.max(16, eff.uiThrottleMs * adaptiveFactor);
     const uiDue = now - lastUiUpdateMs >= adaptiveThrottle;
     if (uiDue) {
       // Throughput sample: realSpeed = (sim seconds advanced since
@@ -1841,8 +1864,16 @@ async function startSession(opts: StartOptions): Promise<Session> {
         renderTopOnly,
         hideFinished,
       });
-      updateHud(hud, snap);
-      updateThroughputDisplay();
+      // HUD text writes on their own slower cadence — see
+      // HUD_TEXT_INTERVAL_MS.  Scene + minimap stay smooth via the
+      // per-tier throttle above; only the ribbon strings get
+      // throttled to 4 Hz so the eye doesn't catch the flicker on
+      // the leader-distance / темп values.
+      if (now - lastHudTextMs >= HUD_TEXT_INTERVAL_MS) {
+        lastHudTextMs = now;
+        updateHud(hud, snap);
+        updateThroughputDisplay();
+      }
     }
 
     if (!endNotified && world.allFinished()) {
@@ -1927,6 +1958,22 @@ async function startSession(opts: StartOptions): Promise<Session> {
   };
 }
 
+/**
+ * Cached last-rendered text per element to skip redundant DOM
+ * writes.  At 60 Hz a value like the leader's distance flickers
+ * visibly because `0.1` increments produce string changes every
+ * tick — even when the change is below the threshold of "useful
+ * info".  The 250 ms HUD-text throttle below limits write
+ * frequency, but the deadband cache cuts the rest: same string
+ * means no DOM touch and therefore no layout / paint at all.
+ */
+const hudTextCache = new WeakMap<HTMLElement, string>();
+function setText(el: HTMLElement, text: string): void {
+  if (hudTextCache.get(el) === text) return;
+  hudTextCache.set(el, text);
+  el.textContent = text;
+}
+
 function updateHud(hud: Hud, snap: WorldSnapshot): void {
   let lead = 0;
   let alive = 0;
@@ -1934,8 +1981,8 @@ function updateHud(hud: Hud, snap: WorldSnapshot): void {
     if (c.travel > lead) lead = c.travel;
     if (!c.finished) alive++;
   }
-  hud.lead.textContent = `${lead.toFixed(1)} m`;
-  hud.alive.textContent = String(alive);
+  setText(hud.lead, `${lead.toFixed(1)} m`);
+  setText(hud.alive, String(alive));
 }
 
 function requireEl(id: string): HTMLElement {

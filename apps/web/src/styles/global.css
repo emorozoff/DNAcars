@@ -2234,11 +2234,21 @@ button {
     left: auto;
   }
 
-  /* Floating overlays sit on top of the canvas via fixed/absolute
-     positioning, which would have them hover over controls when
-     scrolled.  Hide outright — the player has direct access to the
-     same state via the dock + the 10-s idle-return timer. */
-  .btn--floating,
+  /* The follow-leader floating button stays — it's the player's
+     only way to manually re-engage leader-follow after a pan +
+     the visible cue that the camera went manual.  Reposition to
+     sit at the top of the canvas section instead of clearing a
+     desktop minimap that no longer overlays the canvas, and let
+     it scroll with the canvas (when the player scrolls down to
+     reach controls, the button leaves view alongside its host
+     canvas — that's intended). */
+  .btn--floating {
+    top: var(--sp-3);
+  }
+
+  /* Headless + shortcut banners stay hidden on mobile — both
+     communicate transient state cues that the dock + auto-opened
+     stats panel already make obvious without floating overlays. */
   .headless-banner,
   .shortcut-banner {
     display: none;

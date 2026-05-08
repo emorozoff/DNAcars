@@ -565,11 +565,26 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     }
     lastLeaderIdx = newLeaderIdx;
 
-    // Resolve the actual camera target based on mode.  `free` mode
-    // parks at freeCameraX (no per-frame update); `car` falls back
-    // to leader if the picked car isn't in the snapshot any more.
+    // Resolve the actual camera target based on mode.
+    //
+    //   free mode — X is whatever the user dragged to, Y tracks the
+    //               track surface under that X so the road stays in
+    //               the visible band.  Without this Y-follow the
+    //               camera kept the Y from the moment the user
+    //               grabbed the camera, and panning to a basin or
+    //               a peak left the road off-screen with empty sky
+    //               filling the rest of the canvas (player report).
+    //               sampleTrackY is one array lookup — runs at every
+    //               speed tier without measurable cost.
+    //   car mode  — follow that car's chassis position (already
+    //               above ground by chassis radius).  Falls back to
+    //               leader if the picked car isn't in the snapshot.
+    //   leader    — follow the running leader's chassis.
     if (cameraMode.type === 'free') {
-      cameraTarget = { x: freeCameraX, y: cameraTarget.y };
+      const groundY = trackPoints
+        ? sampleTrackY(trackPoints, freeCameraX)
+        : cameraTarget.y;
+      cameraTarget = { x: freeCameraX, y: groundY };
     } else if (cameraMode.type === 'car' && pickedCar) {
       cameraTarget = { x: pickedCar.position.x, y: pickedCar.position.y };
     } else {

@@ -46,6 +46,9 @@ const enRaw = {
   'panel.renderTopOnly': 'Draw only leaders',
   'panel.renderTopOnlyHint':
     'Skip the per-frame Pixi update for back-of-pack cars — only the top 10 by current world-x are drawn each tick. Frees up render budget at large population sizes (60+) on slower CPUs. The hidden cars are still simulated and still count in selection — they just stop being drawn until they push their way back into the front pack.',
+  'panel.hideFinished': 'Hide finished cars',
+  'panel.hideFinishedHint':
+    'Once a car has finished (crossed the finish line) or stalled out for good, it disappears from the canvas instead of sitting there as part of the graveyard. Mostly a visual-cleanliness toggle — finished cars already skip per-frame updates internally, so the CPU saving is tiny. The minimap still shows them.',
   'panel.fastForward': 'Fast-forward',
   'panel.fastForwardHint':
     'Ends a generation early once every still-alive car is a cached elite from the previous gen — its outcome is already known, replaying the same physics adds nothing. Turn off to watch every elite drive its full course to the natural finish each gen. Only effective alongside Strict determinism, which is what enables the elite caching in the first place.',

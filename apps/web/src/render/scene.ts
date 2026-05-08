@@ -154,6 +154,15 @@ export type SceneHandle = {
        * per-frame Pixi work at large populations.
        */
       renderTopOnly?: boolean;
+      /**
+       * When true, cars that have reached their frozen final pose
+       * (post-celebration for finishers, immediately for stalled
+       * cars) flip invisible so Pixi skips them during scene-graph
+       * traversal.  Mostly a visual-cleanliness toggle — the
+       * existing finalDrawn fast-path already skips per-frame
+       * attribute writes for finished cars.
+       */
+      hideFinished?: boolean;
     },
   ): void;
   /**
@@ -539,7 +548,12 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
 
   function setSnapshot(
     snap: WorldSnapshot,
-    opts: { tier?: RenderTier; headless?: boolean; renderTopOnly?: boolean } = {},
+    opts: {
+      tier?: RenderTier;
+      headless?: boolean;
+      renderTopOnly?: boolean;
+      hideFinished?: boolean;
+    } = {},
   ): void {
     const tier: RenderTier = opts.tier ?? 'full';
     // `headless` is the session-level flag the host knows about
@@ -665,7 +679,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       } else if (!view.container.visible) {
         view.container.visible = true;
       }
-      updateCarView(view, car, tier, car.index === newLeaderIdx);
+      updateCarView(view, car, tier, car.index === newLeaderIdx, !!opts.hideFinished);
     }
 
     for (const [k, v] of carViews) {
@@ -811,13 +825,23 @@ function updateCarView(
   car: CarSnapshot,
   tier: RenderTier,
   isLeader: boolean,
+  hideFinished: boolean,
 ): void {
   // Skip the entire per-car update once a finished car has been
   // rendered in its final pose at least once — the body is fixed
   // in world.ts so its position will never change again.  Saves
   // a Container.position/rotation write + per-wheel updates for
   // every dead car still on screen.
-  if (car.finished && view.finalDrawn) return;
+  //
+  // Apply the hide-finished visibility decision *before* the early
+  // return, so toggling the flag mid-run takes effect on the next
+  // frame instead of being stuck at whatever visibility state was
+  // captured when finalDrawn was first set.
+  if (car.finished && view.finalDrawn) {
+    const wantVisible = !hideFinished;
+    if (view.container.visible !== wantVisible) view.container.visible = wantVisible;
+    return;
+  }
 
   view.container.position.set(car.position.x, car.position.y);
   view.container.rotation = car.angle;

@@ -292,6 +292,33 @@ function saveRenderTopOnly(on: boolean): void {
 }
 let renderTopOnly = loadRenderTopOnly();
 
+/**
+ * Hide-finished toggle — when on, every car that has reached its
+ * "frozen final pose" frame (post-celebration for finishers,
+ * immediately for stalled-out cars) gets `container.visible = false`
+ * so Pixi skips it during scene-graph traversal.  Saves GPU work +
+ * clears the visual clutter of dead cars piled at the wall.  The
+ * existing `finalDrawn` early-return already skips per-frame Pixi
+ * attribute writes, so the CPU saving is small — main win is
+ * visual cleanliness.
+ */
+const HIDE_FINISHED_KEY = 'dnacars.hideFinished';
+function loadHideFinished(): boolean {
+  try {
+    return localStorage.getItem(HIDE_FINISHED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function saveHideFinished(on: boolean): void {
+  try {
+    localStorage.setItem(HIDE_FINISHED_KEY, on ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+let hideFinished = loadHideFinished();
+
 function loadSeedHistory(): number[] {
   try {
     const raw = localStorage.getItem(SEED_HISTORY_KEY);
@@ -1145,6 +1172,19 @@ async function bootstrap(): Promise<void> {
     });
   }
 
+  // Hide-finished toggle.  Per-frame effect like renderTopOnly —
+  // updateCarView's early-return path applies the visibility based
+  // on the current flag value, so toggling mid-run takes effect on
+  // the next snapshot for any already-finished car.
+  const hideFinishedInput = document.getElementById('ctrl-hide-finished');
+  if (hideFinishedInput instanceof HTMLInputElement) {
+    hideFinishedInput.checked = hideFinished;
+    hideFinishedInput.addEventListener('change', () => {
+      hideFinished = hideFinishedInput.checked;
+      saveHideFinished(hideFinished);
+    });
+  }
+
   // Advanced-settings modal: button in the dock opens it; close on
   // X-button click, click on the backdrop, or Escape.  The toggles
   // inside (fast-forward / speed-mode / pure-mutation / strict-det)
@@ -1781,6 +1821,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
         tier: skipPixiThisFrame ? 'none' : tier,
         headless: eff.headless,
         renderTopOnly,
+        hideFinished,
       });
       updateHud(hud, snap);
       updateThroughputDisplay();

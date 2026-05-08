@@ -1581,7 +1581,10 @@ async function startSession(opts: StartOptions): Promise<Session> {
       else if (speedIdx === 1) tier = 'lite';
       frameCount++;
       const skipPixiThisFrame = tier === 'lite' && (frameCount & 1) === 1;
-      scene.setSnapshot(snap, { tier: skipPixiThisFrame ? 'none' : tier });
+      scene.setSnapshot(snap, {
+        tier: skipPixiThisFrame ? 'none' : tier,
+        headless: eff.headless,
+      });
       updateHud(hud, snap);
       updateThroughputDisplay();
     }

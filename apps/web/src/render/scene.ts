@@ -128,7 +128,7 @@ export type SceneHandle = {
    *   'none' (×32) — headless.  Camera + minimap still update;
    *                   no per-car Pixi work at all.
    */
-  setSnapshot(s: WorldSnapshot, opts?: { tier?: RenderTier }): void;
+  setSnapshot(s: WorldSnapshot, opts?: { tier?: RenderTier; headless?: boolean }): void;
   /** Register (or clear) the callback fired when the user clicks a car. */
   onCarClick(handler: CarClickHandler | null): void;
   /**
@@ -510,8 +510,19 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     drawParallaxLayer(bgNearGfx, last.x, 0.09, 1.0, 0.4, COLORS.bgNear);
   }
 
-  function setSnapshot(snap: WorldSnapshot, opts: { tier?: RenderTier } = {}): void {
+  function setSnapshot(
+    snap: WorldSnapshot,
+    opts: { tier?: RenderTier; headless?: boolean } = {},
+  ): void {
     const tier: RenderTier = opts.tier ?? 'full';
+    // `headless` is the session-level flag the host knows about
+    // (true on ×32 / ×64 / ×128 — canvas hidden the whole time).
+    // Falls back to "tier === 'none'" so older callers without the
+    // explicit flag still behave.  Important: do NOT use the tier
+    // alone — at ×8 the per-frame skip alternates tier between
+    // 'lite' and 'none' and the minimap mode would oscillate
+    // (visible flicker on the camera-viewport rect + car ticks).
+    const headless = opts.headless ?? tier === 'none';
     const renderCars = tier !== 'none';
 
     // ── Always run, regardless of tier ────────────────────────────
@@ -549,11 +560,11 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     if (minimap) {
       const dpr = window.devicePixelRatio || 1;
       const viewportWorldWidth = app.renderer.width / dpr / zoom;
-      // In headless tier the canvas is hidden, so the camera-viewport
-      // rect on the minimap has nothing to refer to and the per-car
-      // y-position is invisible; switch the minimap into its barcode
-      // layout (full-height car lines, no viewport rect).
-      minimap.setHeadless(tier === 'none');
+      // Use the session-level `headless` flag, not the per-frame
+      // tier — at ×8 the skip-alternation flips tier between 'lite'
+      // and 'none' which would otherwise toggle the minimap
+      // headless layout 30 Hz and visibly flicker.
+      minimap.setHeadless(headless);
       minimap.update(snap, camera.x, viewportWorldWidth, recordHistory);
     }
 

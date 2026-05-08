@@ -129,8 +129,6 @@ export const ru: Dictionary = {
   'stats.progress': 'Прогресс эволюции',
   'stats.progressBest': 'Лучший',
   'stats.progressMean': 'Средний',
-  'stats.distribution': 'Кто сколько проехал',
-  'stats.distributionHint': 'Сколько машин на каком расстоянии',
   'stats.genome': 'Параметры машин',
   'stats.empty': 'Запусти поколение чтобы увидеть статистику',
 };

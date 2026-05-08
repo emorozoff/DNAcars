@@ -1513,39 +1513,32 @@ button {
 
 /* ─── Stats panel: hero + histogram + genome trend grid ─────────── */
 
-/* Body uses a CSS grid with named areas so hero + histogram sit
-   side-by-side at wide widths and stack vertically on narrow ones.
-   Genome row spans the full width below regardless.
-
-   When `.charts-panel--speed-mode` is set, the speed-mode "best
-   finish time" card joins the layout next to the histogram on the
-   second row (hero + speed first row, hist spans both cols below
-   it).  When speed mode is off the speed card is hidden and the
-   layout collapses back to the default. */
+/* Body uses a CSS grid with named areas: hero is full-width on top,
+   genome row spans the full width below.  When
+   `.charts-panel--speed-mode` is on, the speed-mode "best finish
+   time" card sits next to hero on the first row. */
 .stats-panel__body {
   display: grid;
-  grid-template-columns: minmax(20rem, 1fr) minmax(18rem, 1fr);
+  grid-template-columns: 1fr;
   grid-template-areas:
-    'hero hist'
-    'genome genome';
+    'hero'
+    'genome';
   gap: var(--sp-3);
 }
 
 .charts-panel--speed-mode .stats-panel__body {
+  grid-template-columns: minmax(20rem, 1fr) minmax(18rem, 1fr);
   grid-template-areas:
     'hero speed'
-    'hist hist'
     'genome genome';
 }
 
 @media (max-width: 56rem) {
-  .stats-panel__body,
   .charts-panel--speed-mode .stats-panel__body {
     grid-template-columns: 1fr;
     grid-template-areas:
       'hero'
       'speed'
-      'hist'
       'genome';
   }
 }
@@ -1567,10 +1560,6 @@ button {
 
 .stats-card--hero {
   grid-area: hero;
-}
-
-.stats-card--hist {
-  grid-area: hist;
 }
 
 .stats-card--genome {
@@ -1734,57 +1723,6 @@ button {
 /* Hover affordance: tell the player the chart reacts to mouse. */
 .stats-hero__wrap {
   cursor: crosshair;
-}
-
-/* Histogram: distribution of current-gen distances */
-.stats-hist__wrap {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 7;
-  max-height: 14rem;
-}
-
-.stats-hist {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-.stats-hist__bar {
-  fill: var(--color-fg-muted);
-  opacity: 0.85;
-  transition: opacity var(--dur-fast) var(--ease-out);
-}
-
-.stats-hist__baseline {
-  stroke: var(--color-border);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-
-.stats-hist__axis {
-  position: absolute;
-  font-family: var(--font-mono);
-  font-size: 0.625rem;
-  color: var(--color-fg-dim);
-  letter-spacing: 0.04em;
-  pointer-events: none;
-  user-select: none;
-}
-
-.stats-hist__axis--left {
-  bottom: 0.25rem;
-  left: 0.25rem;
-}
-
-.stats-hist__axis--right {
-  bottom: 0.25rem;
-  right: 0.25rem;
-}
-
-.stats-hist__axis--peak {
-  top: 0.25rem;
-  right: 0.25rem;
 }
 
 /* Genome grid: auto-fill cells capped at a sensible max-width so

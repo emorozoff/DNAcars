@@ -127,8 +127,6 @@ const enRaw = {
   'stats.progress': 'Evolution progress',
   'stats.progressBest': 'Best',
   'stats.progressMean': 'Mean',
-  'stats.distribution': 'How far each car got',
-  'stats.distributionHint': 'How many cars made it how far',
   'stats.genome': 'Car traits',
   'stats.empty': 'Run a generation to see stats',
 } as const;

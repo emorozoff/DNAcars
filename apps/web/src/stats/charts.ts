@@ -4,31 +4,27 @@
  *   1. Progress hero — combined "best vs mean" line chart over the
  *      windowed history, with big current-value readouts.  The single
  *      most useful view for "is the GA actually getting better?".
- *   2. Distribution — histogram of the current generation's per-car
- *      travel distances, binned 0..max in equal-width bins.  Replaces
- *      the old standalone σ sparkline with something more intuitive.
- *   3. Genome trends — compact sparkline grid for the average genome
+ *   2. Genome trends — compact sparkline grid for the average genome
  *      stats (chassis verts, wheel count, wheel power, motor speed,
  *      chassis density, chassis size).
  *
  * The window selector in the header (50 / 100 / 200 / All) clamps how
  * many recent generations the progress hero + genome sparklines look
- * at; the histogram always shows the *current* generation only.
+ * at.
  *
  * Adding a new genome-trend chart is one line in `GENOME_DEFS`.
  *
  * Layout note: axis labels live in HTML (positioned absolutely over
  * the SVG) rather than inside the SVG.  Reason: the SVGs use
- * `preserveAspectRatio="none"` so polylines + bars stretch to fill
- * card width, but that scaling would distort `<text>` elements
- * (visible as the "horizontally stretched" labels in v1.15.x).  HTML
- * text stays at its CSS-controlled font-size regardless of the SVG's
+ * `preserveAspectRatio="none"` so polylines stretch to fill card
+ * width, but that scaling would distort `<text>` elements (visible
+ * as the "horizontally stretched" labels in v1.15.x).  HTML text
+ * stays at its CSS-controlled font-size regardless of the SVG's
  * non-uniform stretch.
  */
 
 import { t, type TranslationKey } from '../i18n';
 import type { GenerationStats } from './collector';
-import type { Scored } from '../ga/population';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -75,21 +71,14 @@ const GENOME_DEFS: GenomeDef[] = [
 // stretched too far in either direction even before CSS clamps width.
 const HERO_W = 600;
 const HERO_H = 200;
-const HIST_W = 600;
-const HIST_H = 200;
 const SPARK_W = 160;
 const SPARK_H = 44;
-const HIST_BINS = 16;
 
 /* ─── Public API ───────────────────────────────────────────────────── */
 
 export type ChartsHandle = {
-  /**
-   * `history` is the per-generation summary stream; `lastResults`
-   * carries the *current* gen's per-car fitnesses for the histogram.
-   * Pass `null` for lastResults outside an active gen.
-   */
-  update(history: GenerationStats[], lastResults?: Scored[] | null): void;
+  /** `history` is the per-generation summary stream. */
+  update(history: GenerationStats[]): void;
   setVisible(v: boolean): void;
   isVisible(): boolean;
   /** Show / hide the speed-mode "Best finish time" chart. */
@@ -98,7 +87,6 @@ export type ChartsHandle = {
 
 export function mountCharts(host: HTMLElement): ChartsHandle {
   let lastHistory: GenerationStats[] = [];
-  let lastResults: Scored[] | null = null;
   let windowSize: WindowSize = DEFAULT_WINDOW;
   let visible = !host.hasAttribute('hidden');
 
@@ -159,9 +147,6 @@ export function mountCharts(host: HTMLElement): ChartsHandle {
   body.appendChild(speed.el);
   speed.el.hidden = true;
 
-  const histogram = buildHistogram();
-  body.appendChild(histogram.el);
-
   const genome = buildGenomeGrid();
   body.appendChild(genome.el);
 
@@ -173,18 +158,15 @@ export function mountCharts(host: HTMLElement): ChartsHandle {
   }
 
   function drawAll(): void {
-    const empty = lastHistory.length === 0 && (!lastResults || lastResults.length === 0);
-    if (empty) {
+    if (lastHistory.length === 0) {
       hero.clear();
       speed.clear();
-      histogram.clear();
       genome.clear();
       return;
     }
     const slice = applyWindow(lastHistory);
     hero.update(slice);
     speed.update(slice);
-    histogram.update(lastResults);
     genome.update(slice);
   }
 
@@ -192,9 +174,8 @@ export function mountCharts(host: HTMLElement): ChartsHandle {
   drawAll();
 
   return {
-    update(history, results = null): void {
+    update(history): void {
       lastHistory = history;
-      lastResults = results;
       drawAll();
     },
     setVisible(v): void {
@@ -643,114 +624,7 @@ function makeAxisLabel(className: string): HTMLSpanElement {
   return span;
 }
 
-/* ─── Section 2: Distribution histogram ────────────────────────────── */
-
-type Histogram = {
-  el: HTMLElement;
-  update(results: Scored[] | null): void;
-  clear(): void;
-};
-
-function buildHistogram(): Histogram {
-  const card = document.createElement('div');
-  card.className = 'stats-card stats-card--hist';
-
-  const title = document.createElement('h4');
-  title.className = 'stats-card__title';
-  title.setAttribute('data-i18n', 'stats.distribution');
-  title.textContent = t('stats.distribution');
-  card.appendChild(title);
-
-  // Same wrap-with-DOM-labels pattern as the hero chart.
-  const wrap = document.createElement('div');
-  wrap.className = 'stats-hist__wrap';
-
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('class', 'stats-hist');
-  svg.setAttribute('viewBox', `0 0 ${HIST_W} ${HIST_H}`);
-  svg.setAttribute('preserveAspectRatio', 'none');
-
-  const bars: SVGRectElement[] = [];
-  // Each bin gets a small horizontal gap so adjacent bars read as
-  // discrete columns instead of a single banded slab.
-  const slot = HIST_W / HIST_BINS;
-  const gap = slot * 0.18;
-  for (let i = 0; i < HIST_BINS; i++) {
-    const r = document.createElementNS(SVG_NS, 'rect');
-    r.setAttribute('class', 'stats-hist__bar');
-    r.setAttribute('x', String(i * slot + gap / 2));
-    r.setAttribute('width', String(slot - gap));
-    r.setAttribute('y', String(HIST_H));
-    r.setAttribute('height', '0');
-    svg.appendChild(r);
-    bars.push(r);
-  }
-
-  // Baseline along the bottom so an all-zero histogram still has a
-  // visible axis to anchor the eye.
-  const baseline = document.createElementNS(SVG_NS, 'line');
-  baseline.setAttribute('class', 'stats-hist__baseline');
-  baseline.setAttribute('x1', '0');
-  baseline.setAttribute('x2', String(HIST_W));
-  baseline.setAttribute('y1', String(HIST_H - 1));
-  baseline.setAttribute('y2', String(HIST_H - 1));
-  baseline.setAttribute('vector-effect', 'non-scaling-stroke');
-  svg.appendChild(baseline);
-
-  wrap.appendChild(svg);
-
-  const xMin = makeAxisLabel('stats-hist__axis stats-hist__axis--left');
-  const xMax = makeAxisLabel('stats-hist__axis stats-hist__axis--right');
-  const peakLabel = makeAxisLabel('stats-hist__axis stats-hist__axis--peak');
-  wrap.appendChild(xMin);
-  wrap.appendChild(xMax);
-  wrap.appendChild(peakLabel);
-
-  card.appendChild(wrap);
-
-  function clear(): void {
-    for (const r of bars) {
-      r.setAttribute('height', '0');
-      r.setAttribute('y', String(HIST_H));
-    }
-    xMin.textContent = '';
-    xMax.textContent = '';
-    peakLabel.textContent = '';
-  }
-
-  function update(results: Scored[] | null): void {
-    if (!results || results.length === 0) {
-      clear();
-      return;
-    }
-    let max = 0;
-    for (const r of results) {
-      if (r.fitness > max) max = r.fitness;
-    }
-    // Round max up to a "nice" bin top so the bins align cleanly.
-    const niceMax = max <= 0 ? 1 : Math.max(1, Math.ceil(max / HIST_BINS) * HIST_BINS);
-    const bins = new Array<number>(HIST_BINS).fill(0);
-    for (const r of results) {
-      const idx = Math.min(HIST_BINS - 1, Math.floor((r.fitness / niceMax) * HIST_BINS));
-      bins[idx] = (bins[idx] ?? 0) + 1;
-    }
-    let peak = 1;
-    for (const c of bins) if (c > peak) peak = c;
-    for (let i = 0; i < HIST_BINS; i++) {
-      const count = bins[i] ?? 0;
-      const h = (count / peak) * (HIST_H - 4);
-      bars[i]!.setAttribute('y', String(HIST_H - h));
-      bars[i]!.setAttribute('height', String(h));
-    }
-    xMin.textContent = '0';
-    xMax.textContent = `${niceMax.toFixed(0)}м`;
-    peakLabel.textContent = `пик ${peak} маш.`;
-  }
-
-  return { el: card, update, clear };
-}
-
-/* ─── Section 3: Genome trend sparklines ───────────────────────────── */
+/* ─── Section 2: Genome trend sparklines ───────────────────────────── */
 
 type GenomeGrid = {
   el: HTMLElement;

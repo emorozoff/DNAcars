@@ -46,16 +46,16 @@ export const TUNING = {
     maxVertices: 10,
     minRadius: 0.35,
     /**
-     * Bumped 1.0 → 1.8 in v1.11: the previous cap kept the maximum
-     * chassis at ≈ 2 m wide — small enough that on hilly terrain
-     * "small + nimble" always beat "big + stable" because there
-     * was no room for "big" to be very big.  Letting cars grow to
-     * 3.6 m wide gives the size tail enough headroom that genuine
-     * monster-truck silhouettes can emerge once the rest of the
-     * track favours them (cliffs they bridge, walls they roll
-     * over, etc.).
+     * Bumped 1.8 → 3.5 in v1.28 by player request: even at 1.8 m
+     * (≈ 3.6 m wide chassis) the cap still bottle-necked a real
+     * "monster truck" body that could span a 1 m cliff via sheer
+     * wheelbase, or roll a wall by sitting on top of it.  Letting
+     * the radius reach 3.5 m (≈ 7 m chassis) opens the search
+     * space to genuinely huge silhouettes — the GA only chooses
+     * them when the track rewards them, so on flat tracks small
+     * bodies still dominate.
      */
-    maxRadius: 1.8,
+    maxRadius: 3.5,
     minDensity: 250,
     /**
      * Dropped 450 → 300 in v1.11 to compensate for the larger
@@ -105,16 +105,14 @@ export const TUNING = {
     maxCount: 4,
     minRadius: 0.18,
     /**
-     * Bumped 0.7 → 1.2 in v1.11.  Big wheels matter for two reasons:
-     * they smooth out terrain chatter (small wheel between adjacent
-     * track points gets a sharp upward kick; big wheel rides over
-     * both points smoothly), and combined with the new wider chassis
-     * range they enable wheelbases that bridge real cliffs.  The cap
-     * was the main reason "small + nimble" always beat "big + stable"
-     * — a 0.7 m wheel can't roll over a 1 m wall, so once any wheel-
-     * scale obstacle appeared the small wheels were forced to win.
+     * Bumped 1.2 → 2.5 in v1.28.  Lets a single wheel diameter (5 m)
+     * span comfortably past a 1 m cliff or roll over a 1 m wall on
+     * its own — at 1.2 m the wheel only just cleared and the GA had
+     * to find a working chassis-wheelbase combo to bridge wider
+     * gaps.  Now huge "balloon-tyre" cars are a viable strategy if
+     * the track punishes small wheels.
      */
-    maxRadius: 1.2,
+    maxRadius: 2.5,
     /**
      * Per-wheel "power" gene (0..1) drives mass, motor strength and
      * visual stroke width together — the trio of {light, weak, thin}

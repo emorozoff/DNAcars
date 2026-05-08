@@ -72,6 +72,12 @@ const gaParams: GAParams = {
   populationSize: 24,
   eliteCount: 2,
   mutationRate: 0.15,
+  // Initial pureMutation comes from localStorage at module-init via
+  // a deferred read below — `loadPureMutation()` isn't in scope yet
+  // at this top-of-file declaration, so we patch it before the first
+  // tick.  See the `gaParams.pureMutation = loadPureMutation()` line
+  // a few hundred lines down (right after the persistence helpers).
+  pureMutation: false,
 };
 
 /**
@@ -204,6 +210,31 @@ function saveSpeedMode(on: boolean): void {
   }
 }
 let speedMode = loadSpeedMode();
+
+/**
+ * Pure-mutation toggle — when on, the GA drops crossover + roulette
+ * and produces every non-elite child as `mutate(clone(top))`.  See
+ * GAParams.pureMutation for the rationale.  Persisted to localStorage
+ * so the choice survives reloads; takes effect on the *next*
+ * nextGeneration call (the in-flight generation finishes scoring
+ * normally either way).
+ */
+const PURE_MUTATION_KEY = 'dnacars.pureMutation';
+function loadPureMutation(): boolean {
+  try {
+    return localStorage.getItem(PURE_MUTATION_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function savePureMutation(on: boolean): void {
+  try {
+    localStorage.setItem(PURE_MUTATION_KEY, on ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+gaParams.pureMutation = loadPureMutation();
 
 function loadSeedHistory(): number[] {
   try {
@@ -1006,6 +1037,19 @@ async function bootstrap(): Promise<void> {
         charts.setSpeedMode(speedMode);
         charts.update(history, lastResults);
       }
+    });
+  }
+
+  // Pure-mutation toggle.  Mutates `gaParams` in place, just like
+  // the population/mutation/elite sliders — change applies on the
+  // next call to nextGeneration (the in-flight gen finishes scoring
+  // either way).  Persisted so the choice survives a reload.
+  const pureMutationInput = document.getElementById('ctrl-pure-mutation');
+  if (pureMutationInput instanceof HTMLInputElement) {
+    pureMutationInput.checked = gaParams.pureMutation;
+    pureMutationInput.addEventListener('change', () => {
+      gaParams.pureMutation = pureMutationInput.checked;
+      savePureMutation(gaParams.pureMutation);
     });
   }
 

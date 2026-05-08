@@ -46,10 +46,16 @@ const enRaw = {
   'ribbon.throughput': 'SPEED',
   'panel.fastForward': 'Fast-forward',
   'panel.speedMode': 'Speed mode',
+  'panel.speedModeHint':
+    'Race against the clock — the elite slot goes to the fastest finisher. With it off, distance travelled wins.',
   'stats.speed': 'Best finish time',
   'stats.speedBest': 'Fastest',
+  'panel.pureMutation': 'Pure mutation',
+  'panel.pureMutationHint':
+    'Only the top car passes on its genes; everyone else is a mutated copy of it. No crossover, no fitness-roulette — simpler model, but risks premature convergence.',
   'panel.strictDeterminism': 'Strict determinism',
-  'panel.strictDeterminismHint': 'Same seed → identical run, every time. Costs ≈2× CPU.',
+  'panel.strictDeterminismHint':
+    'Same seed → bit-identical run, every time. Costs ≈2× CPU because every car gets its own physics world.',
   'panel.strictDeterminismWarning':
     'Every car gets its own physics world. Same seed → bit-identical run.\n\nBut ≈2× CPU load. If this is unfamiliar — only enable on a powerful computer, otherwise leave it off.\n\nThe current run will be reset.',
   'tutorial.close': 'Close',

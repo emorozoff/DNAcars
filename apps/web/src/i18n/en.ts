@@ -54,6 +54,7 @@ const enRaw = {
     'Ends a generation early once every still-alive car is a cached elite from the previous gen — its outcome is already known, replaying the same physics adds nothing. Turn off to watch every elite drive its full course to the natural finish each gen. Only effective alongside Strict determinism, which is what enables the elite caching in the first place.',
   'panel.advancedSettings': 'Advanced settings',
   'panel.advancedOpen': 'Advanced',
+  'panel.advancedExpand': 'Show description',
   'panel.speedMode': 'Speed mode',
   'panel.speedModeHint':
     'When at least one car crosses the finish line, the elite slot goes to whichever finisher reached it fastest. If nobody finishes this generation, distance travelled still wins, same as the default mode. Useful on short tracks where the GA should optimise for finish time, not just for getting further.',

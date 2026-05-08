@@ -338,72 +338,132 @@
               Advanced settings
             </h3>
             <div class="modal-settings__list">
-              <label class="modal-settings__item">
+              <div class="modal-settings__item">
                 <input class="ctrl__checkbox" type="checkbox" id="ctrl-fast-forward" />
-                <div class="modal-settings__item-text">
-                  <span class="modal-settings__item-label" data-i18n="panel.fastForward">
-                    Fast-forward
-                  </span>
-                  <span class="modal-settings__item-desc" data-i18n="panel.fastForwardHint">
-                    End the generation early once only cached elites are still alive.
-                  </span>
-                </div>
-              </label>
-              <label class="modal-settings__item">
+                <label
+                  class="modal-settings__item-label"
+                  for="ctrl-fast-forward"
+                  data-i18n="panel.fastForward"
+                  >Fast-forward</label
+                >
+                <button
+                  class="modal-settings__item-info"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="desc-fast-forward"
+                  data-i18n-title="panel.advancedExpand"
+                ></button>
+                <div
+                  class="modal-settings__item-desc"
+                  id="desc-fast-forward"
+                  data-i18n="panel.fastForwardHint"
+                ></div>
+              </div>
+              <div class="modal-settings__item">
                 <input class="ctrl__checkbox" type="checkbox" id="ctrl-render-top-only" />
-                <div class="modal-settings__item-text">
-                  <span class="modal-settings__item-label" data-i18n="panel.renderTopOnly">
-                    Draw only leaders
-                  </span>
-                  <span class="modal-settings__item-desc" data-i18n="panel.renderTopOnlyHint">
-                    Only the top cars by current position are drawn each frame.
-                  </span>
-                </div>
-              </label>
-              <label class="modal-settings__item">
+                <label
+                  class="modal-settings__item-label"
+                  for="ctrl-render-top-only"
+                  data-i18n="panel.renderTopOnly"
+                  >Draw only leaders</label
+                >
+                <button
+                  class="modal-settings__item-info"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="desc-render-top-only"
+                  data-i18n-title="panel.advancedExpand"
+                ></button>
+                <div
+                  class="modal-settings__item-desc"
+                  id="desc-render-top-only"
+                  data-i18n="panel.renderTopOnlyHint"
+                ></div>
+              </div>
+              <div class="modal-settings__item">
                 <input class="ctrl__checkbox" type="checkbox" id="ctrl-hide-finished" />
-                <div class="modal-settings__item-text">
-                  <span class="modal-settings__item-label" data-i18n="panel.hideFinished">
-                    Hide finished cars
-                  </span>
-                  <span class="modal-settings__item-desc" data-i18n="panel.hideFinishedHint">
-                    Cars that finished or stalled disappear from view after their last frame.
-                  </span>
-                </div>
-              </label>
-              <label class="modal-settings__item">
+                <label
+                  class="modal-settings__item-label"
+                  for="ctrl-hide-finished"
+                  data-i18n="panel.hideFinished"
+                  >Hide finished cars</label
+                >
+                <button
+                  class="modal-settings__item-info"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="desc-hide-finished"
+                  data-i18n-title="panel.advancedExpand"
+                ></button>
+                <div
+                  class="modal-settings__item-desc"
+                  id="desc-hide-finished"
+                  data-i18n="panel.hideFinishedHint"
+                ></div>
+              </div>
+              <div class="modal-settings__item">
                 <input class="ctrl__checkbox" type="checkbox" id="ctrl-speed-mode" />
-                <div class="modal-settings__item-text">
-                  <span class="modal-settings__item-label" data-i18n="panel.speedMode">
-                    Speed mode
-                  </span>
-                  <span class="modal-settings__item-desc" data-i18n="panel.speedModeHint">
-                    Race against the clock — fastest finisher wins the elite slot.
-                  </span>
-                </div>
-              </label>
-              <label class="modal-settings__item">
+                <label
+                  class="modal-settings__item-label"
+                  for="ctrl-speed-mode"
+                  data-i18n="panel.speedMode"
+                  >Speed mode</label
+                >
+                <button
+                  class="modal-settings__item-info"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="desc-speed-mode"
+                  data-i18n-title="panel.advancedExpand"
+                ></button>
+                <div
+                  class="modal-settings__item-desc"
+                  id="desc-speed-mode"
+                  data-i18n="panel.speedModeHint"
+                ></div>
+              </div>
+              <div class="modal-settings__item">
                 <input class="ctrl__checkbox" type="checkbox" id="ctrl-pure-mutation" />
-                <div class="modal-settings__item-text">
-                  <span class="modal-settings__item-label" data-i18n="panel.pureMutation">
-                    Pure mutation
-                  </span>
-                  <span class="modal-settings__item-desc" data-i18n="panel.pureMutationHint">
-                    Only the top car teaches the next generation.
-                  </span>
-                </div>
-              </label>
-              <label class="modal-settings__item">
+                <label
+                  class="modal-settings__item-label"
+                  for="ctrl-pure-mutation"
+                  data-i18n="panel.pureMutation"
+                  >Pure mutation</label
+                >
+                <button
+                  class="modal-settings__item-info"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="desc-pure-mutation"
+                  data-i18n-title="panel.advancedExpand"
+                ></button>
+                <div
+                  class="modal-settings__item-desc"
+                  id="desc-pure-mutation"
+                  data-i18n="panel.pureMutationHint"
+                ></div>
+              </div>
+              <div class="modal-settings__item">
                 <input class="ctrl__checkbox" type="checkbox" id="ctrl-strict-determinism" />
-                <div class="modal-settings__item-text">
-                  <span class="modal-settings__item-label" data-i18n="panel.strictDeterminism">
-                    Strict determinism
-                  </span>
-                  <span class="modal-settings__item-desc" data-i18n="panel.strictDeterminismHint">
-                    Same seed produces a bit-identical run. Costs ≈2× CPU.
-                  </span>
-                </div>
-              </label>
+                <label
+                  class="modal-settings__item-label"
+                  for="ctrl-strict-determinism"
+                  data-i18n="panel.strictDeterminism"
+                  >Strict determinism</label
+                >
+                <button
+                  class="modal-settings__item-info"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="desc-strict-determinism"
+                  data-i18n-title="panel.advancedExpand"
+                ></button>
+                <div
+                  class="modal-settings__item-desc"
+                  id="desc-strict-determinism"
+                  data-i18n="panel.strictDeterminismHint"
+                ></div>
+              </div>
             </div>
             <div class="modal-settings__actions">
               <button

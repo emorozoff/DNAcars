@@ -1214,6 +1214,24 @@ async function bootstrap(): Promise<void> {
       // their target is the panel, not the modal root.
       if (ev.target === settingsModal) closeSettings();
     });
+    // Per-item info chevrons: each toggle's description is collapsed
+    // by default; clicking the chevron flips a class on the row that
+    // animates max-height + opacity, and toggles aria-expanded for
+    // a11y (the chevron pseudo-element rotates via the same attr).
+    // Single delegated listener on the list keeps the wiring trivial
+    // even as more rows get added later.
+    const settingsList = settingsModal.querySelector('.modal-settings__list');
+    settingsList?.addEventListener('click', (ev) => {
+      const target = ev.target;
+      if (!(target instanceof HTMLElement)) return;
+      const btn = target.closest<HTMLButtonElement>('.modal-settings__item-info');
+      if (!btn) return;
+      const item = btn.closest<HTMLElement>('.modal-settings__item');
+      if (!item) return;
+      const expanded = item.classList.toggle('modal-settings__item--expanded');
+      btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      btn.blur();
+    });
     window.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape' && !settingsModal.hidden) {
         // Don't preventDefault — the strict-det warning may be open

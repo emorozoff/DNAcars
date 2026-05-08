@@ -607,17 +607,8 @@ function buildSpeedChart(): Speed {
     }
     flush();
 
-    // Don't render axis labels when no gen has produced a finish
-    // yet — the y range is just the placeholder "1 s" default and
-    // showing "1.00 s" up there reads as if a record was set, which
-    // it wasn't.  Once any gen has a finisher, real labels appear.
-    if (latestWithFinish !== null) {
-      yMaxLabel.textContent = `${maxT.toFixed(2)} s`;
-      yMinLabel.textContent = '0';
-    } else {
-      yMaxLabel.textContent = '';
-      yMinLabel.textContent = '';
-    }
+    yMaxLabel.textContent = `${maxT.toFixed(2)} s`;
+    yMinLabel.textContent = '0';
     const firstGen = history[0]!.generation;
     const lastGen = history[history.length - 1]!.generation;
     genLabel.textContent =

@@ -579,6 +579,10 @@ async function bootstrap(): Promise<void> {
   // generation.  Hidden by default — toggle via the "📊 stats" button.
   const chartsHost = document.getElementById('charts-panel');
   let charts: ChartsHandle | null = null;
+  // True when the headless-mode auto-open last set the panel
+  // visible.  Cleared when the user clicks Stats themselves —
+  // protects manual intent across speed-tier changes.
+  let chartsAutoOpened = false;
   if (chartsHost instanceof HTMLElement) {
     charts = mountCharts(chartsHost);
     charts.setSpeedMode(speedMode);
@@ -586,7 +590,11 @@ async function bootstrap(): Promise<void> {
     if (chartsBtn instanceof HTMLButtonElement) {
       chartsBtn.addEventListener('click', () => {
         if (!charts) return;
+        // User-driven open/close — clear the auto-open flag so we
+        // don't close their manually-chosen state when they later
+        // exit headless mode.
         charts.setVisible(!charts.isVisible());
+        chartsAutoOpened = false;
       });
     }
   }
@@ -1079,10 +1087,17 @@ async function bootstrap(): Promise<void> {
     // is blank.
     document.body.classList.toggle('mode-headless', headless);
     // Auto-open the charts panel when entering headless — there's
-    // nothing else interesting to look at, and live stats are the
-    // whole point of skipping the render.
-    if (headless && charts && !charts.isVisible()) {
-      charts.setVisible(true);
+    // nothing else interesting to look at — and auto-close it when
+    // leaving, but only if WE opened it (don't trample on a user
+    // who manually opened the panel at ×1 then bumped speed up).
+    if (charts) {
+      if (headless && !charts.isVisible()) {
+        charts.setVisible(true);
+        chartsAutoOpened = true;
+      } else if (!headless && chartsAutoOpened) {
+        charts.setVisible(false);
+        chartsAutoOpened = false;
+      }
     }
   }
 

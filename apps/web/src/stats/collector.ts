@@ -53,16 +53,30 @@ export type GenerationStats = {
   bestFinishTime: number | null;
   /** Number of cars that crossed the finish line this gen. */
   finishedCount: number;
+  /** Length of the track this gen ran on, in metres.  Stored so the
+   *  stall-heatmap chart can normalise per-car travel distance against
+   *  a stable x-axis (instead of "max-of-this-gen", which jitters). */
+  trackLength: number;
+  /** Per-car travel distances, in metres.  Captured raw so the stall-
+   *  heatmap chart can re-bin freely (per-gen or aggregated over a
+   *  window) without baking a bin size into the collector.  Bounded
+   *  by populationSize, so memory stays cheap. */
+  travels: number[];
+  /** Finish-times of cars that crossed the line this gen, in seconds.
+   *  Empty array when nobody finished.  Used by the speed-mode finish-
+   *  time-distribution chart. */
+  finishTimes: number[];
 };
 
 export function collectStats(
   generation: number,
   durationSec: number,
   results: Scored[],
+  trackLength: number,
 ): GenerationStats {
   const total = results.length;
   if (total === 0) {
-    return zeroStats(generation, durationSec);
+    return zeroStats(generation, durationSec, trackLength);
   }
 
   // Distance-based stats use the `travel` field (always in metres)
@@ -101,10 +115,10 @@ export function collectStats(
   const allWheels = totalWheelCount || 1;
 
   let bestFinishTime: number | null = null;
-  let finishedCount = 0;
+  const finishTimes: number[] = [];
   for (const r of results) {
     if (r.finishTime !== null) {
-      finishedCount++;
+      finishTimes.push(r.finishTime);
       if (bestFinishTime === null || r.finishTime < bestFinishTime) {
         bestFinishTime = r.finishTime;
       }
@@ -128,11 +142,18 @@ export function collectStats(
     avgChassisDensity: totalChassisDensity / total,
     avgChassisRadius: totalChassisRadius / total,
     bestFinishTime,
-    finishedCount,
+    finishedCount: finishTimes.length,
+    trackLength,
+    travels: results.map((r) => r.travel),
+    finishTimes,
   };
 }
 
-function zeroStats(generation: number, durationSec: number): GenerationStats {
+function zeroStats(
+  generation: number,
+  durationSec: number,
+  trackLength: number,
+): GenerationStats {
   return {
     generation,
     durationSec,
@@ -151,5 +172,8 @@ function zeroStats(generation: number, durationSec: number): GenerationStats {
     avgChassisRadius: 0,
     bestFinishTime: null,
     finishedCount: 0,
+    trackLength,
+    travels: [],
+    finishTimes: [],
   };
 }

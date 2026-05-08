@@ -134,7 +134,7 @@ export function mountCharts(host: HTMLElement): ChartsHandle {
   header.appendChild(seg);
   host.appendChild(header);
 
-  /* ── Body grid (hero + hist side-by-side, genome below) ───────── */
+  /* ── Body grid (hero on top, then secondary metrics, then genome) ─ */
 
   const body = document.createElement('div');
   body.className = 'stats-panel__body';
@@ -146,6 +146,16 @@ export function mountCharts(host: HTMLElement): ChartsHandle {
   const speed = buildSpeedChart();
   body.appendChild(speed.el);
   speed.el.hidden = true;
+
+  const finishDist = buildFinishDistribution();
+  body.appendChild(finishDist.el);
+  finishDist.el.hidden = true;
+
+  const insights = buildInsights();
+  body.appendChild(insights.el);
+
+  const stallMap = buildStallHeatmap();
+  body.appendChild(stallMap.el);
 
   const genome = buildGenomeGrid();
   body.appendChild(genome.el);
@@ -161,12 +171,18 @@ export function mountCharts(host: HTMLElement): ChartsHandle {
     if (lastHistory.length === 0) {
       hero.clear();
       speed.clear();
+      finishDist.clear();
+      insights.clear();
+      stallMap.clear();
       genome.clear();
       return;
     }
     const slice = applyWindow(lastHistory);
     hero.update(slice);
     speed.update(slice);
+    finishDist.update(slice);
+    insights.update(slice);
+    stallMap.update(slice);
     genome.update(slice);
   }
 
@@ -188,6 +204,11 @@ export function mountCharts(host: HTMLElement): ChartsHandle {
     },
     setSpeedMode(on: boolean): void {
       speed.el.hidden = !on;
+      // The finish-time distribution (per-gen min/median/max for
+      // finishers) is only meaningful when speed mode is on — outside
+      // it, finish-times still get recorded but the chart focus stays
+      // on travel distance.  Hide alongside the hero speed card.
+      finishDist.el.hidden = !on;
       // Toggle a class on the panel root so the body grid can
       // re-area the layout (speed card sits next to hero when shown,
       // collapses out of the layout when hidden).
@@ -730,4 +751,359 @@ function renderSparkline(polyline: SVGPolylineElement, values: number[]): void {
     pts += `${x.toFixed(1)},${y.toFixed(1)} `;
   }
   polyline.setAttribute('points', pts.trim());
+}
+
+/* ─── Section 3: Insights — cumulative records + elite age ─────────── */
+
+type Insights = {
+  el: HTMLElement;
+  update(history: GenerationStats[]): void;
+  clear(): void;
+};
+
+/** Walk history and produce per-gen "cumulative record-breaks" +
+ *  "consecutive gens without a record-break" series.  Both series are
+ *  derived from `best`: a record breaks when `best > runningMax`. */
+function deriveInsightSeries(history: GenerationStats[]): {
+  cumRecords: number[];
+  eliteAge: number[];
+} {
+  const cumRecords: number[] = [];
+  const eliteAge: number[] = [];
+  let runningMax = -Infinity;
+  let breaks = 0;
+  let age = 0;
+  // 0.5 m epsilon: in strict-det the elite carries `best` exactly,
+  // but in non-strict-det the multi-body world has FP noise that
+  // jitters `best` by a few centimetres run-to-run.  Half a metre is
+  // far above the noise floor and well below any real overtake.
+  const EPS = 0.5;
+  for (const h of history) {
+    if (h.best > runningMax + EPS) {
+      runningMax = h.best;
+      breaks += 1;
+      age = 1;
+    } else {
+      age += 1;
+    }
+    cumRecords.push(breaks);
+    eliteAge.push(age);
+  }
+  return { cumRecords, eliteAge };
+}
+
+function buildInsights(): Insights {
+  const card = document.createElement('div');
+  card.className = 'stats-card stats-card--insights';
+
+  const title = document.createElement('h4');
+  title.className = 'stats-card__title';
+  title.setAttribute('data-i18n', 'stats.insights');
+  title.textContent = t('stats.insights');
+  card.appendChild(title);
+
+  const grid = document.createElement('div');
+  grid.className = 'stats-insights__grid';
+  card.appendChild(grid);
+
+  const cumCell = makeInsightCell('chart.cumRecords');
+  const ageCell = makeInsightCell('chart.eliteAge');
+  grid.appendChild(cumCell.el);
+  grid.appendChild(ageCell.el);
+
+  function clear(): void {
+    cumCell.value.textContent = '—';
+    cumCell.polyline.setAttribute('points', '');
+    ageCell.value.textContent = '—';
+    ageCell.polyline.setAttribute('points', '');
+  }
+
+  function update(history: GenerationStats[]): void {
+    if (history.length === 0) {
+      clear();
+      return;
+    }
+    const { cumRecords, eliteAge } = deriveInsightSeries(history);
+    cumCell.value.textContent = String(cumRecords[cumRecords.length - 1] ?? 0);
+    renderSparkline(cumCell.polyline, cumRecords);
+    ageCell.value.textContent = String(eliteAge[eliteAge.length - 1] ?? 0);
+    renderSparkline(ageCell.polyline, eliteAge);
+  }
+
+  return { el: card, update, clear };
+}
+
+function makeInsightCell(i18nKey: TranslationKey): {
+  el: HTMLElement;
+  value: HTMLSpanElement;
+  polyline: SVGPolylineElement;
+} {
+  const cell = document.createElement('div');
+  cell.className = 'stats-genome__cell';
+  const head = document.createElement('div');
+  head.className = 'stats-genome__head';
+  const titleEl = document.createElement('span');
+  titleEl.className = 'stats-genome__title';
+  titleEl.setAttribute('data-i18n', i18nKey);
+  titleEl.textContent = t(i18nKey);
+  const val = document.createElement('span');
+  val.className = 'stats-genome__value';
+  val.textContent = '—';
+  head.appendChild(titleEl);
+  head.appendChild(val);
+  cell.appendChild(head);
+
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', 'stats-genome__spark');
+  svg.setAttribute('viewBox', `0 0 ${SPARK_W} ${SPARK_H}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  const polyline = document.createElementNS(SVG_NS, 'polyline');
+  polyline.setAttribute('fill', 'none');
+  polyline.setAttribute('stroke', 'var(--color-fg-muted)');
+  polyline.setAttribute('stroke-width', '1.4');
+  polyline.setAttribute('vector-effect', 'non-scaling-stroke');
+  polyline.setAttribute('stroke-linecap', 'round');
+  polyline.setAttribute('stroke-linejoin', 'round');
+  svg.appendChild(polyline);
+  cell.appendChild(svg);
+
+  return { el: cell, value: val, polyline };
+}
+
+/* ─── Section 4: Stall heatmap — where on the track cars stop ──────── */
+
+type StallMap = {
+  el: HTMLElement;
+  update(history: GenerationStats[]): void;
+  clear(): void;
+};
+
+const STALL_BINS = 32;
+
+function buildStallHeatmap(): StallMap {
+  const card = document.createElement('div');
+  card.className = 'stats-card stats-card--stall';
+
+  const title = document.createElement('h4');
+  title.className = 'stats-card__title';
+  title.setAttribute('data-i18n', 'stats.stallMap');
+  title.textContent = t('stats.stallMap');
+  card.appendChild(title);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'stats-stall__wrap';
+
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', 'stats-stall');
+  svg.setAttribute('viewBox', `0 0 ${HERO_W} 80`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+
+  const bars: SVGRectElement[] = [];
+  const slot = HERO_W / STALL_BINS;
+  const gap = slot * 0.12;
+  for (let i = 0; i < STALL_BINS; i++) {
+    const r = document.createElementNS(SVG_NS, 'rect');
+    r.setAttribute('class', 'stats-stall__bar');
+    r.setAttribute('x', String(i * slot + gap / 2));
+    r.setAttribute('width', String(slot - gap));
+    r.setAttribute('y', '80');
+    r.setAttribute('height', '0');
+    svg.appendChild(r);
+    bars.push(r);
+  }
+
+  const baseline = document.createElementNS(SVG_NS, 'line');
+  baseline.setAttribute('class', 'stats-stall__baseline');
+  baseline.setAttribute('x1', '0');
+  baseline.setAttribute('x2', String(HERO_W));
+  baseline.setAttribute('y1', '79');
+  baseline.setAttribute('y2', '79');
+  baseline.setAttribute('vector-effect', 'non-scaling-stroke');
+  svg.appendChild(baseline);
+
+  wrap.appendChild(svg);
+
+  const xStart = makeAxisLabel('stats-stall__axis stats-stall__axis--start');
+  xStart.textContent = '0';
+  const xEnd = makeAxisLabel('stats-stall__axis stats-stall__axis--end');
+  wrap.appendChild(xStart);
+  wrap.appendChild(xEnd);
+
+  card.appendChild(wrap);
+
+  function clear(): void {
+    for (const b of bars) {
+      b.setAttribute('height', '0');
+      b.setAttribute('y', '80');
+    }
+    xEnd.textContent = '';
+  }
+
+  function update(history: GenerationStats[]): void {
+    if (history.length === 0) {
+      clear();
+      return;
+    }
+    // Aggregate stall positions across the entire windowed history
+    // — single-gen samples are bimodal (elites at far end, the rest
+    // bunched near spawn) and don't reveal track-section difficulty
+    // very well.  Summing across 50-200 gens smooths the noise into
+    // a clean "trouble-spot" silhouette.
+    const trackLength = history[history.length - 1]?.trackLength ?? 0;
+    if (trackLength <= 0) {
+      clear();
+      return;
+    }
+    const counts = new Array<number>(STALL_BINS).fill(0);
+    for (const h of history) {
+      if (h.trackLength <= 0) continue;
+      for (const tr of h.travels) {
+        const frac = Math.max(0, Math.min(0.999, tr / h.trackLength));
+        const bin = Math.min(STALL_BINS - 1, Math.floor(frac * STALL_BINS));
+        counts[bin] = (counts[bin] ?? 0) + 1;
+      }
+    }
+    let peak = 1;
+    for (const c of counts) if (c > peak) peak = c;
+    for (let i = 0; i < STALL_BINS; i++) {
+      const count = counts[i] ?? 0;
+      const h = (count / peak) * (80 - 2);
+      bars[i]!.setAttribute('y', String(80 - h));
+      bars[i]!.setAttribute('height', String(h));
+    }
+    xEnd.textContent = `${trackLength.toFixed(0)}м`;
+  }
+
+  return { el: card, update, clear };
+}
+
+/* ─── Section 5: Finish-time distribution (speed-mode only) ────────── */
+
+type FinishDist = {
+  el: HTMLElement;
+  update(history: GenerationStats[]): void;
+  clear(): void;
+};
+
+const FINISH_DIST_W = 600;
+const FINISH_DIST_H = 160;
+
+function buildFinishDistribution(): FinishDist {
+  const card = document.createElement('div');
+  card.className = 'stats-card stats-card--finish-dist';
+
+  const title = document.createElement('h4');
+  title.className = 'stats-card__title';
+  title.setAttribute('data-i18n', 'stats.finishDist');
+  title.textContent = t('stats.finishDist');
+  card.appendChild(title);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'stats-finish-dist__wrap';
+
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', 'stats-finish-dist');
+  svg.setAttribute('viewBox', `0 0 ${FINISH_DIST_W} ${FINISH_DIST_H}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+
+  // Three polylines: min (fastest), median, max (slowest finisher).
+  // Filled band between min and max behind them for at-a-glance
+  // "spread" reading.
+  const band = document.createElementNS(SVG_NS, 'polygon');
+  band.setAttribute('class', 'stats-finish-dist__band');
+  svg.appendChild(band);
+  const minLine = document.createElementNS(SVG_NS, 'polyline');
+  minLine.setAttribute('class', 'stats-finish-dist__line stats-finish-dist__line--min');
+  minLine.setAttribute('fill', 'none');
+  minLine.setAttribute('vector-effect', 'non-scaling-stroke');
+  svg.appendChild(minLine);
+  const medLine = document.createElementNS(SVG_NS, 'polyline');
+  medLine.setAttribute('class', 'stats-finish-dist__line stats-finish-dist__line--med');
+  medLine.setAttribute('fill', 'none');
+  medLine.setAttribute('vector-effect', 'non-scaling-stroke');
+  svg.appendChild(medLine);
+  const maxLine = document.createElementNS(SVG_NS, 'polyline');
+  maxLine.setAttribute('class', 'stats-finish-dist__line stats-finish-dist__line--max');
+  maxLine.setAttribute('fill', 'none');
+  maxLine.setAttribute('vector-effect', 'non-scaling-stroke');
+  svg.appendChild(maxLine);
+
+  wrap.appendChild(svg);
+
+  const yTop = makeAxisLabel('stats-hero__axis stats-hero__axis--y-top');
+  const yBot = makeAxisLabel('stats-hero__axis stats-hero__axis--y-bot');
+  wrap.appendChild(yTop);
+  wrap.appendChild(yBot);
+
+  card.appendChild(wrap);
+
+  function clear(): void {
+    band.setAttribute('points', '');
+    minLine.setAttribute('points', '');
+    medLine.setAttribute('points', '');
+    maxLine.setAttribute('points', '');
+    yTop.textContent = '';
+    yBot.textContent = '';
+  }
+
+  function update(history: GenerationStats[]): void {
+    if (history.length === 0) {
+      clear();
+      return;
+    }
+    // For each gen, compute (min, median, max) of the finishers.
+    // Generations with zero finishers contribute null and are
+    // skipped from the polylines (lines have a gap).
+    type Triple = { gen: number; lo: number; med: number; hi: number };
+    const points: Triple[] = [];
+    for (let i = 0; i < history.length; i++) {
+      const h = history[i]!;
+      if (h.finishTimes.length === 0) continue;
+      const sorted = [...h.finishTimes].sort((a, b) => a - b);
+      const lo = sorted[0]!;
+      const hi = sorted[sorted.length - 1]!;
+      const med = sorted[Math.floor(sorted.length / 2)]!;
+      points.push({ gen: i, lo, med, hi });
+    }
+    if (points.length === 0) {
+      clear();
+      return;
+    }
+    let yMin = Infinity;
+    let yMax = -Infinity;
+    for (const p of points) {
+      if (p.lo < yMin) yMin = p.lo;
+      if (p.hi > yMax) yMax = p.hi;
+    }
+    const yRange = yMax - yMin || 1;
+    const xDenom = history.length - 1 || 1;
+    const project = (gen: number, t: number): [number, number] => [
+      (gen / xDenom) * FINISH_DIST_W,
+      FINISH_DIST_H - ((t - yMin) / yRange) * FINISH_DIST_H,
+    ];
+
+    let minPts = '';
+    let medPts = '';
+    let maxPts = '';
+    let upper = '';
+    let lower = '';
+    for (const p of points) {
+      const [x, ylo] = project(p.gen, p.lo);
+      const [, ymed] = project(p.gen, p.med);
+      const [, yhi] = project(p.gen, p.hi);
+      minPts += `${x.toFixed(1)},${ylo.toFixed(1)} `;
+      medPts += `${x.toFixed(1)},${ymed.toFixed(1)} `;
+      maxPts += `${x.toFixed(1)},${yhi.toFixed(1)} `;
+      upper += `${x.toFixed(1)},${ylo.toFixed(1)} `;
+      lower = `${x.toFixed(1)},${yhi.toFixed(1)} ` + lower;
+    }
+    minLine.setAttribute('points', minPts.trim());
+    medLine.setAttribute('points', medPts.trim());
+    maxLine.setAttribute('points', maxPts.trim());
+    band.setAttribute('points', `${upper.trim()} ${lower.trim()}`);
+    yTop.textContent = `${yMin.toFixed(1)}с`;
+    yBot.textContent = `${yMax.toFixed(1)}с`;
+  }
+
+  return { el: card, update, clear };
 }

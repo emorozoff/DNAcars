@@ -679,7 +679,19 @@ async function bootstrap(): Promise<void> {
    * Invalidated implicitly by a track-config change (hash mismatch),
    * and explicitly cleared in freshRun() and on strict-det toggle.
    */
-  type EliteCacheEntry = { fitness: number; finishTime: number | null };
+  type EliteCacheEntry = {
+    fitness: number;
+    finishTime: number | null;
+    /**
+     * The elite's travel-distance the prev gen, in metres.  Cached
+     * alongside fitness because the fast-forward shortcut cuts elite
+     * cars short — without overriding `travel` too, the dashboard's
+     * "best" reading (which reads `travel`, not `fitness`, to stay
+     * unit-consistent across speed-mode toggles) would visibly dip
+     * every gen the shortcut fires.  See the substitute in startSession.
+     */
+    travel: number;
+  };
   let eliteCache: { trackHash: string; entries: EliteCacheEntry[] } | null = null;
 
   function trackConfigHash(trackSeed: number, trackOpts: Partial<TrackOptions>): string {
@@ -1260,7 +1272,11 @@ async function bootstrap(): Promise<void> {
           const sorted = [...results]
             .sort((a, b) => b.fitness - a.fitness)
             .slice(0, gaParams.eliteCount)
-            .map((r) => ({ fitness: r.fitness, finishTime: r.finishTime }));
+            .map((r) => ({
+              fitness: r.fitness,
+              finishTime: r.finishTime,
+              travel: r.travel,
+            }));
           eliteCache = { trackHash: currentTrackHash, entries: sorted };
         } else {
           eliteCache = null;
@@ -1291,7 +1307,9 @@ async function bootstrap(): Promise<void> {
         }
         // Record summary stats and refresh sparklines.
         const durationSec = (performance.now() - sessionStartedAt) / 1000;
-        history.push(collectStats(generation, durationSec, results));
+        history.push(
+          collectStats(generation, durationSec, results, session?.trackLength ?? 0),
+        );
         if (charts) charts.update(history);
         generation += 1;
         const effective = effectiveSpeed();
@@ -1449,6 +1467,10 @@ function updateSliderFill(input: HTMLInputElement): void {
 type Session = {
   world: WorldHandle;
   stop(): void;
+  /** Length of the track this session is running on, in metres.  The
+   *  host reads it at gen-end to feed collectStats so the stall-
+   *  heatmap chart has a stable x-axis. */
+  trackLength: number;
 };
 
 type StartOptions = {
@@ -1488,7 +1510,7 @@ type StartOptions = {
    */
   shortcutCtx?: {
     eliteCount: number;
-    cachedEntries: { fitness: number; finishTime: number | null }[];
+    cachedEntries: { fitness: number; finishTime: number | null; travel: number }[];
     onTrigger: () => void;
   } | null;
   /**
@@ -1674,14 +1696,27 @@ async function startSession(opts: StartOptions): Promise<Session> {
         // don't see a bogus "elite regressed / didn't finish"
         // reading.
         let resolvedFinishTime = finishTime;
+        let resolvedTravel = travel;
         if (shortcutApplied && shortcutCtx && i < shortcutCtx.cachedEntries.length) {
           const cached = shortcutCtx.cachedEntries[i]!;
           fitness = Math.max(fitness, cached.fitness);
+          // travel stays mode-independent — it's the actual maxX and
+          // feeds dashboard "best" / record-marker / stall heatmap.
+          // The shortcut cut the live run short, so the cached value
+          // is the truthful one.  Take the longer just in case the
+          // live run somehow exceeded the cache (paranoia; should be
+          // identical in strict-det).
+          resolvedTravel = Math.max(travel, cached.travel);
           if (resolvedFinishTime === null && cached.finishTime !== null) {
             resolvedFinishTime = cached.finishTime;
           }
         }
-        return { genome, fitness, travel, finishTime: resolvedFinishTime };
+        return {
+          genome,
+          fitness,
+          travel: resolvedTravel,
+          finishTime: resolvedFinishTime,
+        };
       });
       onGenerationEnd(results);
       // Solo-verify the top-1 elite in a side-world.  Runs in the
@@ -1705,6 +1740,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
 
   return {
     world,
+    trackLength: track.options.length,
     stop(): void {
       running = false;
     },

@@ -123,11 +123,16 @@ const enRaw = {
   'chart.avgMotorSpeed': 'Motor speed',
   'chart.avgChassisDensity': 'Chassis density',
   'chart.avgChassisSize': 'Chassis size',
+  'chart.cumRecords': 'Records broken',
+  'chart.eliteAge': 'Champion age',
   // Stats panel sections (v1.15 redesign)
   'stats.progress': 'Evolution progress',
   'stats.progressBest': 'Best',
   'stats.progressMean': 'Mean',
   'stats.genome': 'Car traits',
+  'stats.insights': 'Run insights',
+  'stats.stallMap': 'Where cars stall along the track',
+  'stats.finishDist': 'Finish-time spread (min · median · max)',
   'stats.empty': 'Run a generation to see stats',
 } as const;
 

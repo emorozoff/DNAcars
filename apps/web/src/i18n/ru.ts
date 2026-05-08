@@ -125,10 +125,15 @@ export const ru: Dictionary = {
   'chart.avgMotorSpeed': 'Скорость мотора',
   'chart.avgChassisDensity': 'Плотность корпуса',
   'chart.avgChassisSize': 'Размер корпуса',
+  'chart.cumRecords': 'Рекордов побито',
+  'chart.eliteAge': 'Возраст чемпиона',
   // Секции панели статистики (редизайн v1.15)
   'stats.progress': 'Прогресс эволюции',
   'stats.progressBest': 'Лучший',
   'stats.progressMean': 'Средний',
   'stats.genome': 'Параметры машин',
+  'stats.insights': 'Сводка по эволюции',
+  'stats.stallMap': 'Где машины умирают на трассе',
+  'stats.finishDist': 'Разброс времён финиша (мин · медиана · макс)',
   'stats.empty': 'Запусти поколение чтобы увидеть статистику',
 };

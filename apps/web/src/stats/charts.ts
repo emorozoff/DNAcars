@@ -297,6 +297,58 @@ function buildHero(): Hero {
   wrap.appendChild(yMinLabel);
   wrap.appendChild(genLabel);
 
+  // Hover overlay: vertical hairline + tooltip that follows the
+  // cursor across the chart and reads back exact best/mean values
+  // for whichever generation it's pointing at.  Hidden until first
+  // mousemove, hidden again on mouseleave.
+  const hairline = document.createElement('div');
+  hairline.className = 'stats-hero__hairline';
+  hairline.hidden = true;
+  wrap.appendChild(hairline);
+  const tooltip = document.createElement('div');
+  tooltip.className = 'stats-hero__tooltip';
+  tooltip.hidden = true;
+  wrap.appendChild(tooltip);
+
+  let currentSlice: GenerationStats[] = [];
+
+  wrap.addEventListener('mousemove', (e) => {
+    if (currentSlice.length === 0) return;
+    const rect = wrap.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const idx = Math.round(ratio * (currentSlice.length - 1));
+    const gen = currentSlice[idx];
+    if (!gen) return;
+    const xPct = currentSlice.length > 1 ? (idx / (currentSlice.length - 1)) * 100 : 50;
+    hairline.style.left = `${xPct}%`;
+    hairline.hidden = false;
+    tooltip.hidden = false;
+    tooltip.replaceChildren(
+      tooltipRow('stats-hero__tooltip-gen', `пок. #${gen.generation}`),
+      tooltipRow(
+        'stats-hero__tooltip-row stats-hero__tooltip-row--best',
+        `${t('stats.progressBest')} · ${gen.best.toFixed(1)} м`,
+      ),
+      tooltipRow(
+        'stats-hero__tooltip-row',
+        `${t('stats.progressMean')} · ${gen.mean.toFixed(1)} м`,
+      ),
+    );
+    // Position the tooltip near the cursor, clamped to the wrap so
+    // it never escapes the card's right or left edge.
+    const cursorX = e.clientX - rect.left;
+    const tooltipW = tooltip.offsetWidth || 160;
+    let leftPx = cursorX + 14;
+    if (leftPx + tooltipW > rect.width - 4) leftPx = cursorX - 14 - tooltipW;
+    if (leftPx < 4) leftPx = 4;
+    tooltip.style.left = `${leftPx}px`;
+  });
+  wrap.addEventListener('mouseleave', () => {
+    hairline.hidden = true;
+    tooltip.hidden = true;
+  });
+
   card.appendChild(wrap);
 
   function clear(): void {
@@ -307,6 +359,9 @@ function buildHero(): Hero {
     yMaxLabel.textContent = '';
     yMinLabel.textContent = '';
     genLabel.textContent = '';
+    currentSlice = [];
+    hairline.hidden = true;
+    tooltip.hidden = true;
   }
 
   function update(history: GenerationStats[]): void {
@@ -346,9 +401,17 @@ function buildHero(): Hero {
     const lastGen = latest.generation;
     genLabel.textContent =
       firstGen === lastGen ? `пок. ${lastGen}` : `пок. ${firstGen}–${lastGen}`;
+    currentSlice = history;
   }
 
   return { el: card, update, clear };
+}
+
+function tooltipRow(className: string, text: string): HTMLElement {
+  const div = document.createElement('div');
+  div.className = className;
+  div.textContent = text;
+  return div;
 }
 
 /* ─── Section 1b: Speed-mode chart (best finish time per gen) ─────── */
@@ -413,6 +476,56 @@ function buildSpeedChart(): Speed {
   wrap.appendChild(yMinLabel);
   wrap.appendChild(genLabel);
 
+  // Hover overlay (same pattern as the hero chart): hairline +
+  // tooltip showing exact finish time at the hovered generation.
+  // Tooltip skips gens with no finisher (bestFinishTime === null)
+  // and shows "no finishers" instead.
+  const hairline = document.createElement('div');
+  hairline.className = 'stats-hero__hairline';
+  hairline.hidden = true;
+  wrap.appendChild(hairline);
+  const tooltip = document.createElement('div');
+  tooltip.className = 'stats-hero__tooltip';
+  tooltip.hidden = true;
+  wrap.appendChild(tooltip);
+
+  let currentSlice: GenerationStats[] = [];
+
+  wrap.addEventListener('mousemove', (e) => {
+    if (currentSlice.length === 0) return;
+    const rect = wrap.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const idx = Math.round(ratio * (currentSlice.length - 1));
+    const gen = currentSlice[idx];
+    if (!gen) return;
+    const xPct = currentSlice.length > 1 ? (idx / (currentSlice.length - 1)) * 100 : 50;
+    hairline.style.left = `${xPct}%`;
+    hairline.hidden = false;
+    tooltip.hidden = false;
+    const valueRow =
+      gen.bestFinishTime !== null
+        ? tooltipRow(
+            'stats-hero__tooltip-row stats-hero__tooltip-row--best',
+            `${t('stats.speedBest')} · ${gen.bestFinishTime.toFixed(2)} s`,
+          )
+        : tooltipRow('stats-hero__tooltip-row', '—');
+    tooltip.replaceChildren(
+      tooltipRow('stats-hero__tooltip-gen', `пок. #${gen.generation}`),
+      valueRow,
+    );
+    const cursorX = e.clientX - rect.left;
+    const tooltipW = tooltip.offsetWidth || 160;
+    let leftPx = cursorX + 14;
+    if (leftPx + tooltipW > rect.width - 4) leftPx = cursorX - 14 - tooltipW;
+    if (leftPx < 4) leftPx = 4;
+    tooltip.style.left = `${leftPx}px`;
+  });
+  wrap.addEventListener('mouseleave', () => {
+    hairline.hidden = true;
+    tooltip.hidden = true;
+  });
+
   card.appendChild(wrap);
 
   function clearPolylines(): void {
@@ -425,6 +538,9 @@ function buildSpeedChart(): Speed {
     yMaxLabel.textContent = '';
     yMinLabel.textContent = '';
     genLabel.textContent = '';
+    currentSlice = [];
+    hairline.hidden = true;
+    tooltip.hidden = true;
   }
 
   function update(history: GenerationStats[]): void {
@@ -495,6 +611,7 @@ function buildSpeedChart(): Speed {
     const lastGen = history[history.length - 1]!.generation;
     genLabel.textContent =
       firstGen === lastGen ? `пок. ${lastGen}` : `пок. ${firstGen}–${lastGen}`;
+    currentSlice = history;
   }
 
   return { el: card, update, clear };

@@ -74,17 +74,16 @@
               <span class="ribbon-stat__sub">/&nbsp;<span id="stat-total">—</span></span>
             </span>
           </span>
-          <span class="ribbon-stat">
-            <span class="ribbon-stat__label" data-i18n="ribbon.seed">SEED</span>
-            <button
-              class="ribbon-stat__value ribbon-stat__value--copyable"
-              id="stat-seed"
-              type="button"
-              title=""
-              data-i18n-title="panel.seedCopyHint"
-            >
-              —
-            </button>
+          <span class="ribbon-stat ribbon-stat--track-mode">
+            <span class="ribbon-stat__label" data-i18n="panel.trackLabel">Track preset</span>
+            <div class="segmented segmented--inline" id="seg-track" role="radiogroup">
+              <button class="segmented__item" data-track-mode="random" type="button">
+                <span data-i18n="panel.trackShortRandom">Random</span>
+              </button>
+              <button class="segmented__item" data-track-mode="fixed" type="button">
+                <span data-i18n="panel.trackShortFixed">Fixed</span>
+              </button>
+            </div>
           </span>
           <span class="ribbon-stat">
             <span class="ribbon-stat__label" data-i18n="ribbon.throughput">SPEED</span>
@@ -214,16 +213,6 @@
                 <span class="dock__toggle-chevron" aria-hidden="true">▾</span>
               </button>
               <div class="dock-drawer dock-drawer--wide" id="dock-drawer-track" hidden>
-                <div class="dock-drawer__head">
-                  <div class="segmented" id="seg-track" role="radiogroup">
-                    <button class="segmented__item" data-track-mode="random" type="button">
-                      <span data-i18n="panel.trackShortRandom">Random</span>
-                    </button>
-                    <button class="segmented__item" data-track-mode="fixed" type="button">
-                      <span data-i18n="panel.trackShortFixed">Fixed</span>
-                    </button>
-                  </div>
-                </div>
                 <div class="dock-drawer__grid">
                   <label class="ctrl">
                     <span class="ctrl__label" data-i18n="panel.trackLength">length</span>

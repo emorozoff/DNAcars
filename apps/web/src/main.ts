@@ -548,7 +548,10 @@ async function bootstrap(): Promise<void> {
     total: requireEl('stat-total'),
     lead: requireEl('stat-lead'),
     best: requireEl('stat-best'),
-    seed: requireEl('stat-seed'),
+    // stat-seed used to live in the ribbon; v1.21.2 dropped it in
+    // favour of the track-mode toggle.  Keep a detached element so
+    // existing seed-text writes don't have to null-check.
+    seed: document.getElementById('stat-seed') ?? document.createElement('span'),
     generation: requireEl('stat-generation'),
     version: requireEl('app-version'),
     // stat-elite-solo no longer exists in the new ribbon — keep the

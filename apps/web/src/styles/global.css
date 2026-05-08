@@ -185,6 +185,19 @@ button {
   flex-direction: column;
 }
 
+/* Ribbon-cell variant — slimmer buttons + smaller font so the
+   track-mode toggle fits inside a stat cell without dominating
+   the row. */
+.segmented--inline {
+  padding: 1px;
+}
+
+.segmented--inline .segmented__item {
+  font-size: var(--fs-xs);
+  padding: 0 var(--sp-2);
+  letter-spacing: 0.02em;
+}
+
 .segmented__item {
   flex: 1;
   background: transparent;
@@ -1657,6 +1670,70 @@ button {
 .stats-hero__axis--x-end {
   bottom: 0.25rem;
   right: 0.25rem;
+}
+
+/* Hover hairline — vertical line that follows the cursor across
+   the chart so the player sees exactly which gen the tooltip is
+   reading from. */
+.stats-hero__hairline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  margin-left: -0.5px;
+  background: rgba(168, 255, 96, 0.55);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.stats-hero__hairline[hidden] {
+  display: none;
+}
+
+/* Hover tooltip — small floating card with the exact value at
+   the hovered generation.  Positioned by JS near the cursor and
+   clamped to the wrap so it can't escape sideways. */
+.stats-hero__tooltip {
+  position: absolute;
+  top: 0.25rem;
+  background: rgba(22, 22, 26, 0.95);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  padding: 0.25rem var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  line-height: 1.4;
+  color: var(--color-fg);
+  pointer-events: none;
+  z-index: 3;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+
+.stats-hero__tooltip[hidden] {
+  display: none;
+}
+
+.stats-hero__tooltip-gen {
+  color: var(--color-fg-muted);
+  font-size: 0.5625rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 1px;
+}
+
+.stats-hero__tooltip-row {
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-hero__tooltip-row--best {
+  color: #a8ff60;
+  font-weight: 600;
+}
+
+/* Hover affordance: tell the player the chart reacts to mouse. */
+.stats-hero__wrap {
+  cursor: crosshair;
 }
 
 /* Histogram: distribution of current-gen distances */

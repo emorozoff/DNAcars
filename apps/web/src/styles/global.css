@@ -243,15 +243,15 @@ button {
 }
 
 /* Ribbon throughput ("ТЕМП") cell colours by saturation state. */
-.ribbon__value--ok {
+.ribbon-stat__value--ok {
   color: var(--color-fg);
 }
 
-.ribbon__value--tight {
+.ribbon-stat__value--tight {
   color: #ffd166;
 }
 
-.ribbon__value--saturated {
+.ribbon-stat__value--saturated {
   color: #ff8c8c;
   font-weight: 600;
 }
@@ -391,61 +391,46 @@ button {
 
 /* ─── Top ribbon: live stats + full-width minimap ───────────────────────── */
 
-.ribbon {
+/* Stats block — fixed-shape grid in the top-left.  Six stats laid
+   out 2 cols × 3 rows so the block stays roughly square (≈ 17 rem ×
+   8 rem) regardless of which value happens to render.  Crucially
+   it's a separate absolute element from the minimap, so a length
+   change in the throughput cell can't push the minimap sideways. */
+.ribbon-stats {
   position: absolute;
-  top: var(--sp-3);
+  top: calc(var(--sp-3) + var(--minimap-h) + var(--sp-2));
   left: var(--sp-4);
-  right: var(--sp-4);
-  display: flex;
-  gap: var(--sp-3);
-  align-items: flex-start;
-  z-index: 2;
-  /* Gaps between ribbon children let canvas drag + click pass
-     through.  The stats card and minimap themselves re-enable
-     pointer-events on their own boxes. */
-  pointer-events: none;
-}
-
-.ribbon__stats {
-  height: 2.25rem;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  padding: 0 var(--sp-4);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(7rem, max-content));
+  grid-auto-rows: auto;
+  gap: var(--sp-2) var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
   background: rgba(22, 22, 26, 0.78);
   border: 1px solid var(--color-border);
   border-radius: var(--r-md);
   backdrop-filter: blur(8px);
-  pointer-events: auto;
+  z-index: 2;
 }
 
-/* Each stat is a "label / value" pair where the label sits to the
-   left of the value at the same vertical baseline.  Kept compact
-   so the whole strip fits even on a 13" laptop. */
-.ribbon__stat {
+/* Each stat is stacked: small uppercase label on top, mono value
+   below.  Fixed-min-width on the value's column keeps the right
+   half of the grid stable even when "ТЕМП" flips between "×32"
+   and "×27 / ×32" — no more dimensional shimmy. */
+.ribbon-stat {
   display: flex;
-  align-items: baseline;
-  gap: var(--sp-2);
+  flex-direction: column;
+  gap: 0.1rem;
   white-space: nowrap;
 }
 
-/* Vertical hairline divider between adjacent stats — visual
-   grouping cue without using extra padding. */
-.ribbon__sep {
-  width: 1px;
-  align-self: stretch;
-  background: var(--color-border);
-}
-
-.ribbon__label {
-  font-size: 0.6875rem;
-  letter-spacing: 0.08em;
+.ribbon-stat__label {
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
   color: var(--color-fg-muted);
   text-transform: uppercase;
 }
 
-.ribbon__value {
+.ribbon-stat__value {
   display: inline-flex;
   align-items: baseline;
   gap: 0.15rem;
@@ -455,27 +440,24 @@ button {
   color: var(--color-fg);
 }
 
-.ribbon__hash {
+.ribbon-stat__hash {
   color: var(--color-fg-muted);
   font-weight: 400;
   margin-right: 0.05rem;
 }
 
-/* Sub-text inside a value — e.g. " / 500m" track-length context
-   after the leader, or " / 24" total-cars context after alive
-   count.  Rendered dim so it reads as "this is the denominator". */
-.ribbon__sub {
+.ribbon-stat__sub {
   color: var(--color-fg-muted);
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   letter-spacing: 0.02em;
 }
 
-.ribbon__value--accent {
+.ribbon-stat__value--accent {
   color: var(--color-panel-accent);
   font-weight: 600;
 }
 
-.ribbon__value--copyable {
+.ribbon-stat__value--copyable {
   background: transparent;
   border: none;
   padding: 0;
@@ -487,13 +469,14 @@ button {
   color: var(--color-fg);
   cursor: pointer;
   transition: color var(--dur-fast) var(--ease-out);
+  text-align: left;
 }
 
-.ribbon__value--copyable:hover {
+.ribbon-stat__value--copyable:hover {
   color: var(--color-panel-accent);
 }
 
-.ribbon__value--copied {
+.ribbon-stat__value--copied {
   color: var(--color-panel-accent);
 }
 
@@ -1283,17 +1266,23 @@ button {
 /* ─── Minimap ────────────────────────────────────────────────────────────── */
 
 .minimap {
-  /* Lives inside the ribbon flex container — fills the remaining
-     horizontal space after the stats card.  Height tracks the
-     ribbon's height (36 px in normal mode, 60vh in headless). */
-  flex: 1 1 auto;
-  height: 2.25rem;
+  /* Pinned to the very top of the stage, spanning the full width
+     between the side margins.  v1.19.2: split out from the old
+     ribbon flex row so a length change in the throughput readout
+     can no longer push the minimap sideways.  The stats block sits
+     UNDER the minimap (top-left), independently positioned. */
+  position: absolute;
+  top: var(--sp-3);
+  left: var(--sp-4);
+  right: var(--sp-4);
+  height: var(--minimap-h);
   background: rgba(22, 22, 26, 0.78);
   border: 1px solid var(--color-border);
   border-radius: var(--r-md);
   backdrop-filter: blur(8px);
   display: block;
   pointer-events: auto;
+  z-index: 2;
   /* Click or drag anywhere on the minimap to move the camera.
      `grab` signals "you can grab this and drag it"; the JS side
      switches to `grabbing` while a drag is active via the
@@ -1319,25 +1308,20 @@ button {
    - The headless banner is hidden; the dock's highlighted ×32
      button + the auto-opened stats panel are sufficient cues that
      rendering is off. */
-.mode-headless .ribbon {
-  flex-direction: column;
-  gap: var(--sp-2);
-}
-
-.mode-headless .ribbon__stats {
-  align-self: flex-start;
-}
-
-.mode-headless .minimap {
-  height: 8rem;
-  width: 100%;
+.mode-headless {
+  /* In headless mode the minimap grows tall so the player can scan
+     car positions.  All ".minimap-relative" elements (stats block
+     position, charts panel top) reference --minimap-h, so changing
+     this variable cascades automatically. */
+  --minimap-h: 8rem;
 }
 
 .mode-headless .charts-panel {
-  /* Stretch to fill the canvas area: from below the ribbon down to
-     just above the dock, centred with a sensible max-width so it
-     doesn't smear edge-to-edge on ultrawide / 27" screens. */
-  top: calc(var(--sp-3) + 2.25rem + var(--sp-2) + 8rem + var(--sp-3));
+  /* Stretch to fill the canvas area: from below the minimap (+ a bit
+     more so the stats block on the left isn't clipped) down to just
+     above the dock, centred with a sensible max-width so it doesn't
+     smear edge-to-edge on ultrawide / 27" screens. */
+  top: calc(var(--sp-3) + var(--minimap-h) + var(--sp-2) + 6rem);
   left: 50%;
   right: auto;
   bottom: calc(var(--sp-3) + 7.5rem);
@@ -1764,11 +1748,10 @@ button {
     display: none;
   }
 
-  /* Drop labels from ribbon stats on narrow screens; values alone
-     keep the strip readable while saving width. */
-  .ribbon__label,
-  .ribbon__sep {
-    display: none;
+  /* On narrow screens the stats block collapses to a single column
+     so it doesn't elbow out into the canvas. */
+  .ribbon-stats {
+    grid-template-columns: 1fr;
   }
 
   /* Track drawer's two-column grid collapses to one column so each

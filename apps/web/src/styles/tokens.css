@@ -85,6 +85,11 @@
   --topbar-h: 3.5rem;
   --footer-h: 2rem;
   --panel-w: 20rem;
+  /* Minimap height — switched to 8 rem in `.mode-headless` so the
+     player can scan car positions with the canvas off.  Stats block
+     and charts panel both reference this var so they reposition
+     correctly in both modes. */
+  --minimap-h: 2.25rem;
 
   /* Shadow */
   --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset;

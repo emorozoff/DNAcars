@@ -34,64 +34,63 @@
       <main class="stage">
         <div id="pixi-root" class="stage__canvas"></div>
 
-        <!-- Top ribbon: inline live stats + full-width minimap.  Replaces
-             the old left-stack stats card; the minimap stretches the
-             ribbon's right side at all viewport widths. -->
-        <div class="ribbon">
-          <div class="ribbon__stats">
-            <span class="ribbon__stat">
-              <span class="ribbon__label" data-i18n="ribbon.gen">GENERATION</span>
-              <span class="ribbon__value ribbon__value--accent">
-                <span class="ribbon__hash">#</span><span id="stat-generation">—</span>
-              </span>
+        <!-- Top of stage: minimap pinned to the very top across the full
+             width, then a compact stat block in the top-left underneath
+             it.  The stat block is a fixed-shape grid (3 rows × 2
+             columns) so its size doesn't shift with the throughput
+             readout — pre-v1.19.2 the inline "ТЕМП" cell would stretch
+             the row and visibly push the minimap when its label
+             changed length. -->
+        <svg class="minimap" id="minimap" viewBox="0 0 1500 86" preserveAspectRatio="none">
+          <polyline class="minimap__track" id="minimap-track" />
+          <rect class="minimap__viewport" id="minimap-viewport" y="0" height="86" />
+          <g class="minimap__cars" id="minimap-cars"></g>
+          <line class="minimap__leader" id="minimap-leader" vector-effect="non-scaling-stroke" />
+          <g class="minimap__records" id="minimap-records"></g>
+        </svg>
+
+        <div class="ribbon-stats">
+          <span class="ribbon-stat">
+            <span class="ribbon-stat__label" data-i18n="ribbon.gen">GENERATION</span>
+            <span class="ribbon-stat__value ribbon-stat__value--accent">
+              <span class="ribbon-stat__hash">#</span><span id="stat-generation">—</span>
             </span>
-            <span class="ribbon__sep" aria-hidden="true"></span>
-            <span class="ribbon__stat">
-              <span class="ribbon__label" data-i18n="ribbon.lead">LEADER</span>
-              <span class="ribbon__value">
-                <span id="stat-lead">—</span>
-                <span class="ribbon__sub">/&nbsp;<span id="stat-track-length">—</span></span>
-              </span>
+          </span>
+          <span class="ribbon-stat">
+            <span class="ribbon-stat__label" data-i18n="ribbon.lead">LEADER</span>
+            <span class="ribbon-stat__value">
+              <span id="stat-lead">—</span>
+              <span class="ribbon-stat__sub">/&nbsp;<span id="stat-track-length">—</span></span>
             </span>
-            <span class="ribbon__sep" aria-hidden="true"></span>
-            <span class="ribbon__stat">
-              <span class="ribbon__label" data-i18n="ribbon.best">BEST</span>
-              <span class="ribbon__value" id="stat-best">—</span>
+          </span>
+          <span class="ribbon-stat">
+            <span class="ribbon-stat__label" data-i18n="ribbon.best">BEST</span>
+            <span class="ribbon-stat__value" id="stat-best">—</span>
+          </span>
+          <span class="ribbon-stat">
+            <span class="ribbon-stat__label" data-i18n="ribbon.alive">ALIVE</span>
+            <span class="ribbon-stat__value">
+              <span id="stat-alive">—</span>
+              <span class="ribbon-stat__sub">/&nbsp;<span id="stat-total">—</span></span>
             </span>
-            <span class="ribbon__sep" aria-hidden="true"></span>
-            <span class="ribbon__stat">
-              <span class="ribbon__label" data-i18n="ribbon.alive">ALIVE</span>
-              <span class="ribbon__value">
-                <span id="stat-alive">—</span>
-                <span class="ribbon__sub">/&nbsp;<span id="stat-total">—</span></span>
-              </span>
-            </span>
-            <span class="ribbon__sep" aria-hidden="true"></span>
-            <span class="ribbon__stat">
-              <span class="ribbon__label" data-i18n="ribbon.seed">SEED</span>
-              <button
-                class="ribbon__value ribbon__value--copyable"
-                id="stat-seed"
-                type="button"
-                title=""
-                data-i18n-title="panel.seedCopyHint"
-              >
-                —
-              </button>
-            </span>
-            <span class="ribbon__sep" aria-hidden="true"></span>
-            <span class="ribbon__stat ribbon__stat--throughput">
-              <span class="ribbon__label" data-i18n="ribbon.throughput">SPEED</span>
-              <span class="ribbon__value" id="stat-throughput">×—</span>
-            </span>
-          </div>
-          <svg class="minimap" id="minimap" viewBox="0 0 1500 86" preserveAspectRatio="none">
-            <polyline class="minimap__track" id="minimap-track" />
-            <rect class="minimap__viewport" id="minimap-viewport" y="0" height="86" />
-            <g class="minimap__cars" id="minimap-cars"></g>
-            <line class="minimap__leader" id="minimap-leader" vector-effect="non-scaling-stroke" />
-            <g class="minimap__records" id="minimap-records"></g>
-          </svg>
+          </span>
+          <span class="ribbon-stat">
+            <span class="ribbon-stat__label" data-i18n="ribbon.seed">SEED</span>
+            <button
+              class="ribbon-stat__value ribbon-stat__value--copyable"
+              id="stat-seed"
+              type="button"
+              title=""
+              data-i18n-title="panel.seedCopyHint"
+            >
+              —
+            </button>
+          </span>
+          <span class="ribbon-stat">
+            <span class="ribbon-stat__label" data-i18n="ribbon.throughput">SPEED</span>
+            <span class="ribbon-stat__value" id="stat-throughput">×—</span>
+          </span>
+        </div>
         </div>
 
         <!-- Bottom dock: two rows.  Top row = always-visible Evolution

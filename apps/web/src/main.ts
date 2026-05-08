@@ -371,9 +371,9 @@ function updateThroughputDisplay(): void {
       cls = 'saturated';
     }
     throughputEl.textContent = label;
-    throughputEl.classList.toggle('ribbon__value--ok', cls === 'ok');
-    throughputEl.classList.toggle('ribbon__value--tight', cls === 'tight');
-    throughputEl.classList.toggle('ribbon__value--saturated', cls === 'saturated');
+    throughputEl.classList.toggle('ribbon-stat__value--ok', cls === 'ok');
+    throughputEl.classList.toggle('ribbon-stat__value--tight', cls === 'tight');
+    throughputEl.classList.toggle('ribbon-stat__value--saturated', cls === 'saturated');
   }
 
   const FRAME_BUDGET_MS = 16.7;
@@ -782,11 +782,11 @@ async function bootstrap(): Promise<void> {
       void navigator.clipboard
         .writeText(text)
         .then(() => {
-          seedDisplayBtn.classList.add('hud-card__value--copied');
+          seedDisplayBtn.classList.add('ribbon-stat__value--copied');
           const previousTitle = seedDisplayBtn.title;
           seedDisplayBtn.title = t('panel.seedCopied');
           setTimeout(() => {
-            seedDisplayBtn.classList.remove('hud-card__value--copied');
+            seedDisplayBtn.classList.remove('ribbon-stat__value--copied');
             seedDisplayBtn.title = previousTitle;
           }, 1200);
         })

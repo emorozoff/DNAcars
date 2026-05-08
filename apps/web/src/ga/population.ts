@@ -21,7 +21,24 @@ import { mutateGenome } from './mutation';
 
 export type Scored = {
   genome: Genome;
+  /**
+   * Selection score the GA reads.  In normal mode this equals
+   * `travel`; in speed mode it's an inverse-time bonus for finishers
+   * while non-finishers still get `travel`.  Don't use this for
+   * display — use `travel` so the chart axes stay in metres.
+   */
   fitness: number;
+  /** Distance the chassis actually travelled this gen, in metres.
+   *  Always present, mode-independent — the canonical "how far
+   *  did this car get" reading. */
+  travel: number;
+  /**
+   * Sim seconds at which the chassis crossed the finish line during
+   * this generation, or null if the car never finished.  Threaded
+   * through here so the stats collector + speed-mode chart can read
+   * the per-car timing without re-fetching the world snapshot.
+   */
+  finishTime: number | null;
 };
 
 export type GAParams = {

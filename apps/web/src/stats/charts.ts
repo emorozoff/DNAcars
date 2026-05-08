@@ -92,6 +92,8 @@ export type ChartsHandle = {
   update(history: GenerationStats[], lastResults?: Scored[] | null): void;
   setVisible(v: boolean): void;
   isVisible(): boolean;
+  /** Show / hide the speed-mode "Best finish time" chart. */
+  setSpeedMode(on: boolean): void;
 };
 
 export function mountCharts(host: HTMLElement): ChartsHandle {
@@ -153,6 +155,10 @@ export function mountCharts(host: HTMLElement): ChartsHandle {
   const hero = buildHero();
   body.appendChild(hero.el);
 
+  const speed = buildSpeedChart();
+  body.appendChild(speed.el);
+  speed.el.hidden = true;
+
   const histogram = buildHistogram();
   body.appendChild(histogram.el);
 
@@ -170,12 +176,14 @@ export function mountCharts(host: HTMLElement): ChartsHandle {
     const empty = lastHistory.length === 0 && (!lastResults || lastResults.length === 0);
     if (empty) {
       hero.clear();
+      speed.clear();
       histogram.clear();
       genome.clear();
       return;
     }
     const slice = applyWindow(lastHistory);
     hero.update(slice);
+    speed.update(slice);
     histogram.update(lastResults);
     genome.update(slice);
   }
@@ -196,6 +204,13 @@ export function mountCharts(host: HTMLElement): ChartsHandle {
     },
     isVisible(): boolean {
       return visible;
+    },
+    setSpeedMode(on: boolean): void {
+      speed.el.hidden = !on;
+      // Toggle a class on the panel root so the body grid can
+      // re-area the layout (speed card sits next to hero when shown,
+      // collapses out of the layout when hidden).
+      host.classList.toggle('charts-panel--speed-mode', on);
     },
   };
 }
@@ -329,6 +344,155 @@ function buildHero(): Hero {
     yMinLabel.textContent = '0';
     const firstGen = history[0]!.generation;
     const lastGen = latest.generation;
+    genLabel.textContent =
+      firstGen === lastGen ? `пок. ${lastGen}` : `пок. ${firstGen}–${lastGen}`;
+  }
+
+  return { el: card, update, clear };
+}
+
+/* ─── Section 1b: Speed-mode chart (best finish time per gen) ─────── */
+
+type Speed = {
+  el: HTMLElement;
+  update(history: GenerationStats[]): void;
+  clear(): void;
+};
+
+function buildSpeedChart(): Speed {
+  const card = document.createElement('div');
+  card.className = 'stats-card stats-card--speed';
+
+  const title = document.createElement('h4');
+  title.className = 'stats-card__title';
+  title.setAttribute('data-i18n', 'stats.speed');
+  title.textContent = t('stats.speed');
+  card.appendChild(title);
+
+  const valueRow = document.createElement('div');
+  valueRow.className = 'stats-hero__values';
+  const bestVal = makeBigStat('stats.speedBest', '#a8ff60');
+  valueRow.appendChild(bestVal.el);
+  card.appendChild(valueRow);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'stats-hero__wrap';
+
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', 'stats-hero__chart');
+  svg.setAttribute('viewBox', `0 0 ${HERO_W} ${HERO_H}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+
+  for (let i = 0; i < 3; i++) {
+    const line = document.createElementNS(SVG_NS, 'line');
+    line.setAttribute('class', 'stats-hero__grid');
+    const y = ((i + 1) / 4) * HERO_H;
+    line.setAttribute('x1', '0');
+    line.setAttribute('x2', String(HERO_W));
+    line.setAttribute('y1', String(y));
+    line.setAttribute('y2', String(y));
+    svg.appendChild(line);
+  }
+
+  // One polyline per contiguous run of finished gens.  Gens with no
+  // finishers (bestFinishTime=null) split the line so the chart
+  // shows gaps where the GA hadn't cracked the track yet.  In
+  // practice the line is usually one segment after the first finish.
+  const linesGroup = document.createElementNS(SVG_NS, 'g');
+  svg.appendChild(linesGroup);
+
+  wrap.appendChild(svg);
+
+  const yMaxLabel = document.createElement('span');
+  yMaxLabel.className = 'stats-hero__axis stats-hero__axis--y-top';
+  const yMinLabel = document.createElement('span');
+  yMinLabel.className = 'stats-hero__axis stats-hero__axis--y-bot';
+  const genLabel = document.createElement('span');
+  genLabel.className = 'stats-hero__axis stats-hero__axis--x-end';
+  wrap.appendChild(yMaxLabel);
+  wrap.appendChild(yMinLabel);
+  wrap.appendChild(genLabel);
+
+  card.appendChild(wrap);
+
+  function clearPolylines(): void {
+    while (linesGroup.firstChild) linesGroup.removeChild(linesGroup.firstChild);
+  }
+
+  function clear(): void {
+    bestVal.value.textContent = '—';
+    clearPolylines();
+    yMaxLabel.textContent = '';
+    yMinLabel.textContent = '';
+    genLabel.textContent = '';
+  }
+
+  function update(history: GenerationStats[]): void {
+    clearPolylines();
+    if (history.length === 0) {
+      clear();
+      return;
+    }
+
+    // Latest readout: the most recent gen that had a finish, or
+    // "—" if no gen on the chart had any finisher.
+    let latestWithFinish: GenerationStats | null = null;
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i]!.bestFinishTime !== null) {
+        latestWithFinish = history[i]!;
+        break;
+      }
+    }
+    bestVal.value.textContent =
+      latestWithFinish !== null ? `${latestWithFinish.bestFinishTime!.toFixed(1)} s` : '—';
+
+    // Y range: anchor at 0 (instant finish), top = max finish time
+    // we've seen.  Lower line = better (faster).
+    let maxT = 0;
+    for (const h of history) {
+      if (h.bestFinishTime !== null && h.bestFinishTime > maxT) maxT = h.bestFinishTime;
+    }
+    if (maxT < 1) maxT = 1;
+
+    const denom = Math.max(1, history.length - 1);
+    // Walk the history in order, accumulating points into segments.
+    // A null bestFinishTime breaks the line: flush the current
+    // segment as a polyline, start a new one on the next finish.
+    let pts = '';
+    let pointsInSegment = 0;
+    const flush = (): void => {
+      if (pointsInSegment > 0) {
+        const line = document.createElementNS(SVG_NS, 'polyline');
+        line.setAttribute('class', 'stats-hero__line stats-hero__line--best');
+        line.setAttribute('fill', 'none');
+        line.setAttribute('stroke', '#a8ff60');
+        line.setAttribute('stroke-width', '2');
+        line.setAttribute('vector-effect', 'non-scaling-stroke');
+        line.setAttribute('stroke-linecap', 'round');
+        line.setAttribute('stroke-linejoin', 'round');
+        line.setAttribute('points', pts.trim());
+        linesGroup.appendChild(line);
+      }
+      pts = '';
+      pointsInSegment = 0;
+    };
+    for (let i = 0; i < history.length; i++) {
+      const h = history[i]!;
+      if (h.bestFinishTime === null) {
+        flush();
+        continue;
+      }
+      const x = (i / denom) * HERO_W;
+      const y = HERO_H - (h.bestFinishTime / maxT) * HERO_H;
+      pts += `${x.toFixed(1)},${y.toFixed(1)} `;
+      pointsInSegment++;
+    }
+    flush();
+
+    yMaxLabel.textContent = `${maxT.toFixed(1)} s`;
+    yMinLabel.textContent = '0';
+    const firstGen = history[0]!.generation;
+    const lastGen = history[history.length - 1]!.generation;
     genLabel.textContent =
       firstGen === lastGen ? `пок. ${lastGen}` : `пок. ${firstGen}–${lastGen}`;
   }

@@ -976,6 +976,15 @@ type CarRuntime = {
    * the absolute high-water mark and feeds the GA fitness.
    */
   lastProgressX: number;
+  /**
+   * Sim time (in `ageSec` units) at which the chassis first crossed
+   * the finish line at `track.options.length`, or null if it never
+   * did.  Used by the speed-mode fitness function to reward fast
+   * finishers; the car keeps physically running after this point
+   * (it'll bump into the finish wall and stall normally), but its
+   * time is recorded once and never updated again.
+   */
+  finishTime: number | null;
   /** Once true, motor is off and bodies are pinned in place forever. */
   finished: boolean;
   /**
@@ -1016,6 +1025,13 @@ export type CarSnapshot = {
   /** Distance from spawn, in metres.  Frozen at the moment the car finished. */
   travel: number;
   finished: boolean;
+  /**
+   * Sim seconds from spawn at which the chassis first crossed the
+   * track-end x.  null if the car never reached the finish.  Used
+   * by the speed-mode fitness function (faster crossing = higher
+   * fitness for the GA).
+   */
+  finishTime: number | null;
   vertices: { x: number; y: number }[];
   wheels: {
     position: { x: number; y: number };
@@ -1173,6 +1189,13 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
         if (x >= car.lastProgressX + TUNING.lifecycle.progressEpsilon) {
           car.lastProgressX = x;
           car.lastProgressTime = car.ageSec;
+        }
+        // First time the chassis crosses the track-end x: stamp the
+        // finish time.  The car keeps running (it'll bump into the
+        // finish wall and stall normally), but speed-mode fitness
+        // uses this exact moment as the metric.
+        if (car.finishTime === null && x >= opts.track.options.length) {
+          car.finishTime = car.ageSec;
         }
         clampInsaneVelocity(car, opts.track, time);
         const wasFinished = car.finished;
@@ -1446,6 +1469,7 @@ function buildCar(
     ageSec: 0,
     lastProgressTime: 0,
     lastProgressX: spawnX,
+    finishTime: null,
     finished: false,
     frozen: false,
     // Cars spawn ≈ 1.6 m above the track surface, so they're literally
@@ -1787,6 +1811,7 @@ function snapshotCar(car: CarRuntime): CarSnapshot {
     speed: Math.hypot(vel.x, vel.y),
     travel: Math.max(0, car.maxX - car.spawnX),
     finished: car.finished,
+    finishTime: car.finishTime,
     vertices: car.vertices,
     wheels: car.wheels.map((w) => {
       const wp = w.body.translation();

@@ -1467,7 +1467,13 @@ button {
 
 /* Body uses a CSS grid with named areas so hero + histogram sit
    side-by-side at wide widths and stack vertically on narrow ones.
-   Genome row spans the full width below regardless. */
+   Genome row spans the full width below regardless.
+
+   When `.charts-panel--speed-mode` is set, the speed-mode "best
+   finish time" card joins the layout next to the histogram on the
+   second row (hero + speed first row, hist spans both cols below
+   it).  When speed mode is off the speed card is hidden and the
+   layout collapses back to the default. */
 .stats-panel__body {
   display: grid;
   grid-template-columns: minmax(20rem, 1fr) minmax(18rem, 1fr);
@@ -1477,14 +1483,27 @@ button {
   gap: var(--sp-3);
 }
 
+.charts-panel--speed-mode .stats-panel__body {
+  grid-template-areas:
+    'hero speed'
+    'hist hist'
+    'genome genome';
+}
+
 @media (max-width: 56rem) {
-  .stats-panel__body {
+  .stats-panel__body,
+  .charts-panel--speed-mode .stats-panel__body {
     grid-template-columns: 1fr;
     grid-template-areas:
       'hero'
+      'speed'
       'hist'
       'genome';
   }
+}
+
+.stats-card--speed {
+  grid-area: speed;
 }
 
 .stats-card {

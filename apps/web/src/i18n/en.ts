@@ -44,6 +44,9 @@ const enRaw = {
   'ribbon.alive': 'ALIVE',
   'ribbon.seed': 'SEED',
   'panel.fastForward': 'Fast-forward',
+  'panel.speedMode': 'Speed mode',
+  'stats.speed': 'Best finish time',
+  'stats.speedBest': 'Fastest',
   'panel.strictDeterminism': 'Strict determinism',
   'panel.strictDeterminismHint': 'Same seed → identical run, every time. Costs ≈2× CPU.',
   'panel.strictDeterminismWarning':

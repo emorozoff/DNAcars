@@ -179,6 +179,33 @@ function saveStrictDeterminism(on: boolean): void {
 }
 let strictDeterminism = loadStrictDeterminism();
 
+/**
+ * Speed-mode toggle.  When true, the GA fitness for cars that
+ * crossed the finish line is replaced with an inverse-time bonus —
+ * `trackLength + 1 + (1000 - finishTime)` — so the fastest finisher
+ * wins the elite slot regardless of how far it travelled (it
+ * travelled the full track, anyway).  Cars that didn't finish are
+ * still scored on travel distance, and any finisher always ranks
+ * above any non-finisher.  Persisted to localStorage so the choice
+ * survives reloads.
+ */
+const SPEED_MODE_KEY = 'dnacars.speedMode';
+function loadSpeedMode(): boolean {
+  try {
+    return localStorage.getItem(SPEED_MODE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function saveSpeedMode(on: boolean): void {
+  try {
+    localStorage.setItem(SPEED_MODE_KEY, on ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+let speedMode = loadSpeedMode();
+
 function loadSeedHistory(): number[] {
   try {
     const raw = localStorage.getItem(SEED_HISTORY_KEY);
@@ -437,6 +464,7 @@ async function bootstrap(): Promise<void> {
   let charts: ChartsHandle | null = null;
   if (chartsHost instanceof HTMLElement) {
     charts = mountCharts(chartsHost);
+    charts.setSpeedMode(speedMode);
     const chartsBtn = document.getElementById('btn-charts');
     if (chartsBtn instanceof HTMLButtonElement) {
       chartsBtn.addEventListener('click', () => {
@@ -493,10 +521,14 @@ async function bootstrap(): Promise<void> {
    * Invalidated implicitly by a track-config change (hash mismatch),
    * and explicitly cleared in freshRun() and on strict-det toggle.
    */
-  let eliteCache: { trackHash: string; distances: number[] } | null = null;
+  type EliteCacheEntry = { fitness: number; finishTime: number | null };
+  let eliteCache: { trackHash: string; entries: EliteCacheEntry[] } | null = null;
 
   function trackConfigHash(trackSeed: number, trackOpts: Partial<TrackOptions>): string {
-    return JSON.stringify({ trackSeed, ...trackOpts });
+    // speedMode included so toggling it flips the hash and invalidates
+    // the elite-cache (cached fitness values were computed under the
+    // previous mode's scoring and would lie under the new one).
+    return JSON.stringify({ trackSeed, ...trackOpts, speedMode });
   }
 
   /**
@@ -826,6 +858,29 @@ async function bootstrap(): Promise<void> {
       }
     });
   }
+
+  // Speed-mode toggle.  Unlike strict-det this doesn't reset the
+  // run — fitness function changes on the next gen-end while the
+  // current gen continues with whatever scoring was set when it
+  // started (the speedMode value is captured into sessionSpeedMode
+  // at startSession time).  Cache hash includes speedMode, so
+  // toggling it implicitly invalidates the elite-cache for one
+  // generation — same lazy-rebuild behaviour as a track-config
+  // change.  Persisted to localStorage so the choice survives
+  // reloads, but doesn't carry across populations.
+  const speedModeInput = document.getElementById('ctrl-speed-mode');
+  if (speedModeInput instanceof HTMLInputElement) {
+    speedModeInput.checked = speedMode;
+    speedModeInput.addEventListener('change', () => {
+      speedMode = speedModeInput.checked;
+      saveSpeedMode(speedMode);
+      if (charts) {
+        charts.setSpeedMode(speedMode);
+        charts.update(history, lastResults);
+      }
+    });
+  }
+
   window.addEventListener('keydown', (ev) => {
     // Don't interfere when typing into a slider / button.
     const target = ev.target;
@@ -979,11 +1034,11 @@ async function bootstrap(): Promise<void> {
       eliteCache !== null &&
       eliteCache.trackHash === currentTrackHash &&
       gaParams.eliteCount > 0 &&
-      eliteCache.distances.length > 0;
+      eliteCache.entries.length > 0;
     const shortcutCtx = cacheValid
       ? {
           eliteCount: gaParams.eliteCount,
-          cachedDistances: eliteCache!.distances,
+          cachedEntries: eliteCache!.entries,
           onTrigger: flashShortcutBanner,
         }
       : null;
@@ -995,9 +1050,13 @@ async function bootstrap(): Promise<void> {
       scene,
       hud,
       shortcutCtx,
+      speedMode,
       onGenerationEnd: (results) => {
         lastResults = results;
-        const genBest = results.reduce((m, r) => (r.fitness > m ? r.fitness : m), 0);
+        // Best-on-this-track display always reads travel distance
+        // (mode-independent); fitness might be a speed-mode bonus,
+        // not metres, so we use the canonical `travel` field.
+        const genBest = results.reduce((m, r) => (r.travel > m ? r.travel : m), 0);
         if (genBest > bestEver) {
           bestEver = genBest;
           hud.best.textContent = `${bestEver.toFixed(1)} m`;
@@ -1008,11 +1067,17 @@ async function bootstrap(): Promise<void> {
         // Outside strict-det the cache would lie (multi-body world
         // is FP-noisy), so we explicitly null it.
         if (strictDeterminism && gaParams.eliteCount > 0) {
-          const sorted = results
-            .map((r) => r.fitness)
-            .sort((a, b) => b - a)
-            .slice(0, gaParams.eliteCount);
-          eliteCache = { trackHash: currentTrackHash, distances: sorted };
+          // Save fitness + finishTime sorted desc by fitness so the
+          // next gen's elite cache lookup at index i matches what
+          // population.ts produces (it copies the i-th-highest-
+          // fitness genome into next[i]).  finishTime kept too so
+          // the speed-mode chart reads the right time when the
+          // shortcut cuts an elite short of crossing the finish.
+          const sorted = [...results]
+            .sort((a, b) => b.fitness - a.fitness)
+            .slice(0, gaParams.eliteCount)
+            .map((r) => ({ fitness: r.fitness, finishTime: r.finishTime }));
+          eliteCache = { trackHash: currentTrackHash, entries: sorted };
         } else {
           eliteCache = null;
         }
@@ -1217,30 +1282,41 @@ type StartOptions = {
   onGenerationEnd: (results: Scored[]) => void;
   /**
    * Strict-determinism fast-forward context.  When non-null, the
-   * tick loop watches for "every alive car is an elite whose final
-   * distance we already know from a previous gen" — at that moment
+   * tick loop watches for "every alive car is an elite whose
+   * outcome we already know from a previous gen" — at that moment
    * it force-finishes the world and the gen-end results override
-   * those elite cars' fitness with the cached value.
+   * those elite cars' fitness + finishTime with the cached values.
    *
-   *   eliteCount        — current `gaParams.eliteCount`
-   *   cachedDistances   — top-N distances from prev gen, sorted desc.
-   *                       cachedDistances[i] = predicted final
-   *                       distance of next-gen elite at index i (since
-   *                       elites are inserted at next[0..eliteCount-1]
-   *                       in fitness-descending order; see population.ts).
-   *   onTrigger         — called once when the shortcut fires (host
-   *                       uses this to flash the FAST-FORWARD banner).
+   *   eliteCount     — current `gaParams.eliteCount`
+   *   cachedEntries  — top-N {fitness, finishTime} from prev gen,
+   *                    sorted desc by fitness.  cachedEntries[i] is
+   *                    the predicted outcome of the next-gen elite
+   *                    at index i (since elites are inserted at
+   *                    next[0..eliteCount-1] in fitness-descending
+   *                    order; see population.ts).
+   *   onTrigger      — called once when the shortcut fires (host
+   *                    uses this to flash the FAST-FORWARD banner).
    */
   shortcutCtx?: {
     eliteCount: number;
-    cachedDistances: number[];
+    cachedEntries: { fitness: number; finishTime: number | null }[];
     onTrigger: () => void;
   } | null;
+  /**
+   * When true, fitness for cars that finish is replaced with an
+   * inverse-time bonus so the GA selects for fastest finish rather
+   * than furthest distance.  See the SPEED_BASE constant in session
+   * for the formula.  Non-finishers' fitness stays as travel
+   * distance (clamped < trackLength), so any finisher always ranks
+   * above any non-finisher.
+   */
+  speedMode: boolean;
 };
 
 async function startSession(opts: StartOptions): Promise<Session> {
   const { trackSeed, trackOpts, generation, genomes, scene, hud, onGenerationEnd } = opts;
   const shortcutCtx = opts.shortcutCtx ?? null;
+  const sessionSpeedMode = opts.speedMode;
 
   const track = generateTrack(trackSeed, trackOpts ?? {});
   scene.setTrack(track.points, track.physicalObstacles);
@@ -1358,7 +1434,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
         aliveCount++;
         if (
           car.index >= shortcutCtx.eliteCount ||
-          car.index >= shortcutCtx.cachedDistances.length
+          car.index >= shortcutCtx.cachedEntries.length
         ) {
           onlyCachedElitesAlive = false;
           break;
@@ -1390,18 +1466,38 @@ async function startSession(opts: StartOptions): Promise<Session> {
     if (!endNotified && world.allFinished()) {
       endNotified = true;
       running = false;
+      const trackLength = track.options.length;
       const results: Scored[] = genomes.map((genome, i) => {
-        let fitness = snap.cars[i]?.travel ?? 0;
+        const car = snap.cars[i];
+        const travel = car?.travel ?? 0;
+        const finishTime = car?.finishTime ?? null;
+        // Selection score (`fitness`).  Default = travel distance.
+        // In speed mode any finisher's fitness is replaced with an
+        // inverse-time bonus anchored at trackLength + 1 so the
+        // slowest finisher still ranks above the best non-finisher.
+        // Each second saved is worth one fitness unit; the constant
+        // 1000 is just a headroom anchor (finishTime tops out around
+        // TUNING.lifecycle.maxGenerationSec = 600 s).
+        let fitness = travel;
+        if (sessionSpeedMode && finishTime !== null) {
+          fitness = trackLength + 1 + Math.max(0, 1000 - finishTime);
+        }
         // Fast-forward override: when the strict-det shortcut fired
         // we cut the elite cars short of their full deterministic
-        // run.  The cached distance from the previous gen is what
-        // they *would* have reached — substitute it so the GA
-        // scoring + record markers + chart sparklines don't see a
-        // bogus "elite regressed" reading.
-        if (shortcutApplied && shortcutCtx && i < shortcutCtx.cachedDistances.length) {
-          fitness = Math.max(fitness, shortcutCtx.cachedDistances[i]!);
+        // run.  The cached fitness/finishTime from the previous gen
+        // is what they *would* have scored — substitute both so the
+        // GA scoring, record markers, and the speed-mode chart
+        // don't see a bogus "elite regressed / didn't finish"
+        // reading.
+        let resolvedFinishTime = finishTime;
+        if (shortcutApplied && shortcutCtx && i < shortcutCtx.cachedEntries.length) {
+          const cached = shortcutCtx.cachedEntries[i]!;
+          fitness = Math.max(fitness, cached.fitness);
+          if (resolvedFinishTime === null && cached.finishTime !== null) {
+            resolvedFinishTime = cached.finishTime;
+          }
         }
-        return { genome, fitness };
+        return { genome, fitness, travel, finishTime: resolvedFinishTime };
       });
       onGenerationEnd(results);
       // Solo-verify the top-1 elite in a side-world.  Runs in the

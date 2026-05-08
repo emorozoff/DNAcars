@@ -44,6 +44,15 @@ export type GenerationStats = {
   avgChassisDensity: number;
   /** Average of each genome's mean chassis radius (the "size" of the body). */
   avgChassisRadius: number;
+  /**
+   * Fastest finish-time in this generation, in seconds.  null if no
+   * car crossed the finish line this gen.  Used by the speed-mode
+   * chart to show progress over generations regardless of whether
+   * speed-mode is currently the active selection criterion.
+   */
+  bestFinishTime: number | null;
+  /** Number of cars that crossed the finish line this gen. */
+  finishedCount: number;
 };
 
 export function collectStats(
@@ -56,14 +65,18 @@ export function collectStats(
     return zeroStats(generation, durationSec);
   }
 
-  const fitnesses = results.map((r) => r.fitness).sort((a, b) => a - b);
-  const best = fitnesses[total - 1] ?? 0;
-  const worst = fitnesses[0] ?? 0;
-  const mean = fitnesses.reduce((a, b) => a + b, 0) / total;
-  const median = fitnesses[Math.floor(total / 2)] ?? 0;
-  const variance = fitnesses.reduce((acc, f) => acc + (f - mean) ** 2, 0) / total;
+  // Distance-based stats use the `travel` field (always in metres)
+  // rather than `fitness` (which switches scale in speed mode).  The
+  // dashboard's "best" / "mean" / "stdev" lines should keep meaning
+  // "metres" regardless of which scoring mode the GA is using.
+  const travels = results.map((r) => r.travel).sort((a, b) => a - b);
+  const best = travels[total - 1] ?? 0;
+  const worst = travels[0] ?? 0;
+  const mean = travels.reduce((a, b) => a + b, 0) / total;
+  const median = travels[Math.floor(total / 2)] ?? 0;
+  const variance = travels.reduce((acc, f) => acc + (f - mean) ** 2, 0) / total;
   const stdev = Math.sqrt(variance);
-  const alive = fitnesses.reduce((c, f) => (f > 1 ? c + 1 : c), 0);
+  const alive = travels.reduce((c, f) => (f > 1 ? c + 1 : c), 0);
 
   let totalVerts = 0;
   let totalWheelCount = 0;
@@ -87,6 +100,17 @@ export function collectStats(
 
   const allWheels = totalWheelCount || 1;
 
+  let bestFinishTime: number | null = null;
+  let finishedCount = 0;
+  for (const r of results) {
+    if (r.finishTime !== null) {
+      finishedCount++;
+      if (bestFinishTime === null || r.finishTime < bestFinishTime) {
+        bestFinishTime = r.finishTime;
+      }
+    }
+  }
+
   return {
     generation,
     durationSec,
@@ -103,6 +127,8 @@ export function collectStats(
     avgMotorSpeed: totalMotorSpeed / total,
     avgChassisDensity: totalChassisDensity / total,
     avgChassisRadius: totalChassisRadius / total,
+    bestFinishTime,
+    finishedCount,
   };
 }
 
@@ -123,5 +149,7 @@ function zeroStats(generation: number, durationSec: number): GenerationStats {
     avgMotorSpeed: 0,
     avgChassisDensity: 0,
     avgChassisRadius: 0,
+    bestFinishTime: null,
+    finishedCount: 0,
   };
 }

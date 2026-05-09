@@ -1,11 +1,12 @@
 /**
  * Mutation — perturb each gene of a genome with probability `rate`.
  *
- * Continuous genes (radii, density, power, motor speed) get a small
- * gaussian-ish kick.  Structural genes (vertex count, wheel count,
- * wheel attachment vertex) mutate more rarely — they tend to break
- * the body plan rather than refine it, so a high rate would just
- * drown out useful local search.
+ * Continuous genes (radii, density, power, motor speed, angle offsets,
+ * ballast, grip, bounce) get a small gaussian-ish kick.  Structural
+ * genes (vertex count, wheel count, wheel attachment vertex, ballast
+ * vertex) mutate more rarely — they tend to break the body plan rather
+ * than refine it, so a high rate would just drown out useful local
+ * search.
  */
 
 import { TUNING, type Genome, type Rng, type WheelGene } from '../sim/world';
@@ -30,13 +31,19 @@ export function mutateGenome(g: Genome, rate: number, rng: Rng): Genome {
   }
 
   const radii: number[] = [];
+  const angleOffsets: number[] = [];
   for (let i = 0; i < vertexCount; i++) {
-    const src = g.chassisRadii[i] ?? lerp(TUNING.chassis.minRadius, TUNING.chassis.maxRadius, 0.5);
-    radii.push(nudge(src, 0.12, TUNING.chassis.minRadius, TUNING.chassis.maxRadius));
+    const rSrc = g.chassisRadii[i] ?? lerp(TUNING.chassis.minRadius, TUNING.chassis.maxRadius, 0.5);
+    radii.push(nudge(rSrc, 0.12, TUNING.chassis.minRadius, TUNING.chassis.maxRadius));
+    // Angle offset defaults to 0.5 (= uniform) when growing the
+    // polygon — so a brand-new vertex starts in the same place a
+    // pre-v1.50 genome would have placed it.
+    const aSrc = g.chassisAngleOffsets?.[i] ?? 0.5;
+    angleOffsets.push(nudge(aSrc, 0.12, 0, 1));
   }
 
-  // Per-wheel: nudge radius and power.  attachVertex shifts to a
-  // random valid vertex with low probability.
+  // Per-wheel: nudge radius, power, grip and bounce.  attachVertex
+  // shifts to a random valid vertex with low probability.
   const wheels: WheelGene[] = g.wheels.map((w) => {
     let attach = w.attachVertex;
     if (rng() < rate * 0.25) attach = Math.floor(rng() * vertexCount);
@@ -45,6 +52,8 @@ export function mutateGenome(g: Genome, rate: number, rng: Rng): Genome {
       attachVertex: attach,
       radius: nudge(w.radius, 0.12, TUNING.wheel.minRadius, TUNING.wheel.maxRadius),
       power: nudge(w.power, 0.15, 0, 1),
+      grip: nudge(w.grip ?? 0.5, 0.12, 0, 1),
+      bounce: nudge(w.bounce ?? 0, 0.12, 0, 1),
     };
   });
 
@@ -56,18 +65,31 @@ export function mutateGenome(g: Genome, rate: number, rng: Rng): Genome {
       attachVertex: Math.floor(rng() * vertexCount),
       radius: lerp(TUNING.wheel.minRadius, TUNING.wheel.maxRadius, rng()),
       power: rng(),
+      grip: 0.3 + 0.5 * rng(),
+      bounce: 0.4 * rng(),
     });
   }
+
+  // Ballast: vertex hops occasionally (like wheel attach), size and
+  // density nudge as continuous genes.  Default fallbacks make
+  // pre-v1.50 genomes mutate-clean.
+  let ballastVertex = g.ballastVertex ?? 0;
+  if (rng() < rate * 0.2) ballastVertex = Math.floor(rng() * vertexCount);
+  ballastVertex = clamp(ballastVertex, 0, Math.max(0, vertexCount - 1));
 
   return {
     chassisVertexCount: vertexCount,
     chassisRadii: radii,
+    chassisAngleOffsets: angleOffsets,
     chassisDensity: nudge(
       g.chassisDensity,
       (TUNING.chassis.maxDensity - TUNING.chassis.minDensity) * 0.15,
       TUNING.chassis.minDensity,
       TUNING.chassis.maxDensity,
     ),
+    ballastVertex,
+    ballastSize: nudge(g.ballastSize ?? 0, 0.12, 0, 1),
+    ballastDensity: nudge(g.ballastDensity ?? 0.5, 0.12, 0, 1),
     wheels,
     motorSpeed: nudge(
       g.motorSpeed,

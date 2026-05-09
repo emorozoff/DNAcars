@@ -611,14 +611,14 @@ function effectiveSpeed(): SpeedState {
  */
 function nextTrackParams(): { seed: number; opts: Partial<TrackOptions> } {
   const mode: TrackMode = TRACK_MODES[trackModeIdx] ?? 'random';
-  // Difficulty slider 1..100 maps to amplitude 0.5..12 m via
-  // linear lerp.  At 1 % the track is essentially flat (gentle
-  // 50-cm rolling); at 100 % the hills hit ±12 m which exceeds
-  // the wall of the finish basin and is a real challenge for
-  // anything but well-evolved climbers.  Default UI value 40 %
-  // ≈ amplitude 5 m, matching the historical default.
+  // Difficulty slider 0..100 maps to amplitude 0..12 m linearly.
+  // At 0 % the track is *perfectly* flat (amplitude is exactly 0,
+  // so all sine octaves cancel out — the polyline is a single
+  // horizontal line).  At 100 % the hills hit ±12 m which is a
+  // real climb-the-cliff challenge.  Default UI value 40 % ≈
+  // amplitude 4.8 m, close to the historical 5 m default.
   const difficulty = trackTuning.difficulty / 100;
-  const amplitude = 0.5 + difficulty * (12 - 0.5);
+  const amplitude = 12 * difficulty;
   const baseOpts: Partial<TrackOptions> = {
     length: trackTuning.length,
     amplitude,

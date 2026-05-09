@@ -413,7 +413,13 @@ button {
    change in the throughput cell can't push the minimap sideways. */
 .ribbon-stats {
   position: absolute;
-  top: calc(var(--sp-3) + var(--minimap-h) + var(--sp-2));
+  /* Sit just above the dock on the left so the canvas claims the
+     full mid-screen area between minimap (top) and dock-row
+     (bottom).  v1.39 — moved from top-left by player request:
+     "только мини-карта сверху, остальной интерфейс снизу".
+     Dock is two rows ≈ 7.5 rem tall + sp-3 inset, so the stats
+     bottom-anchor accounts for both. */
+  bottom: calc(var(--sp-3) + 7.5rem + var(--sp-2));
   left: var(--sp-4);
   display: grid;
   grid-template-columns: repeat(2, minmax(7rem, max-content));
@@ -1480,14 +1486,15 @@ button {
 }
 
 .mode-headless .charts-panel {
-  /* Stretch to fill the canvas area: from below the minimap (+ a bit
-     more so the stats block on the left isn't clipped) down to just
-     above the dock, centred with a sensible max-width so it doesn't
-     smear edge-to-edge on ultrawide / 27" screens. */
-  top: calc(var(--sp-3) + var(--minimap-h) + var(--sp-2) + 6rem);
+  /* Stretch to fill the canvas area: from directly below the
+     minimap (the stats panel now lives at the bottom, so no top
+     clearance is needed) down to just above the dock + ribbon-
+     stats, centred with a sensible max-width so it doesn't smear
+     edge-to-edge on ultrawide / 27" screens. */
+  top: calc(var(--sp-3) + var(--minimap-h) + var(--sp-2));
   left: 50%;
   right: auto;
-  bottom: calc(var(--sp-3) + 7.5rem);
+  bottom: calc(var(--sp-3) + 7.5rem + var(--sp-2) + 8rem);
   width: calc(100vw - 2 * var(--sp-4));
   max-width: 80rem;
   max-height: none;

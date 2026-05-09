@@ -550,7 +550,12 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     if (trackFinishLineX !== null) {
       const lineX = trackFinishLineX;
       const baseY = sampleTrackY(trackPoints, lineX);
-      const totalH = 4; // 4 m tall — visible without dominating
+      // 100 m tall — well past anything the camera will frame at any
+      // zoom, so the marker reads as "infinitely tall" without us
+      // having to recompute it on every camera tick.  Drawn once on
+      // setTrack; Pixi clips dashes outside the viewport, so the
+      // out-of-view segments cost nothing per frame.
+      const totalH = 100;
       const dashLen = 0.25;
       const gapLen = 0.1;
       const stride = dashLen + gapLen;

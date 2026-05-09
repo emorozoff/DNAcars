@@ -382,6 +382,18 @@ export type ObstacleConfig = {
    * cleanly — a deliberate size-discriminator obstacle.
    */
   stairs: number;
+  /**
+   * Tunnel intensity, 0..1.  Same physics + collider type as
+   * `ceiling` (a low overhead beam), but the placement uses
+   * "long + low" parameter ranges so the result reads as a
+   * tight passage the chassis must crawl through, instead of
+   * the brief overhead clip a regular ceiling produces.  At
+   * full strength the tunnel is 30 m long with ≈ 0.6 m
+   * clearance — only short, low-bodied chassis fit.  Designed
+   * as the opposite-direction discriminator from cliffs +
+   * tall walls.
+   */
+  tunnel: number;
 };
 
 /**
@@ -465,6 +477,7 @@ const DEFAULT_TRACK: TrackOptions = {
     cliff: 0,
     slick: 0,
     stairs: 0,
+    tunnel: 0,
   },
 };
 
@@ -629,6 +642,35 @@ function placeObstacles(
       // it samples the surface.
       physical.push({ kind: 'ceiling', xCenter: x, halfWidth, y: clearance });
       x += meanGap * (0.55 + rng() * 0.9);
+    }
+  }
+
+  // Tunnels — same kind of collider as a ceiling, but placed with
+  // "long + low" parameters so the result reads as a tight passage
+  // rather than a brief overhead clip.  At full intensity: 30 m
+  // long, ≈ 0.6 m clearance — only a short, low-bodied chassis
+  // fits.  Goes through the same wall-overlap-prevention pass as
+  // regular ceilings below.
+  if (obstacles.tunnel > 0) {
+    const intensity = obstacles.tunnel;
+    // Tunnels are sparser than ceilings — even at full intensity
+    // we want one tunnel every ~50 m, not every 12 m, so the
+    // approach + recovery between tunnels matters.
+    const meanGap = lerp(250, 50, intensity);
+    let x = OBSTACLE_START + rng() * meanGap;
+    while (x < trackLength - 5) {
+      const halfWidth = lerp(5, 15, intensity) * (0.8 + rng() * 0.4);
+      const clearance = lerp(2.0, 0.6, intensity) * (0.85 + rng() * 0.3);
+      // Position xCenter so the tunnel opens past `x` (the start)
+      // with halfWidth in either direction; spacing then accounts
+      // for the full tunnel length.
+      physical.push({
+        kind: 'ceiling',
+        xCenter: x + halfWidth,
+        halfWidth,
+        y: clearance,
+      });
+      x += halfWidth * 2 + meanGap * (0.55 + rng() * 0.9);
     }
   }
 

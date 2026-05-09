@@ -111,6 +111,8 @@ type CarRuntime = {
   decoded: DecodedCar;
   chassis: RAPIER.RigidBody;
   chassisCollider: RAPIER.Collider;
+  /** Cached at construction so the motor budget doesn't depend on wheel count. */
+  chassisOnlyMass: number;
   wheels: {
     body: RAPIER.RigidBody;
     collider: RAPIER.Collider;
@@ -303,6 +305,26 @@ function buildCar(
 
   const chassisCollider = world.createCollider(chassisColliderDesc, chassis);
 
+  // Optional ballast — a heavy ball attached to the chassis rigid body at
+  // one of its vertices.  Adding a second collider to the same body lets
+  // Rapier integrate it into the chassis' centre of mass and inertia
+  // automatically, no extra joint, no extra body to track.
+  if (decoded.chassis.ballast) {
+    const b = decoded.chassis.ballast;
+    const ballastDesc = RAPIER.ColliderDesc.ball(b.radius)
+      .setTranslation(b.position.x, b.position.y)
+      .setDensity(b.density)
+      .setFriction(0.8)
+      .setRestitution(0)
+      .setCollisionGroups(packGroups(GROUP.CAR_BODY, GROUP.TRACK));
+    world.createCollider(ballastDesc, chassis);
+  }
+
+  // Capture the chassis-only mass *after* the ballast is attached so the
+  // motor budget includes the counterweight (which is part of the body)
+  // but not the wheels (which are pure cost).
+  const chassisOnlyMass = chassis.mass();
+
   // Wheels ─────────────────────────────────────────────────────────────
   const wheels: CarRuntime['wheels'] = [];
   // Filter wheel genes so that no two wheels share an attachment vertex
@@ -341,8 +363,8 @@ function buildCar(
 
     const wheelColliderDesc = RAPIER.ColliderDesc.ball(wheelGene.radius)
       .setDensity(wheelGene.density)
-      .setFriction(PHYSICS.wheel.friction)
-      .setRestitution(0)
+      .setFriction(wheelGene.friction)
+      .setRestitution(wheelGene.restitution)
       .setCollisionGroups(packGroups(GROUP.CAR_WHEEL, GROUP.TRACK))
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
 
@@ -359,6 +381,7 @@ function buildCar(
     decoded,
     chassis,
     chassisCollider,
+    chassisOnlyMass,
     wheels,
     health: HEALTH.initialSeconds,
     alive: true,
@@ -389,7 +412,11 @@ function buildCar(
  */
 function applyMotor(car: CarRuntime, gravity: number, track: Track): void {
   const targetOmega = -car.decoded.motor.baseSpeed;
-  const totalMass = totalMassOf(car);
+  // Motor budget scales with the *chassis* mass (body + ballast), not the
+  // total mass.  This means each extra wheel adds drag without adding
+  // power — wheels are pure cost.  Evolution should converge on the
+  // smallest set of wheels the car actually needs.
+  const powerMass = car.chassisOnlyMass;
 
   for (let i = 0; i < car.wheels.length; i++) {
     const w = car.wheels[i]!;
@@ -401,7 +428,7 @@ function applyMotor(car: CarRuntime, gravity: number, track: Track): void {
     const error = targetOmega - currentOmega;
     const maxTorque =
       wheelGene.motorTorqueFraction *
-      totalMass *
+      powerMass *
       gravity *
       Math.max(0.15, w.radius) *
       PHYSICS.motor.torqueHeadroom;
@@ -420,11 +447,7 @@ function applyMotor(car: CarRuntime, gravity: number, track: Track): void {
  * dragging the car along.  A real on-track wheel sits AT the surface,
  * not many centimetres under it.
  */
-function isWheelOnGround(
-  wheelBody: RAPIER.RigidBody,
-  radius: number,
-  track: Track,
-): boolean {
+function isWheelOnGround(wheelBody: RAPIER.RigidBody, radius: number, track: Track): boolean {
   const t = wheelBody.translation();
   if (t.x < 0 || t.x > track.options.length) return false;
   const trackY = sampleTrackY(track, t.x);
@@ -438,12 +461,6 @@ function isWheelOnGround(
 
 function clamp(x: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, x));
-}
-
-function totalMassOf(car: CarRuntime): number {
-  let m = car.chassis.mass();
-  for (const w of car.wheels) m += w.body.mass();
-  return m;
 }
 
 function updateLifecycle(car: CarRuntime): { alive: boolean } {

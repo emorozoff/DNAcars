@@ -21,8 +21,10 @@ export function crossoverGenomes(a: Genome, b: Genome, rng: Rng): Genome {
   const wheelCount = pickA() ? a.wheels.length : b.wheels.length;
 
   const radii: number[] = [];
+  const angleOffsets: number[] = [];
   for (let i = 0; i < vertexCount; i++) {
     radii.push(pickGene(a.chassis.radii[i], b.chassis.radii[i], rng));
+    angleOffsets.push(pickGene(a.chassis.angleOffsets[i], b.chassis.angleOffsets[i], rng));
   }
 
   const wheels: WheelGene[] = [];
@@ -31,11 +33,18 @@ export function crossoverGenomes(a: Genome, b: Genome, rng: Rng): Genome {
   }
 
   return {
-    version: 2,
+    version: 3,
     chassis: {
       vertexCount,
       radii,
+      angleOffsets,
       density: pickGene(a.chassis.density, b.chassis.density, rng),
+      ballastVertex: clampInt(
+        rng() < 0.5 ? a.chassis.ballastVertex : b.chassis.ballastVertex,
+        vertexCount,
+      ),
+      ballastSize: pickGene(a.chassis.ballastSize, b.chassis.ballastSize, rng),
+      ballastDensity: pickGene(a.chassis.ballastDensity, b.chassis.ballastDensity, rng),
     },
     wheels,
     motor: { baseSpeed: pickGene(a.motor.baseSpeed, b.motor.baseSpeed, rng) },
@@ -56,6 +65,8 @@ function crossoverWheel(
     density: pickGene(a.density, b.density, rng),
     attachVertex: clampInt(rng() < 0.5 ? a.attachVertex : b.attachVertex, vertexCount),
     motorTorque: pickGene(a.motorTorque, b.motorTorque, rng),
+    friction: pickGene(a.friction, b.friction, rng),
+    restitution: pickGene(a.restitution, b.restitution, rng),
   };
 }
 
@@ -102,6 +113,9 @@ export function mutateGenome(
   const radii = adjustLength(genome.chassis.radii, vertexCount, rng).map((v) =>
     perturb(v, rng, config),
   );
+  const angleOffsets = adjustLength(genome.chassis.angleOffsets, vertexCount, rng, 0.5).map((v) =>
+    perturb(v, rng, config),
+  );
 
   const wheels: WheelGene[] = [];
   for (let i = 0; i < wheelCount; i++) {
@@ -109,12 +123,19 @@ export function mutateGenome(
     wheels.push(mutateWheel(w, vertexCount, rng, config));
   }
 
+  let ballastVertex = clampInt(genome.chassis.ballastVertex, vertexCount);
+  if (rng() < config.rate) ballastVertex = rngInt(rng, 0, vertexCount - 1);
+
   return {
-    version: 2,
+    version: 3,
     chassis: {
       vertexCount,
       radii,
+      angleOffsets,
       density: perturb(genome.chassis.density, rng, config),
+      ballastVertex,
+      ballastSize: perturb(genome.chassis.ballastSize, rng, config),
+      ballastDensity: perturb(genome.chassis.ballastDensity, rng, config),
     },
     wheels,
     motor: { baseSpeed: perturb(genome.motor.baseSpeed, rng, config) },
@@ -133,6 +154,8 @@ function mutateWheel(
     attachVertex:
       rng() < config.rate ? rngInt(rng, 0, vertexCount - 1) : clampInt(w.attachVertex, vertexCount),
     motorTorque: perturb(w.motorTorque, rng, config),
+    friction: perturb(w.friction, rng, config),
+    restitution: perturb(w.restitution, rng, config),
   };
 }
 
@@ -157,11 +180,22 @@ function gaussian(rng: Rng): number {
   return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
 }
 
-function adjustLength(arr: number[], n: number, rng: Rng): number[] {
-  if (arr.length === n) return arr.slice();
-  if (arr.length > n) return arr.slice(0, n);
-  const out = arr.slice();
-  while (out.length < n) out.push(rng());
+/**
+ * Resize a per-vertex gene array to the new vertex count.  When growing,
+ * unfilled slots get a random fallback (or `defaultValue` if provided —
+ * useful for angle offsets where 0.5 = no jitter).
+ */
+function adjustLength(
+  arr: number[] | undefined,
+  n: number,
+  rng: Rng,
+  defaultValue?: number,
+): number[] {
+  const src = arr ?? [];
+  if (src.length === n) return src.slice();
+  if (src.length > n) return src.slice(0, n);
+  const out = src.slice();
+  while (out.length < n) out.push(defaultValue ?? rng());
   return out;
 }
 
@@ -171,6 +205,8 @@ function randomWheel(rng: Rng, vertexCount: number): WheelGene {
     density: rng(),
     attachVertex: rngInt(rng, 0, vertexCount - 1),
     motorTorque: 0.4 + 0.6 * rng(),
+    friction: 0.3 + 0.5 * rng(),
+    restitution: 0.4 * rng(),
   };
 }
 

@@ -17,26 +17,42 @@ export type ClientId = string;
  * Bumping `version` is a breaking change.  Saved populations need to be
  * filtered or migrated.
  *
- * Inspired by the original BoxCar2D / Genetic Cars 2 schema: only the
- * traits that visibly matter on screen.  The car always presses the gas
- * forward; there is no reverse, no gearbox, no per-wheel friction or
- * suspension.
+ * v3 (since v0.9.0):
+ *   - chassis vertex angles now evolve (`angleOffsets`)
+ *   - chassis can carry a ballast block (heterogeneous mass)
+ *   - wheels evolve `friction` and `restitution` in narrow bands
  */
 export type Genome = {
-  /** Schema version. v2 dropped suspension/friction/canReverse/gearRatio. */
-  version: 2;
+  /** Schema version. v3 added angleOffsets, ballast, and wheel friction/restitution. */
+  version: 3;
   chassis: ChassisGene;
   wheels: WheelGene[];
   motor: MotorGene;
 };
 
 export type ChassisGene = {
-  /** Number of vertices on the convex polygon, 3..16. */
+  /** Number of vertices on the convex polygon, 5..10. */
   vertexCount: number;
   /** Per-vertex distance from center, length === vertexCount, normalized [0,1]. */
   radii: number[];
+  /**
+   * Per-vertex angular offset from uniform spacing, length === vertexCount,
+   * normalized [0,1].  0.5 = uniform.  The decoder bounds the deviation so
+   * vertices keep their ccw order — chassis stays convex.
+   */
+  angleOffsets: number[];
   /** Body density, normalized [0,1]. */
   density: number;
+  /** Vertex the ballast is attached to, 0..vertexCount-1. */
+  ballastVertex: number;
+  /**
+   * Ballast radius, normalized [0,1].  Below the decoder threshold the
+   * ballast is "off" — no extra collider is created.  Lets evolution
+   * decide whether to spend mass on a counterweight at all.
+   */
+  ballastSize: number;
+  /** Ballast density, normalized [0,1].  Maps to a much heavier range than the chassis. */
+  ballastDensity: number;
 };
 
 export type WheelGene = {
@@ -48,6 +64,10 @@ export type WheelGene = {
   attachVertex: number;
   /** Fraction of base motor torque, normalized [0,1]. */
   motorTorque: number;
+  /** Wheel/track friction, normalized [0,1].  Decoder maps into a narrow band. */
+  friction: number;
+  /** Wheel/track restitution (bounciness), normalized [0,1].  Narrow band. */
+  restitution: number;
 };
 
 export type MotorGene = {
@@ -99,4 +119,4 @@ export type LeaderboardResponse = {
   self?: LeaderboardEntry;
 };
 
-export const PHYSICS_VERSION = 1 as const;
+export const PHYSICS_VERSION = 2 as const;

@@ -14,6 +14,8 @@ describe('genome', () => {
       const g = randomGenome(makeRng(`v${i}`));
       expect(g.chassis.vertexCount).toBeGreaterThanOrEqual(PHYSICS.chassis.minVertices);
       expect(g.chassis.vertexCount).toBeLessThanOrEqual(PHYSICS.chassis.maxVertices);
+      expect(g.chassis.radii.length).toBe(g.chassis.vertexCount);
+      expect(g.chassis.angleOffsets.length).toBe(g.chassis.vertexCount);
     }
   });
 
@@ -45,24 +47,63 @@ describe('genome', () => {
       expect(w.radius).toBeLessThanOrEqual(PHYSICS.wheel.maxRadius);
       expect(w.density).toBeGreaterThanOrEqual(PHYSICS.wheel.minDensity);
       expect(w.density).toBeLessThanOrEqual(PHYSICS.wheel.maxDensity);
+      expect(w.friction).toBeGreaterThanOrEqual(PHYSICS.wheel.minFriction);
+      expect(w.friction).toBeLessThanOrEqual(PHYSICS.wheel.maxFriction);
+      expect(w.restitution).toBeGreaterThanOrEqual(PHYSICS.wheel.minRestitution);
+      expect(w.restitution).toBeLessThanOrEqual(PHYSICS.wheel.maxRestitution);
     }
     expect(d.motor.baseSpeed).toBeGreaterThanOrEqual(PHYSICS.motor.minSpeed);
     expect(d.motor.baseSpeed).toBeLessThanOrEqual(PHYSICS.motor.maxSpeed);
   });
 
   it('chassis polygon vertices form a closed loop around the origin', () => {
-    const d = decodeGenome(randomGenome(makeRng('poly')));
-    const n = d.chassis.vertices.length;
-    expect(n).toBeGreaterThanOrEqual(PHYSICS.chassis.minVertices);
-    // Check angles are monotonically increasing modulo 2pi.
-    const angles = d.chassis.vertices.map((v) => Math.atan2(v.y, v.x));
-    for (let i = 1; i < angles.length; i++) {
-      const prev = angles[i - 1]!;
-      const cur = angles[i]!;
-      // Allow wrap-around once at most.
-      if (cur < prev) {
-        expect(cur + 2 * Math.PI).toBeGreaterThan(prev);
+    // Try many seeds — the angle-offset feature must never break the
+    // monotonic ccw ordering, otherwise convexHull would degenerate.
+    for (let i = 0; i < 50; i++) {
+      const d = decodeGenome(randomGenome(makeRng(`poly${i}`)));
+      const n = d.chassis.vertices.length;
+      expect(n).toBeGreaterThanOrEqual(PHYSICS.chassis.minVertices);
+      const angles = d.chassis.vertices.map((v) => Math.atan2(v.y, v.x));
+      for (let j = 1; j < angles.length; j++) {
+        const prev = angles[j - 1]!;
+        const cur = angles[j]!;
+        if (cur < prev) {
+          expect(cur + 2 * Math.PI).toBeGreaterThan(prev);
+        }
       }
     }
+  });
+
+  it('angle offsets actually move vertices when set away from 0.5', () => {
+    // Two genomes identical except for angle offsets: the decoded vertex
+    // angles should differ.  This guarantees v3's new gene actually does
+    // something on the way to the phenotype.
+    const base = randomGenome(makeRng('ang'));
+    base.chassis.angleOffsets = base.chassis.angleOffsets.map(() => 0.5);
+    const skewed = {
+      ...base,
+      chassis: { ...base.chassis, angleOffsets: base.chassis.angleOffsets.map(() => 0.0) },
+    };
+    const a = decodeGenome(base).chassis.vertices.map((v) => Math.atan2(v.y, v.x));
+    const b = decodeGenome(skewed).chassis.vertices.map((v) => Math.atan2(v.y, v.x));
+    expect(a).not.toEqual(b);
+  });
+
+  it('ballast is omitted when ballastSize is below the off-threshold', () => {
+    const g = randomGenome(makeRng('bal-off'));
+    g.chassis.ballastSize = 0;
+    expect(decodeGenome(g).chassis.ballast).toBeNull();
+  });
+
+  it('ballast is present and at a valid vertex when size is large', () => {
+    const g = randomGenome(makeRng('bal-on'));
+    g.chassis.ballastSize = 1.0;
+    g.chassis.ballastVertex = 0;
+    const d = decodeGenome(g);
+    expect(d.chassis.ballast).not.toBeNull();
+    expect(d.chassis.ballast!.density).toBeGreaterThanOrEqual(PHYSICS.chassis.ballast.minDensity);
+    expect(d.chassis.ballast!.density).toBeLessThanOrEqual(PHYSICS.chassis.ballast.maxDensity);
+    // Position equals the chassis vertex it's attached to.
+    expect(d.chassis.ballast!.position).toEqual(d.chassis.vertices[0]);
   });
 });

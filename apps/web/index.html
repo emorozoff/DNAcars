@@ -22,40 +22,11 @@
           <span class="brand__name">DNAcars</span>
           <span class="brand__version" id="app-version">v—</span>
         </div>
-        <button class="btn btn--ghost" id="btn-tutorial" data-i18n="panel.tutorialOpen">
-          Tutorial
-        </button>
-        <button class="btn btn--ghost" id="lang-toggle" aria-label="Toggle language">EN</button>
-      </header>
 
-      <main class="stage">
-        <div id="pixi-root" class="stage__canvas">
-          <!-- Floating "back to leader" button lives INSIDE the canvas
-               wrapper so its `position: absolute` positions against the
-               canvas section regardless of mobile vs desktop layout —
-               on mobile the canvas wrapper is the only "above the
-               fold" reference, and the button needs to sit clearly
-               below the topbar.  Pixi's <canvas> appends after this
-               button at runtime; .btn--floating's z-index keeps it
-               on top. -->
-          <button class="btn btn--floating" id="btn-camera-leader" hidden>Follow leader</button>
-        </div>
-
-        <!-- Top of stage: minimap pinned to the very top across the full
-             width, then a compact stat block in the top-left underneath
-             it.  The stat block is a fixed-shape grid (3 rows × 2
-             columns) so its size doesn't shift with the throughput
-             readout — pre-v1.19.2 the inline "ТЕМП" cell would stretch
-             the row and visibly push the minimap when its label
-             changed length. -->
-        <svg class="minimap" id="minimap" viewBox="0 0 1500 86" preserveAspectRatio="none">
-          <polyline class="minimap__track" id="minimap-track" />
-          <rect class="minimap__viewport" id="minimap-viewport" y="0" height="86" />
-          <g class="minimap__cars" id="minimap-cars"></g>
-          <line class="minimap__leader" id="minimap-leader" vector-effect="non-scaling-stroke" />
-          <g class="minimap__records" id="minimap-records"></g>
-        </svg>
-
+        <!-- Live telemetry — was an absolute card in the bottom-left of
+             the stage (v1.39).  Moved into the topbar in v1.50.0 as the
+             canonical "always-on" status row for the dashboard layout:
+             one place to read game state, no overlap with the canvas. -->
         <div class="ribbon-stats">
           <span class="ribbon-stat">
             <span class="ribbon-stat__label" data-i18n="ribbon.gen">GENERATION</span>
@@ -97,7 +68,40 @@
             <span class="ribbon-stat__value" id="stat-throughput">×—</span>
           </span>
         </div>
+
+        <div class="topbar__actions">
+          <button class="btn btn--ghost" id="btn-tutorial" data-i18n="panel.tutorialOpen">
+            Tutorial
+          </button>
+          <button class="btn btn--ghost" id="lang-toggle" aria-label="Toggle language">EN</button>
         </div>
+      </header>
+
+      <main class="stage">
+        <div id="pixi-root" class="stage__canvas">
+          <!-- Floating "back to leader" button lives INSIDE the canvas
+               wrapper so its `position: absolute` positions against the
+               canvas section regardless of mobile vs desktop layout —
+               on mobile the canvas wrapper is the only "above the
+               fold" reference, and the button needs to sit clearly
+               below the topbar.  Pixi's <canvas> appends after this
+               button at runtime; .btn--floating's z-index keeps it
+               on top. -->
+          <button class="btn btn--floating" id="btn-camera-leader" hidden>Follow leader</button>
+        </div>
+
+        <!-- Minimap pinned to the very top of the stage across the full
+             canvas width.  The live telemetry strip used to live as a
+             fixed-shape grid in the bottom-left here; v1.50.0 moved it
+             into the topbar so the canvas owns the entire mid-screen
+             area between minimap (top) and dock (bottom). -->
+        <svg class="minimap" id="minimap" viewBox="0 0 1500 86" preserveAspectRatio="none">
+          <polyline class="minimap__track" id="minimap-track" />
+          <rect class="minimap__viewport" id="minimap-viewport" y="0" height="86" />
+          <g class="minimap__cars" id="minimap-cars"></g>
+          <line class="minimap__leader" id="minimap-leader" vector-effect="non-scaling-stroke" />
+          <g class="minimap__records" id="minimap-records"></g>
+        </svg>
 
         <!-- Bottom dock: two rows.  Top row = always-visible Evolution
              params (population, mutation, elite, strict-determinism)

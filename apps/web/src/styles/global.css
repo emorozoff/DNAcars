@@ -59,12 +59,17 @@ button {
 
 /* ─── Top bar ────────────────────────────────────────────────────────────── */
 
+/* Three-column grid: brand on the left (auto), live telemetry strip in
+   the middle (1fr, scrolls if it overflows on narrow viewports),
+   action buttons on the right (auto).  The telemetry column is the
+   single source of always-visible game state — was a floating
+   absolute card pre-v1.50.0. */
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-4);
-  padding: 0 var(--sp-5);
+  gap: var(--sp-5);
+  padding: 0 var(--sp-4);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
   z-index: 2;
@@ -76,6 +81,13 @@ button {
   gap: var(--sp-2);
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+.topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  justify-self: end;
 }
 
 .brand__mark {
@@ -406,31 +418,27 @@ button {
 
 /* ─── Top ribbon: live stats + full-width minimap ───────────────────────── */
 
-/* Stats block — fixed-shape grid in the top-left.  Six stats laid
-   out 2 cols × 3 rows so the block stays roughly square (≈ 17 rem ×
-   8 rem) regardless of which value happens to render.  Crucially
-   it's a separate absolute element from the minimap, so a length
-   change in the throughput cell can't push the minimap sideways. */
+/* Live telemetry strip — sits in the middle column of the topbar
+   (v1.50.0; was an absolute fixed-shape grid in the bottom-left of
+   the stage from v1.39 to v1.49).  Horizontal row of stat cells,
+   each cell stacked label-on-top / value-below.  No background or
+   border of its own — the topbar provides the surface. */
 .ribbon-stats {
-  position: absolute;
-  /* Sit just above the dock on the left so the canvas claims the
-     full mid-screen area between minimap (top) and dock-row
-     (bottom).  v1.39 — moved from top-left by player request:
-     "только мини-карта сверху, остальной интерфейс снизу".
-     Dock is two rows ≈ 7.5 rem tall + sp-3 inset, so the stats
-     bottom-anchor accounts for both. */
-  bottom: calc(var(--sp-3) + 7.5rem + var(--sp-2));
-  left: var(--sp-4);
-  display: grid;
-  grid-template-columns: repeat(2, minmax(7rem, max-content));
-  grid-auto-rows: auto;
-  gap: var(--sp-2) var(--sp-4);
-  padding: var(--sp-3) var(--sp-4);
-  background: rgba(22, 22, 26, 0.78);
-  border: 1px solid var(--color-border);
-  border-radius: var(--r-md);
-  backdrop-filter: blur(8px);
-  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  min-width: 0;
+  /* The telemetry column is `minmax(0, 1fr)` in the topbar grid; if
+     a viewport is narrow enough that all six stats can't fit, scroll
+     horizontally rather than wrap onto a second row that would push
+     everything else around. */
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.ribbon-stats::-webkit-scrollbar {
+  display: none;
 }
 
 /* Each stat is stacked: small uppercase label on top, mono value
@@ -2047,10 +2055,15 @@ button {
 /* ─── Mobile ─────────────────────────────────────────────────────────────── */
 
 @media (max-width: 720px) {
-  /* On narrow screens the stats block collapses to a single column
-     so it doesn't elbow out into the canvas. */
+  /* Telemetry strip — drop the track-mode segmented control, which
+     is the widest cell and the least essential at-a-glance number.
+     Tighter gap so the remaining five cells fit without scrolling. */
   .ribbon-stats {
-    grid-template-columns: 1fr;
+    gap: var(--sp-4);
+  }
+
+  .ribbon-stat--track-mode {
+    display: none;
   }
 
   /* Track drawer's two-column grid collapses to one column so each
@@ -2071,10 +2084,9 @@ button {
    nothing scrollable, half the controls get clipped past the
    viewport edge.  On mobile we instead stack:
 
-       topbar (sticky)
+       topbar (sticky — brand + compact telemetry + actions)
        canvas (60 dvh — game stays visible while at scroll-top)
        minimap
-       ribbon-stats
        dock
        charts-panel (when open)
 
@@ -2151,11 +2163,35 @@ button {
     width: 100%;
   }
 
+  /* Telemetry strip lives inside the sticky topbar on phone too,
+     but space is at a premium: hide all secondary stats and keep
+     just GENERATION + LEADER (the two pieces of state that change
+     every tick).  Speed / best / alive are still visible on
+     desktop; phone players check those by scrolling to the dock or
+     the sidebar (post-Step 2). */
   .ribbon-stats {
-    position: static;
-    top: auto;
-    left: auto;
-    width: 100%;
+    gap: var(--sp-3);
+  }
+
+  .ribbon-stat {
+    /* Drop the label-on-top stack on phone — line them up
+       horizontally so two stats fit in ~60 % of a 360px topbar. */
+    flex-direction: row;
+    gap: var(--sp-1);
+    align-items: baseline;
+  }
+
+  .ribbon-stat__label {
+    /* Truncate to a one-letter tag on phone; the value carries the
+       meaning and the topbar is too tight for full uppercase text. */
+    font-size: 0.5625rem;
+  }
+
+  .ribbon-stat--track-mode,
+  .ribbon-stat:nth-of-type(3),
+  .ribbon-stat:nth-of-type(4),
+  .ribbon-stat:nth-of-type(6) {
+    display: none;
   }
 
   .dock {

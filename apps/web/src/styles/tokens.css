@@ -87,8 +87,10 @@
 
   /* Layout — rem so the topbar grows with root font-size on big
      displays.  At 16 px root: 56 / 32 / 320 px (original values).
-     At 22 px root (27" 1440p): 77 / 44 / 440 px. */
-  --topbar-h: 3.5rem;
+     At 22 px root (27" 1440p): 77 / 44 / 440 px.
+     v1.50.0 bumped --topbar-h 3.5 → 4 rem to seat the live telemetry
+     strip (was an absolute card; now lives inside the topbar). */
+  --topbar-h: 4rem;
   --footer-h: 2rem;
   --panel-w: 20rem;
   /* Minimap height — switched to 8 rem in `.mode-headless` so the

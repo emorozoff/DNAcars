@@ -394,6 +394,15 @@ export type ObstacleConfig = {
    * tall walls.
    */
   tunnel: number;
+  /**
+   * Mud intensity, 0..1.  Same kind of patch as `slick` (a
+   * span of x where the surface segments override their
+   * friction), but friction is bumped *up* (≈ 2.5) instead of
+   * down.  Heavy chassis with strong motors muscle through;
+   * light cars stick + bog down.  Region length scales
+   * 4..18 m with intensity.
+   */
+  mud: number;
 };
 
 /**
@@ -405,6 +414,7 @@ export type PhysicalObstacle =
   | { kind: 'wall'; x: number; height: number }
   | { kind: 'ceiling'; xCenter: number; halfWidth: number; y: number }
   | { kind: 'slick'; x1: number; x2: number }
+  | { kind: 'mud'; x1: number; x2: number }
   | {
       /**
        * The finish line at the very end of every track — a tall
@@ -478,6 +488,7 @@ const DEFAULT_TRACK: TrackOptions = {
     slick: 0,
     stairs: 0,
     tunnel: 0,
+    mud: 0,
   },
 };
 
@@ -684,6 +695,22 @@ function placeObstacles(
       const length = lerp(5, 22, obstacles.slick) * (0.7 + rng() * 0.5);
       const x2 = Math.min(trackLength - 1, x + length);
       physical.push({ kind: 'slick', x1: x, x2 });
+      x = x2 + meanGap * (0.55 + rng() * 0.9);
+    }
+  }
+
+  // Mud surface patches — opposite of slick.  Friction is bumped
+  // up (≈ 2.5×) so wheels stick to the surface instead of sliding;
+  // heavy chassis with strong motors push through, light/weak ones
+  // bog down and stall.  Region length scales 4..18 m with
+  // intensity.
+  if (obstacles.mud > 0) {
+    const meanGap = gapFor(obstacles.mud);
+    let x = OBSTACLE_START + rng() * meanGap;
+    while (x < trackLength - 5) {
+      const length = lerp(4, 18, obstacles.mud) * (0.7 + rng() * 0.5);
+      const x2 = Math.min(trackLength - 1, x + length);
+      physical.push({ kind: 'mud', x1: x, x2 });
       x = x2 + meanGap * (0.55 + rng() * 0.9);
     }
   }
@@ -1510,14 +1537,24 @@ function buildTrackColliders(world: RAPIER.World, track: Track): void {
 
   // Pre-collect slick regions so we can split the surface polyline
   // along friction boundaries.
+  // Per-segment surface kind: ambient (1.0), slick (0.05), or mud
+  // (2.5).  Slick + mud regions are mutually exclusive — if a track
+  // section is in both ranges (shouldn't happen normally but defensive
+  // here), slick wins because more interesting failure mode.
   const slickRegions: { x1: number; x2: number }[] = [];
+  const mudRegions: { x1: number; x2: number }[] = [];
   for (const ob of track.physicalObstacles) {
     if (ob.kind === 'slick') slickRegions.push({ x1: ob.x1, x2: ob.x2 });
+    else if (ob.kind === 'mud') mudRegions.push({ x1: ob.x1, x2: ob.x2 });
   }
-  const isSlickAt = (x: number): boolean => {
-    for (const r of slickRegions) if (x >= r.x1 && x <= r.x2) return true;
-    return false;
+  type SurfaceKind = 'ambient' | 'slick' | 'mud';
+  const surfaceAt = (x: number): SurfaceKind => {
+    for (const r of slickRegions) if (x >= r.x1 && x <= r.x2) return 'slick';
+    for (const r of mudRegions) if (x >= r.x1 && x <= r.x2) return 'mud';
+    return 'ambient';
   };
+  const frictionFor = (kind: SurfaceKind): number =>
+    kind === 'slick' ? 0.05 : kind === 'mud' ? 2.5 : 1.0;
 
   // Track surface is one polyline collider per friction "run" (a
   // contiguous span of segments that share friction).  In v1.18 we
@@ -1539,8 +1576,8 @@ function buildTrackColliders(world: RAPIER.World, track: Track): void {
     const segCenter = (i: number): number =>
       (track.points[i]!.x + track.points[i + 1]!.x) / 2;
     let runStart = 0;
-    let runSlick = isSlickAt(segCenter(0));
-    const flush = (endIdx: number, slick: boolean): void => {
+    let runKind = surfaceAt(segCenter(0));
+    const flush = (endIdx: number, kind: SurfaceKind): void => {
       // Build a polyline from track.points[runStart..endIdx] (inclusive).
       const count = endIdx - runStart + 1;
       if (count < 2) return;
@@ -1552,20 +1589,20 @@ function buildTrackColliders(world: RAPIER.World, track: Track): void {
       }
       const desc = RAPIER.ColliderDesc.polyline(verts);
       desc
-        .setFriction(slick ? 0.05 : 1.0)
+        .setFriction(frictionFor(kind))
         .setRestitution(0.05)
         .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL));
       world.createCollider(desc, ground);
     };
     for (let i = 1; i < segCount; i++) {
-      const segSlick = isSlickAt(segCenter(i));
-      if (segSlick !== runSlick) {
-        flush(i, runSlick);
+      const segKind = surfaceAt(segCenter(i));
+      if (segKind !== runKind) {
+        flush(i, runKind);
         runStart = i;
-        runSlick = segSlick;
+        runKind = segKind;
       }
     }
-    flush(segCount, runSlick);
+    flush(segCount, runKind);
   }
 
   // Catcher floor — large flat cuboid far below the surface that

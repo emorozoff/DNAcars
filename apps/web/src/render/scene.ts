@@ -82,6 +82,10 @@ const COLORS = {
   obstacle: 0xd05d5d,
   /** Slick patch — light blue, "ice-like".  Drawn over the track polyline. */
   slick: 0x7ec8ff,
+  /** Mud patch — warm brown, the visual opposite of slick.  Same overlay
+   *  pattern, just a different colour so the player reads it as a
+   *  high-friction stretch rather than the icy slick patch. */
+  mud: 0x8a5a3c,
   /** Dashed finish-line stroke — soft white that reads against the
    *  dark canvas without overpowering the cars + track. */
   finishLight: 0xf2f2f5,
@@ -513,10 +517,10 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
           .lineTo(ob.x, ob.yBase + ob.height);
         obstaclesGfx.stroke({ color: COLORS.track, width: 0.08, alpha: 1 });
       } else {
-        // Slick patches: re-trace the track polyline between x1
-        // and x2 in light blue.  Drawn at a touch heavier stroke
-        // than the grey track so it reads as an overlay rather
-        // than blending in.
+        // Slick / mud patches: re-trace the track polyline between
+        // x1 and x2 in the corresponding overlay colour.  Drawn at
+        // a touch heavier stroke than the grey track so it reads
+        // as a surface treatment, not a separate object.
         const stride = 0.6;
         let first = true;
         for (let x = ob.x1; x <= ob.x2 + 1e-4; x += stride) {
@@ -529,7 +533,8 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
             obstaclesGfx.lineTo(xc, y);
           }
         }
-        obstaclesGfx.stroke({ color: COLORS.slick, width: 0.16, alpha: 0.95 });
+        const surfaceColor = ob.kind === 'mud' ? COLORS.mud : COLORS.slick;
+        obstaclesGfx.stroke({ color: surfaceColor, width: 0.16, alpha: 0.95 });
       }
     }
 

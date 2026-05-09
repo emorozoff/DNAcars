@@ -102,6 +102,7 @@ const trackTuning: {
     slick: 0,
     stairs: 0,
     tunnel: 0,
+    mud: 0,
   },
 };
 
@@ -1477,6 +1478,10 @@ function bindControls(): void {
   });
   bindSlider('ctrl-tunnel', 'ctrl-tunnel-val', (v) => {
     trackTuning.obstacles.tunnel = v / 100;
+    return `${v}%`;
+  });
+  bindSlider('ctrl-mud', 'ctrl-mud-val', (v) => {
+    trackTuning.obstacles.mud = v / 100;
     return `${v}%`;
   });
 }

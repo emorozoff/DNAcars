@@ -801,14 +801,13 @@ type CarView = {
   body: Graphics;
   wheels: Graphics[];
   /**
-   * When > performance.now(), the chassis is mid-celebration after
-   * crossing the finish line — bright accent tint + scale pop +
-   * full alpha.  Set on the per-frame transition from
-   * "finishTime === null" to "finishTime !== null".
+   * When > performance.now(), the chassis is mid scale-pop ping —
+   * used by the leader-change cue to give the new leader a brief
+   * tint + size flash.  Finish-line crossing no longer sets this
+   * (v1.40 visual change: finishers fade to alpha 0.4 + neutral
+   * tint instead of celebrating).
    */
   celebrateUntil: number;
-  /** Last seen `car.finishTime` so we can detect the cross-the-line edge. */
-  hadFinishTime: boolean;
   /**
    * True once the car has been drawn in its post-finish pose at
    * least once.  Prevents per-frame Pixi attribute writes for a
@@ -849,7 +848,6 @@ function makeCarView(car: CarSnapshot): CarView {
     body,
     wheels,
     celebrateUntil: 0,
-    hadFinishTime: false,
     finalDrawn: false,
   };
 }
@@ -880,25 +878,22 @@ function updateCarView(
   view.container.position.set(car.position.x, car.position.y);
   view.container.rotation = car.angle;
 
-  // Finish-line cross detector: the moment we see finishTime go
-  // null → non-null, kick off a ~1.2 s "celebration" window — bright
-  // accent tint + slight scale-pop — so the player gets a
-  // distinctive visual ping for each car that crosses.  Past the
-  // window, finishers stay accent-tinted (and at full alpha) so
-  // they remain visually distinct from cars that merely stalled.
+  // Finish-line state.  Was a 1.2-s celebration window with a
+  // scale-pop + bright tint; v1.40 dropped that on player request.
+  // Finishers now read as "done" via alpha 0.4 + neutral white tint
+  // (no celebration animation).  The leader-change ping below
+  // still uses celebrateUntil / scale-pop for *non-finished* cars.
   const isFinisher = car.finishTime !== null;
-  if (isFinisher && !view.hadFinishTime) {
-    view.celebrateUntil = performance.now() + 1200;
-    view.hadFinishTime = true;
-  }
   const now = performance.now();
   const celebrating = now < view.celebrateUntil;
-  // Alpha: still-running = 1.  Finishers (with or without
-  // celebration) = 1, so their accent-coloured chassis pops out.
-  // Stalled non-finishers fade to 0.3 as before.
-  view.container.alpha = car.finished && !isFinisher ? 0.3 : 1;
-  // Scale pop: linear ease 1.18 → 1.0 over the celebration window.
-  if (celebrating) {
+  // Alpha:
+  //   finishers   — 0.4 (semi-transparent fade after crossing).
+  //   stalled     — 0.3 (cars that died without finishing).
+  //   alive       — 1.0.
+  view.container.alpha = isFinisher ? 0.4 : car.finished ? 0.3 : 1;
+  // Scale pop survives only for the leader-change ping; finishers
+  // never set celebrateUntil now, so this branch is dead for them.
+  if (celebrating && !isFinisher) {
     const remaining = view.celebrateUntil - now;
     const t = Math.max(0, Math.min(1, remaining / 1200));
     const scale = 1 + 0.18 * t;
@@ -908,18 +903,20 @@ function updateCarView(
   }
 
   // Chassis tint policy:
-  //   tier !== 'full'  — neutral white body for everyone, no
-  //                      accents.  At ×8+ the strobing of leader
-  //                      tints + finisher flashes is unreadable
-  //                      and just burns GPU cycles.
-  //   celebration      — accent green + scale-pop (finish or leader change)
-  //   finisher         — accent green steady
-  //   leader & elite   — accent green steady ("old champion still leads")
-  //   leader & !elite  — warm red-orange ("newcomer overtook the elite")
-  //   default          — white body, used by every non-leader car
+  //   tier !== 'full'   — neutral white body for everyone, no
+  //                       accents.  At ×8+ the strobing of leader
+  //                       tints is unreadable and burns GPU cycles.
+  //   finisher          — neutral white (the alpha 0.4 carries the
+  //                       "done" cue, no colour needed).
+  //   leader-change ping — accent green flash on the new leader.
+  //   leader & elite    — accent green steady.
+  //   leader & !elite   — warm red-orange ("fresh blood in front").
+  //   default           — white body.
   if (tier !== 'full') {
     view.body.tint = COLORS.body;
-  } else if (celebrating || isFinisher) {
+  } else if (isFinisher) {
+    view.body.tint = COLORS.body;
+  } else if (celebrating) {
     view.body.tint = COLORS.finisher;
   } else if (isLeader) {
     view.body.tint = car.isElite ? COLORS.leaderElite : COLORS.leaderNewcomer;
@@ -931,13 +928,11 @@ function updateCarView(
   const sin = Math.sin(-car.angle);
   // Per-tier wheel work:
   //   'full' (×1)  — full update.  Position, spin angle, and
-  //                  green flash on grounded wheels.
+  //                  green flash on grounded wheels.  Finishers
+  //                  get neutral grey wheels (no green strobe,
+  //                  alpha-fade carries the "done" cue).
   //   'lite' (×8+) — position only.  Spin animation is invisible
-  //                  at ×8 anyway (wheels would have to spin
-  //                  hundreds of times per frame to read), and
-  //                  the green strobe is unreadable too.  We keep
-  //                  setting a neutral grey tint to overwrite any
-  //                  green left over from the last 'full' frame.
+  //                  at ×8 anyway and the green strobe is too.
   for (let i = 0; i < view.wheels.length; i++) {
     const wg = view.wheels[i]!;
     const ws = car.wheels[i];
@@ -947,16 +942,20 @@ function updateCarView(
     wg.position.set(dx * cos - dy * sin, dx * sin + dy * cos);
     if (tier === 'full') {
       wg.rotation = ws.angle - car.angle;
-      wg.tint = ws.onGround && !car.finished ? COLORS.wheelGround : COLORS.wheel;
+      if (isFinisher || car.finished) {
+        wg.tint = COLORS.wheel;
+      } else {
+        wg.tint = ws.onGround ? COLORS.wheelGround : COLORS.wheel;
+      }
     } else {
       wg.tint = COLORS.wheel;
     }
   }
-  // Don't latch the "final pose" while the celebration animation is
-  // still playing — otherwise the per-frame skip would freeze the
-  // chassis at whatever scale-pop value happened on this tick and
-  // never settle back to 1.0.
-  if (car.finished && !celebrating) view.finalDrawn = true;
+  // Latch the "final pose" the moment a car becomes finished — no
+  // more 1.2-s celebration delay.  The next per-frame call hits the
+  // early-return at the top of updateCarView and the car stays
+  // frozen at whatever pose it was drawn here.
+  if (car.finished) view.finalDrawn = true;
 }
 
 /* ─── Helpers ──────────────────────────────────────────────────────────── */

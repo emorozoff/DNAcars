@@ -894,6 +894,29 @@ function chassisVertices(g: Genome): { x: number; y: number }[] {
   return verts;
 }
 
+/**
+ * The car's vertical reach below its chassis centre at spawn pose
+ * (angle = 0).  Used to pick a safe spawn-Y above the track surface
+ * — too-small a clearance lands the wheels inside the polyline and
+ * the player sees them visibly clip through it on every gen-start.
+ *
+ * Returned as a positive distance.  Considers both the lowest
+ * chassis vertex and every wheel's bottom extent (`anchor.y -
+ * wheel.radius`).
+ */
+function carBottomExtent(g: Genome): number {
+  const verts = chassisVertices(g);
+  let minLocalY = 0;
+  for (const v of verts) if (v.y < minLocalY) minLocalY = v.y;
+  for (const wg of g.wheels) {
+    const anchor = verts[wg.attachVertex];
+    if (!anchor) continue;
+    const wheelBottom = anchor.y - wg.radius;
+    if (wheelBottom < minLocalY) minLocalY = wheelBottom;
+  }
+  return -minLocalY;
+}
+
 /* ─── Per-car runtime ──────────────────────────────────────────────────── */
 
 type WheelRuntime = {
@@ -1210,18 +1233,25 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
   }
 
   const sx = opts.spawnX ?? 8;
-  // Spawn-height clearance bumped 1.6 → 3.2 in v1.11 to accommodate
-  // the new max chassis radius (1.8 m) + max wheel radius (1.2 m).
-  // A max-size car's lowest contact point sits ≈ 3 m below its
-  // chassis centre, so 3.2 m gives the wheels room to settle without
-  // spawning inside the ground.  Small cars still drop in safely —
-  // the airborne damping handles the longer fall.
-  const sy = sampleTrackY(opts.track, sx) + 3.2;
+  const trackY = sampleTrackY(opts.track, sx);
 
   const eliteCount = opts.eliteCount ?? 0;
-  const cars: CarRuntime[] = opts.genomes.map((g, i) =>
-    buildCar(carWorld[i]!, g, i, sx, sy, i < eliteCount),
-  );
+  const cars: CarRuntime[] = opts.genomes.map((g, i) => {
+    // Per-car spawn-Y clearance.  A global "3.2 m above the track"
+    // (the old v1.11 value) was sized for chassis radius ≤ 1.8 m
+    // and wheel radius ≤ 1.2 m.  Since the v1.28 size envelope
+    // bumped both caps (chassis 3.5, wheel 2.5), a max-size car's
+    // lowest point can sit ≈ 6 m below the chassis centre — at
+    // 3.2 m clearance the wheels spawned *inside* the polyline
+    // and visually clipped through it before the impulse-spike
+    // clamp could nudge them up.  Compute the actual bottom
+    // extent from the genome and add a small air-gap so every
+    // car spawns with the same little gap above the surface
+    // regardless of size.  Small cars therefore start close to
+    // the ground; huge cars start higher and drop in.
+    const sy = trackY + carBottomExtent(g) + 0.5;
+    return buildCar(carWorld[i]!, g, i, sx, sy, i < eliteCount);
+  });
 
   let time = 0;
 

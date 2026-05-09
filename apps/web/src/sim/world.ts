@@ -504,39 +504,6 @@ export type ObstacleConfig = {
    * cleanly — a deliberate size-discriminator obstacle.
    */
   stairs: number;
-  /**
-   * Tunnel intensity, 0..1.  Same physics + collider type as
-   * `ceiling` (a low overhead beam), but the placement uses
-   * "long + low" parameter ranges so the result reads as a
-   * tight passage the chassis must crawl through, instead of
-   * the brief overhead clip a regular ceiling produces.  At
-   * full strength the tunnel is 30 m long with ≈ 0.6 m
-   * clearance — only short, low-bodied chassis fit.  Designed
-   * as the opposite-direction discriminator from cliffs +
-   * tall walls.
-   */
-  tunnel: number;
-  /**
-   * Mud intensity, 0..1.  Same kind of patch as `slick` (a
-   * span of x where the surface segments override their
-   * friction), but friction is bumped *up* (≈ 2.5) instead of
-   * down.  Heavy chassis with strong motors muscle through;
-   * light cars stick + bog down.  Region length scales
-   * 4..18 m with intensity.
-   */
-  mud: number;
-  /**
-   * Zigzag intensity, 0..1.  Places a series of alternating
-   * walls + low ceilings every 2–4 m (much closer than the
-   * regular wall / ceiling spacing) so the chassis has to
-   * hop over a wall, duck under a ceiling, hop, duck, hop —
-   * a long-bodied car never has time to settle between
-   * obstacles, only short / agile chassis weave through.
-   * Bypasses the wall-under-ceiling buffer that protects
-   * regular placement (zigzag is hand-placed and known to be
-   * passable when designed right).
-   */
-  zigzag: number;
 };
 
 /**
@@ -548,7 +515,6 @@ export type PhysicalObstacle =
   | { kind: 'wall'; x: number; height: number }
   | { kind: 'ceiling'; xCenter: number; halfWidth: number; y: number }
   | { kind: 'slick'; x1: number; x2: number }
-  | { kind: 'mud'; x1: number; x2: number }
   | {
       /**
        * The finish line at the very end of every track — a tall
@@ -621,9 +587,6 @@ const DEFAULT_TRACK: TrackOptions = {
     cliff: 0,
     slick: 0,
     stairs: 0,
-    tunnel: 0,
-    mud: 0,
-    zigzag: 0,
   },
 };
 
@@ -644,6 +607,16 @@ const CLIFF_EDGE_M = 0.05;
  * fair shot at building speed before facing local hazards.
  */
 const OBSTACLE_START = 80;
+/**
+ * Stairs spawn earlier than other hazards — the player asked for
+ * staircases to be reliably visible on a 200 m track, and at the
+ * old OBSTACLE_START (80 m) the valid window was so narrow that
+ * mid-intensity stair settings frequently placed zero staircases.
+ * 25 m sits just past the 25 m warmup so cars still get a flat
+ * runway, but the first staircase shows up well before the
+ * finish wall.
+ */
+const STAIRS_START = 25;
 /**
  * Finish-zone layout — kept deliberately simple after the v1.31.x
  * cliff + basin experiments.  Ambient terrain runs all the way to
@@ -748,18 +721,21 @@ function placeObstacles(
     }
   }
 
-  // Walls — vertical thin colliders.  Height scales 0.3..5 m with
-  // intensity (low intensity = curb-sized bumps; full = a real
-  // barrier only big-wheeled cars can roll over — a 5 m wall meets
-  // the limit of the v1.28 wheel-diameter cap, so it's a
-  // size-discriminating obstacle by design).  We don't pin them to
-  // the track surface here because we don't have point Y at this
-  // point in the pipeline; buildTrackColliders does the lookup.
+  // Walls — vertical thin colliders.  Height scales 1.0..9 m with
+  // intensity in v1.52 (was 0.3..5 m): the v1.51 chassis range
+  // (radius up to 5 m) made low-end walls invisible at typical
+  // zoom and high-end walls climbable on day one.  1 m floor keeps
+  // even minimum-intensity walls visually legible; 9 m ceiling
+  // matches the post-v1.51 wheel diameter limit so a high-intensity
+  // wall is a real climb that punishes mid-size cars.  We don't
+  // pin them to the track surface here because we don't have
+  // point Y at this point in the pipeline; buildTrackColliders
+  // does the lookup.
   if (obstacles.wall > 0) {
     const meanGap = gapFor(obstacles.wall);
     let x = OBSTACLE_START + rng() * meanGap;
     while (x < trackLength - 5) {
-      const height = lerp(0.3, 5.0, obstacles.wall) * (0.7 + rng() * 0.3);
+      const height = lerp(1.0, 9.0, obstacles.wall) * (0.7 + rng() * 0.3);
       physical.push({ kind: 'wall', x, height });
       x += meanGap * (0.55 + rng() * 0.9);
     }
@@ -791,35 +767,6 @@ function placeObstacles(
     }
   }
 
-  // Tunnels — same kind of collider as a ceiling, but placed with
-  // "long + low" parameters so the result reads as a tight passage
-  // rather than a brief overhead clip.  At full intensity: 30 m
-  // long, ≈ 0.6 m clearance — only a short, low-bodied chassis
-  // fits.  Goes through the same wall-overlap-prevention pass as
-  // regular ceilings below.
-  if (obstacles.tunnel > 0) {
-    const intensity = obstacles.tunnel;
-    // Tunnels are sparser than ceilings — even at full intensity
-    // we want one tunnel every ~50 m, not every 12 m, so the
-    // approach + recovery between tunnels matters.
-    const meanGap = lerp(250, 50, intensity);
-    let x = OBSTACLE_START + rng() * meanGap;
-    while (x < trackLength - 5) {
-      const halfWidth = lerp(5, 15, intensity) * (0.8 + rng() * 0.4);
-      const clearance = lerp(2.0, 0.6, intensity) * (0.85 + rng() * 0.3);
-      // Position xCenter so the tunnel opens past `x` (the start)
-      // with halfWidth in either direction; spacing then accounts
-      // for the full tunnel length.
-      physical.push({
-        kind: 'ceiling',
-        xCenter: x + halfWidth,
-        halfWidth,
-        y: clearance,
-      });
-      x += halfWidth * 2 + meanGap * (0.55 + rng() * 0.9);
-    }
-  }
-
   // Slick surface patches — span of x where the surface segments
   // get friction lowered to ~ 0.05 (near-ice).  Region length
   // scales 5..22 m with intensity.
@@ -834,35 +781,25 @@ function placeObstacles(
     }
   }
 
-  // Mud surface patches — opposite of slick.  Friction is bumped
-  // up (≈ 2.5×) so wheels stick to the surface instead of sliding;
-  // heavy chassis with strong motors push through, light/weak ones
-  // bog down and stall.  Region length scales 4..18 m with
-  // intensity.
-  if (obstacles.mud > 0) {
-    const meanGap = gapFor(obstacles.mud);
-    let x = OBSTACLE_START + rng() * meanGap;
-    while (x < trackLength - 5) {
-      const length = lerp(4, 18, obstacles.mud) * (0.7 + rng() * 0.5);
-      const x2 = Math.min(trackLength - 1, x + length);
-      physical.push({ kind: 'mud', x1: x, x2 });
-      x = x2 + meanGap * (0.55 + rng() * 0.9);
-    }
-  }
-
   // Stairs — a folded-into-polyline staircase that climbs
   // `stepCount` steps up, then `stepCount` steps back down to
-  // ambient.  Step height scales 0.4..2.5 m with intensity:
-  // small steps any car rolls over, tall steps make a wheel-
-  // diameter discriminator.  Step tread length is short (1..1.6 m)
-  // so the staircase has a steep, demanding profile.
+  // ambient.  Step height scales 0.4..4 m with intensity (was
+  // 0.4..2.5 in v1.51): with the v1.51 wheel range up to 4 m,
+  // a 2.5 m step was easily rolled by any mid-size car — a real
+  // 4 m step now demands either bigger wheels or more torque.
+  // Step count up to 8 (was 5) so a long staircase is visible.
+  // Mean gap formula tightened (lerp(120, 8) instead of
+  // lerp(200, 12)) and the spawn floor lowered to STAIRS_START
+  // (= 25 m, just past the warmup) so staircases reliably show
+  // up on a default 200 m track instead of being invisible at
+  // low intensities.
   if (obstacles.stairs > 0) {
-    const meanGap = gapFor(obstacles.stairs);
-    let x = OBSTACLE_START + rng() * meanGap;
+    const intensity = obstacles.stairs;
+    const meanGap = lerp(120, 8, intensity);
+    let x = STAIRS_START + rng() * meanGap;
     while (x < trackLength - 15) {
-      const intensity = obstacles.stairs;
-      const stepCount = Math.max(2, Math.round(lerp(2, 5, intensity) * (0.85 + rng() * 0.3)));
-      const stepH = lerp(0.4, 2.5, intensity) * (0.8 + rng() * 0.4);
+      const stepCount = Math.max(2, Math.round(lerp(3, 8, intensity) * (0.85 + rng() * 0.3)));
+      const stepH = lerp(0.4, 4.0, intensity) * (0.8 + rng() * 0.4);
       const stepLen = 1.0 + rng() * 0.6;
       terrain.push({ kind: 'stairs', x, stepCount, stepH, stepLen });
       x += stepCount * 2 * stepLen + meanGap * (0.55 + rng() * 0.9);
@@ -895,42 +832,11 @@ function placeObstacles(
     }
   }
 
-  // Zigzag — placed *after* the wall-under-ceiling buffer cleanup
-  // so the alternating wall + ceiling pattern doesn't get pruned.
-  // The zigzag is hand-tuned: walls and ceilings are far enough
-  // apart (stepX m) that a car nimble enough for the spacing can
-  // always weave through, but close enough that a long-bodied
-  // chassis is always partially under one obstacle while still
-  // clearing the previous one — only short, agile cars survive.
-  if (obstacles.zigzag > 0) {
-    const intensity = obstacles.zigzag;
-    // Sparser than other obstacles since each group is ~20-30 m
-    // wide.  Mean gap shrinks 320 → 100 m as intensity rises.
-    const meanGap = lerp(320, 100, intensity);
-    let x = OBSTACLE_START + rng() * meanGap;
-    while (x < trackLength - 30) {
-      const groupCount = Math.max(4, Math.round(lerp(4, 8, intensity)));
-      const stepX = lerp(4.0, 2.2, intensity);
-      const wallH = lerp(0.6, 1.5, intensity);
-      const ceilingClearance = lerp(2.0, 1.0, intensity);
-      const ceilingHalfW = stepX * 0.4;
-      let zx = x;
-      for (let j = 0; j < groupCount; j++) {
-        if (j % 2 === 0) {
-          physical.push({ kind: 'wall', x: zx, height: wallH });
-        } else {
-          physical.push({
-            kind: 'ceiling',
-            xCenter: zx,
-            halfWidth: ceilingHalfW,
-            y: ceilingClearance,
-          });
-        }
-        zx += stepX;
-      }
-      x = zx + meanGap * (0.55 + rng() * 0.9);
-    }
-  }
+  // Zigzag was removed in v1.52 by player request — the alternating
+  // wall + ceiling pattern produced unfair gates that didn't work
+  // well with the wider chassis range.  Ceilings still exist as
+  // their own slider; if anyone wants the old "duck and weave"
+  // effect they can pair the cliffs and walls sliders.
 
   // Sort terrain by x so the per-track-point loop can stop scanning early.
   terrain.sort((a, b) => a.x - b.x);
@@ -1828,23 +1734,19 @@ function buildTrackColliders(world: RAPIER.World, track: Track): void {
   // Pre-collect slick regions so we can split the surface polyline
   // along friction boundaries.
   // Per-segment surface kind: ambient (1.0), slick (0.05), or mud
-  // (2.5).  Slick + mud regions are mutually exclusive — if a track
-  // section is in both ranges (shouldn't happen normally but defensive
-  // here), slick wins because more interesting failure mode.
+  // Per-segment surface kind: ambient (1.0) or slick (0.05).  Mud
+  // was removed in v1.52 — its sticky-friction effect didn't read
+  // well at the bigger v1.51 car scales.
   const slickRegions: { x1: number; x2: number }[] = [];
-  const mudRegions: { x1: number; x2: number }[] = [];
   for (const ob of track.physicalObstacles) {
     if (ob.kind === 'slick') slickRegions.push({ x1: ob.x1, x2: ob.x2 });
-    else if (ob.kind === 'mud') mudRegions.push({ x1: ob.x1, x2: ob.x2 });
   }
-  type SurfaceKind = 'ambient' | 'slick' | 'mud';
+  type SurfaceKind = 'ambient' | 'slick';
   const surfaceAt = (x: number): SurfaceKind => {
     for (const r of slickRegions) if (x >= r.x1 && x <= r.x2) return 'slick';
-    for (const r of mudRegions) if (x >= r.x1 && x <= r.x2) return 'mud';
     return 'ambient';
   };
-  const frictionFor = (kind: SurfaceKind): number =>
-    kind === 'slick' ? 0.05 : kind === 'mud' ? 2.5 : 1.0;
+  const frictionFor = (kind: SurfaceKind): number => (kind === 'slick' ? 0.05 : 1.0);
 
   // Track surface is one polyline collider per friction "run" (a
   // contiguous span of segments that share friction).  In v1.18 we

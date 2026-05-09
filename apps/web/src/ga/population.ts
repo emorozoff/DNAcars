@@ -1,18 +1,13 @@
 /**
  * Population — orchestrates one generation → next generation.
  *
- * Pipeline (default):
+ * Pipeline:
  *
  *   1. Sort everyone by fitness, descending.
  *   2. Take the top `eliteCount` straight through to the next gen
  *      unchanged (deep cloned so future mutations don't smear them).
  *   3. Fill the rest by repeatedly: pick two parents via roulette,
  *      crossover them, mutate the child.
- *
- * Pipeline (pureMutation): same elite step, then every remaining
- * child is `mutate(clone(top))` — no roulette, no crossover.  The
- * single best car is the only "teacher".  See GAParams.pureMutation
- * for the rationale.
  *
  * Pure function — given the same prev/params/rng it produces the
  * same population every time.  This makes it cheap to test and
@@ -51,17 +46,6 @@ export type GAParams = {
   eliteCount: number;
   /** Per-gene probability of mutation, [0..1]. */
   mutationRate: number;
-  /**
-   * Pure-mutation mode (a.k.a. (1+λ)-ES): drop crossover + roulette
-   * selection entirely.  Top `eliteCount` cars are still cloned
-   * through unchanged; every other child is `mutate(clone(top))` —
-   * the single best car is the only "teacher" for the next gen.
-   * Trades crossover-driven gene-block recombination for a much
-   * simpler "the winner trains everyone" mental model.  Risk:
-   * premature convergence — population can collapse into 60 near-
-   * identical clones if mutation is too low.
-   */
-  pureMutation: boolean;
 };
 
 export function nextGeneration(prev: Scored[], params: GAParams, rng: Rng): Genome[] {
@@ -70,19 +54,6 @@ export function nextGeneration(prev: Scored[], params: GAParams, rng: Rng): Geno
   const fitnesses = prev.map((p) => p.fitness);
   const eliteIdx = topNIndices(fitnesses, params.eliteCount);
   const next: Genome[] = eliteIdx.map((i) => deepClone(prev[i]!.genome));
-
-  if (params.pureMutation) {
-    // Single teacher — top-1 by fitness, regardless of eliteCount.
-    // Falls back to prev[0] only if every fitness is non-positive
-    // (topNIndices still returns indices in that case via stable
-    // sort, so this is just a TS-narrowing safety net).
-    const topIdx = topNIndices(fitnesses, 1)[0] ?? 0;
-    const teacher = prev[topIdx]!.genome;
-    while (next.length < params.populationSize) {
-      next.push(mutateGenome(deepClone(teacher), params.mutationRate, rng));
-    }
-    return next;
-  }
 
   const pool = prev.map((p) => p.genome);
   while (next.length < params.populationSize) {

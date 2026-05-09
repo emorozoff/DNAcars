@@ -54,9 +54,6 @@ const enRaw = {
     'When at least one car crosses the finish line, the elite slot goes to whichever finisher reached it fastest. If nobody finishes this generation, distance travelled still wins, same as the default mode. Useful on short tracks where the GA should optimise for finish time, not just for getting further.',
   'stats.speed': 'Best finish time',
   'stats.speedBest': 'Fastest',
-  'panel.pureMutation': 'Pure mutation',
-  'panel.pureMutationHint':
-    'Each gen, the top car is cloned unchanged (plus your Elite count of extra unchanged copies), and every other child is a mutated copy of that same top car — no crossover, no fitness-roulette, runner-up genes never reach the next gen. Simpler "winner trains everyone" model, but the population can get stuck in a local optimum — bump the mutation slider higher to keep diversity flowing.',
   'panel.strictDeterminism': 'Strict determinism',
   'panel.strictDeterminismHint':
     'Without it, all cars share one Rapier physics world and the solver iterates contact pairs in an order that depends on every body\'s position — so the same seed produces slightly different runs across sessions. Strict determinism gives each car its own isolated physics world, so the same seed reproduces a bit-identical run every time. Costs ≈ 2× CPU. Turn on when you need exact reproducibility (e.g. sharing a seed with another player).',

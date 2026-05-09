@@ -632,7 +632,23 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       cameraTarget = visualCenter(pickedCar);
     } else {
       const leader = runningLead ?? anyLead;
-      if (leader) cameraTarget = visualCenter(leader);
+      if (leader) {
+        const center = visualCenter(leader);
+        // Cap the leader-follow camera at the finish line.  Once a
+        // car has crossed the line its physical position keeps
+        // rolling forward (toward the wall), but the renderer
+        // freezes the visual at the finish line — so following the
+        // physical position would slide the camera right past the
+        // visual leader, leaving the finish marker stuck on the
+        // far left of the canvas with empty run-out filling the
+        // right.  Clamp to finishLineX so the marker stays
+        // centred + the visually-frozen leader stays at canvas
+        // centre as the run-out scrolls behind it.
+        if (trackFinishLineX !== null && center.x > trackFinishLineX) {
+          center.x = trackFinishLineX;
+        }
+        cameraTarget = center;
+      }
     }
 
     // Minimap is SVG and ~30–50 attribute writes per call; cheap

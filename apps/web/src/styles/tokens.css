@@ -20,6 +20,20 @@
   --color-accent: #a8ff60;
   --color-accent-soft: rgba(168, 255, 96, 0.12);
 
+  /* Panel-UI accent — grayscale fg used by sliders, chips, buttons,
+     and section headings inside the side HUD cards.  Kept distinct
+     from the green --color-accent so the simulation visuals
+     (minimap leader, "wheel on ground" swatch, tutorial elite
+     highlight) keep their meaningful green while the controls stay
+     in a calm black-white-gray palette. */
+  --color-panel-accent: #e6e6e9;
+
+  /* Warm secondary accent — muted red-orange / coral.  Available
+     for callouts where the cool green wouldn't fit.  Tuned to read
+     clearly without the in-your-face saturation of --color-bad. */
+  --color-accent-warm: #e8845a;
+  --color-accent-warm-soft: rgba(232, 132, 90, 0.18);
+
   /* Semantic */
   --color-good: #a8ff60;
   --color-warn: #ffd166;
@@ -46,20 +60,24 @@
   --fs-xl: 1.625rem;
   --fs-2xl: 2.25rem;
 
-  /* Spacing (4-pt grid) */
-  --sp-1: 4px;
-  --sp-2: 8px;
-  --sp-3: 12px;
-  --sp-4: 16px;
-  --sp-5: 24px;
-  --sp-6: 32px;
-  --sp-7: 48px;
-  --sp-8: 64px;
+  /* Spacing (4-pt grid) — expressed in rem so the whole UI scales
+     with html font-size, which itself is clamped to the viewport
+     width below.  At 16 px root these match the original px grid
+     (4 / 8 / 12 / 16 / 24 / 32 / 48 / 64); on a 27" 1440p display
+     root grows to ~22 px and the grid scales with it. */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+  --sp-8: 4rem;
 
   /* Radii */
-  --r-sm: 4px;
-  --r-md: 8px;
-  --r-lg: 14px;
+  --r-sm: 0.25rem;
+  --r-md: 0.5rem;
+  --r-lg: 0.875rem;
 
   /* Motion */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -67,10 +85,17 @@
   --dur-med: 240ms;
   --dur-slow: 480ms;
 
-  /* Layout */
-  --topbar-h: 56px;
-  --footer-h: 32px;
-  --panel-w: 320px;
+  /* Layout — rem so the topbar grows with root font-size on big
+     displays.  At 16 px root: 56 / 32 / 320 px (original values).
+     At 22 px root (27" 1440p): 77 / 44 / 440 px. */
+  --topbar-h: 3.5rem;
+  --footer-h: 2rem;
+  --panel-w: 20rem;
+  /* Minimap height — switched to 8 rem in `.mode-headless` so the
+     player can scan car positions with the canvas off.  Stats block
+     and charts panel both reference this var so they reposition
+     correctly in both modes. */
+  --minimap-h: 2.25rem;
 
   /* Shadow */
   --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
@@ -87,6 +112,9 @@
   --color-fg-dim: #8b8b94;
   --color-accent: #4a8a26;
   --color-accent-soft: rgba(74, 138, 38, 0.12);
+  --color-panel-accent: #0e0e10;
+  --color-accent-warm: #c95e2a;
+  --color-accent-warm-soft: rgba(201, 94, 42, 0.16);
   --color-track: #d6d6dd;
   --color-car-body: #1a1a1f;
   --color-car-wheel: #5a5a63;

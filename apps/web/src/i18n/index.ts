@@ -2,6 +2,8 @@ import { atom } from 'nanostores';
 import { en, type Dictionary, type TranslationKey } from './en';
 import { ru } from './ru';
 
+export type { TranslationKey };
+
 export type Locale = 'en' | 'ru';
 
 const dictionaries: Record<Locale, Dictionary> = { en, ru };
@@ -36,6 +38,17 @@ export function applyTranslations(root: ParentNode = document): void {
     const key = node.dataset['i18n'] as TranslationKey | undefined;
     if (key && key in dictionaries.en) {
       node.textContent = t(key);
+    }
+  });
+  // Same idea for `title="..."` (tooltips): elements that need a
+  // localised tooltip carry `data-i18n-title="key"` and we copy
+  // the translated string into the title attribute.  Keeps the
+  // tooltip in sync with the language toggle.
+  const titled = root.querySelectorAll<HTMLElement>('[data-i18n-title]');
+  titled.forEach((node) => {
+    const key = node.dataset['i18nTitle'] as TranslationKey | undefined;
+    if (key && key in dictionaries.en) {
+      node.setAttribute('title', t(key));
     }
   });
 }

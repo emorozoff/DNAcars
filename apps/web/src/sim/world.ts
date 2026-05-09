@@ -99,6 +99,30 @@ export const TUNING = {
      */
     airborneLinearDamping: 1.5,
     airborneAngularDamping: 2.0,
+    /**
+     * Maximum angular deviation per chassis vertex from the uniform
+     * spacing, expressed as a fraction of half the gap to a neighbour.
+     * Anything < 1.0 keeps the polygon convex (vertices can never
+     * swap order), so even an extreme mutation still produces a
+     * valid hull.  0.45 lets a body become noticeably elongated /
+     * wedge-shaped without ever degenerating.
+     */
+    angleJitterFraction: 0.45,
+    /**
+     * Optional heavy "ballast" block attached as a second collider
+     * to the chassis rigid body.  Rapier integrates it into the
+     * chassis' centre of mass and inertia automatically — no extra
+     * joint, no extra body to track.  Lets a car evolve a
+     * heterogeneous mass distribution (front-loaded, rear-loaded,
+     * or balanced).
+     */
+    ballast: {
+      /** Below this decoded radius (m) the ballast is omitted entirely. */
+      offThreshold: 0.18,
+      maxRadius: 0.45,
+      minDensity: 600,
+      maxDensity: 1500,
+    },
   },
   wheel: {
     minCount: 1,
@@ -134,8 +158,33 @@ export const TUNING = {
     /** Visual stroke width range (world metres, multiplied by render zoom). */
     minStroke: 0.03,
     maxStroke: 0.12,
+    /**
+     * Default friction used as a fallback when a wheel gene predates
+     * the grip schema.  Live cars override it via `wg.grip` mapped
+     * into [minGrip, maxGrip] at build-time.
+     */
     friction: 1.6,
+    /**
+     * Default restitution.  Per-wheel `wg.bounce` overrides this from
+     * a narrow band [minBounce, maxBounce] at build-time.
+     */
     restitution: 0.0,
+    /**
+     * Friction band that the per-wheel `grip` gene is mapped into.
+     * Narrow on purpose — wider bands make the GA's search noisier,
+     * but a real range still gives slick vs sticky tyres a meaningful
+     * trade-off.  1.6 (the previous fixed value) sits in the middle.
+     */
+    minGrip: 0.7,
+    maxGrip: 1.9,
+    /**
+     * Restitution band for the `bounce` gene.  Most cars should
+     * evolve toward 0 (no bounce), but a small positive value can
+     * help with curbs/jumps.  Cap stays low so we don't get
+     * superball cars.
+     */
+    minBounce: 0.0,
+    maxBounce: 0.3,
     linearDamping: 0.05,
     /**
      * Baseline wheel angular damping.  Per-wheel damping in
@@ -910,10 +959,7 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
         // Second half climbs down: step stepCount..2*stepCount-1.
         // The "elevation level" at each step is min(stepIdx,
         // 2*stepCount-1-stepIdx) so we get a symmetric pyramid.
-        const stepIdx = Math.min(
-          ob.stepCount * 2 - 1,
-          Math.floor(d / ob.stepLen),
-        );
+        const stepIdx = Math.min(ob.stepCount * 2 - 1, Math.floor(d / ob.stepLen));
         const level = Math.min(stepIdx, ob.stepCount * 2 - 1 - stepIdx) + 1;
         // Add the staircase elevation on top of the ambient
         // amplitude.  baseRamp keeps the spawn pad flat (so the
@@ -1031,12 +1077,44 @@ export type WheelGene = {
    * each axis is mapped to.
    */
   power: number;
+  /**
+   * Tyre grip (0..1) — mapped at build-time to a friction band.
+   * Low = slippery / easy to spin out; high = sticky / better for
+   * climbing slopes but more resistive on flats.
+   */
+  grip: number;
+  /**
+   * Tyre bounciness (0..1) — mapped at build-time to a small
+   * restitution band.  Most cars want it near zero, but on bumpy
+   * tracks a touch of bounce can help clear obstacles.
+   */
+  bounce: number;
 };
 
 export type Genome = {
   chassisVertexCount: number;
   chassisRadii: number[];
+  /**
+   * Per-vertex angular offset from uniform spacing, length ===
+   * chassisVertexCount, each in [0,1].  0.5 = uniform.  The decoder
+   * bounds the deviation so vertices keep their ccw order — chassis
+   * stays convex regardless of mutations.  Lets bodies become wedges,
+   * bullets, and other asymmetric shapes the v1.49 radial-only schema
+   * couldn't express.
+   */
+  chassisAngleOffsets: number[];
   chassisDensity: number;
+  /** Vertex the optional ballast block is attached to, 0..vertexCount-1. */
+  ballastVertex: number;
+  /**
+   * Ballast size (0..1).  Below TUNING.chassis.ballast.offThreshold the
+   * ballast is omitted entirely — gives evolution a clean way to turn
+   * the counterweight off when the body doesn't benefit from one.
+   */
+  ballastSize: number;
+  /** Ballast density (0..1) mapped to a heavy band.  Lets the chassis
+   * have heterogeneous mass distribution. */
+  ballastDensity: number;
   wheels: WheelGene[];
   motorSpeed: number;
 };
@@ -1044,8 +1122,10 @@ export type Genome = {
 export function randomGenome(rng: Rng): Genome {
   const n = randInt(rng, TUNING.chassis.minVertices, TUNING.chassis.maxVertices);
   const radii: number[] = [];
+  const angleOffsets: number[] = [];
   for (let i = 0; i < n; i++) {
     radii.push(lerp(TUNING.chassis.minRadius, TUNING.chassis.maxRadius, rng()));
+    angleOffsets.push(rng());
   }
   const wheelCount = randInt(rng, TUNING.wheel.minCount, TUNING.wheel.maxCount);
   const wheels: WheelGene[] = [];
@@ -1054,12 +1134,23 @@ export function randomGenome(rng: Rng): Genome {
       attachVertex: randInt(rng, 0, n - 1),
       radius: lerp(TUNING.wheel.minRadius, TUNING.wheel.maxRadius, rng()),
       power: rng(),
+      // Mid-band defaults so generation zero starts with sensible
+      // tyres — most rng() values will be near 0.5, evolution
+      // searches outward from there.
+      grip: 0.3 + 0.5 * rng(),
+      bounce: 0.4 * rng(),
     });
   }
   return {
     chassisVertexCount: n,
     chassisRadii: radii,
+    chassisAngleOffsets: angleOffsets,
     chassisDensity: lerp(TUNING.chassis.minDensity, TUNING.chassis.maxDensity, rng()),
+    ballastVertex: randInt(rng, 0, n - 1),
+    // Half of generation-zero is born without a ballast (the off
+    // threshold is at ~0.4 of the [0,1] gene → depends on maxRadius).
+    ballastSize: rng(),
+    ballastDensity: rng(),
     wheels,
     motorSpeed: lerp(TUNING.motor.minSpeed, TUNING.motor.maxSpeed, rng()),
   };
@@ -1071,8 +1162,16 @@ function randInt(rng: Rng, lo: number, hi: number): number {
 
 function chassisVertices(g: Genome): { x: number; y: number }[] {
   const verts: { x: number; y: number }[] = [];
-  for (let i = 0; i < g.chassisVertexCount; i++) {
-    const angle = ((i + 0.5) / g.chassisVertexCount) * Math.PI * 2;
+  const n = g.chassisVertexCount;
+  // Each vertex starts at its uniform position and gets nudged by the
+  // angle-offset gene.  The nudge is bounded so vertices can never swap
+  // order (jitterFraction < 1.0), keeping the polygon convex.
+  const gap = (Math.PI * 2) / n;
+  const maxJitter = gap * 0.5 * TUNING.chassis.angleJitterFraction;
+  for (let i = 0; i < n; i++) {
+    const baseAngle = ((i + 0.5) / n) * Math.PI * 2;
+    const offset01 = clamp(g.chassisAngleOffsets?.[i] ?? 0.5, 0, 1);
+    const angle = baseAngle + (offset01 - 0.5) * 2 * maxJitter;
     const r = g.chassisRadii[i] ?? 0.5;
     verts.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r });
   }
@@ -1623,8 +1722,7 @@ function buildTrackColliders(world: RAPIER.World, track: Track): void {
   // time.
   const segCount = track.points.length - 1;
   if (segCount > 0) {
-    const segCenter = (i: number): number =>
-      (track.points[i]!.x + track.points[i + 1]!.x) / 2;
+    const segCenter = (i: number): number => (track.points[i]!.x + track.points[i + 1]!.x) / 2;
     let runStart = 0;
     let runKind = surfaceAt(segCenter(0));
     const flush = (endIdx: number, kind: SurfaceKind): void => {
@@ -1767,6 +1865,33 @@ function buildCar(
     .setCollisionGroups(packGroups(GROUP.CHASSIS, GROUP.TRACK));
   world.createCollider(hullDesc, chassis);
 
+  // Optional ballast — a heavy ball collider attached to the same
+  // rigid body as the chassis, anchored at one of the chassis
+  // vertices.  Adding a second collider to the same body lets Rapier
+  // integrate it into the chassis' centre of mass and inertia
+  // automatically — no extra body, no extra joint, no extra
+  // bookkeeping.  Disabled when the gene is below the off-threshold
+  // so evolution can choose to skip the counterweight entirely.
+  const ballastRadius = clamp(genome.ballastSize, 0, 1) * TUNING.chassis.ballast.maxRadius;
+  if (ballastRadius >= TUNING.chassis.ballast.offThreshold) {
+    const bIdx = clamp(Math.round(genome.ballastVertex), 0, verts.length - 1);
+    const bAnchor = verts[bIdx] ?? { x: 0, y: 0 };
+    const ballastDensity = lerp(
+      TUNING.chassis.ballast.minDensity,
+      TUNING.chassis.ballast.maxDensity,
+      clamp(genome.ballastDensity, 0, 1),
+    );
+    world.createCollider(
+      RAPIER.ColliderDesc.ball(ballastRadius)
+        .setTranslation(bAnchor.x, bAnchor.y)
+        .setDensity(ballastDensity)
+        .setFriction(TUNING.chassis.friction)
+        .setRestitution(TUNING.chassis.restitution)
+        .setCollisionGroups(packGroups(GROUP.CHASSIS, GROUP.TRACK)),
+      chassis,
+    );
+  }
+
   // De-duplicate wheels: skip those sharing an attachment vertex with an
   // already-accepted wheel, or those that overlap geometrically.
   const accepted: WheelGene[] = [];
@@ -1812,11 +1937,22 @@ function buildCar(
         .setAngularDamping(wheelAngularDamping)
         .setCcdEnabled(true),
     );
+    // Grip and bounce are now per-wheel genes — each maps from a
+    // [0,1] value to its own narrow band defined in TUNING.wheel.
+    // Older genomes (pre-grip schema) may lack these fields; in that
+    // case we fall back to the constant defaults via a midpoint
+    // mapping, which lands on the previous fixed values.
+    const grip = lerp(TUNING.wheel.minGrip, TUNING.wheel.maxGrip, clamp(wg.grip ?? 0.5, 0, 1));
+    const bounce = lerp(
+      TUNING.wheel.minBounce,
+      TUNING.wheel.maxBounce,
+      clamp(wg.bounce ?? 0, 0, 1),
+    );
     const wheelCollider = world.createCollider(
       RAPIER.ColliderDesc.ball(wg.radius)
         .setDensity(density)
-        .setFriction(TUNING.wheel.friction)
-        .setRestitution(TUNING.wheel.restitution)
+        .setFriction(grip)
+        .setRestitution(bounce)
         .setCollisionGroups(packGroups(GROUP.WHEEL, GROUP.TRACK)),
       wb,
     );
@@ -1972,14 +2108,21 @@ function applyMotor(car: CarRuntime): void {
   if (maxSpan < TUNING.motor.minGroundedSpan) return;
 
   const targetOmega = -car.genome.motorSpeed; // negative ⇒ forward
-  const totalMass = totalMassOf(car);
+  // Motor torque budget is computed from the chassis body's mass
+  // alone (= chassis polygon + ballast collider — both attached to
+  // the same rigid body).  Wheels do NOT add to the torque budget,
+  // so each extra wheel becomes a pure mass cost: more drag, no
+  // extra power.  Encourages the GA to converge on the smallest
+  // wheel set the car actually needs instead of bolting on spares
+  // "just in case".
+  const torqueMass = car.chassis.mass();
   for (const w of car.wheels) {
     if (!w.onGround) continue;
     if (w.motorTorque <= 0) continue;
     const cur = w.body.angvel();
     const err = targetOmega - cur;
     const maxTorque =
-      w.motorTorque * totalMass * GRAVITY * Math.max(0.15, w.radius) * TUNING.motor.torqueHeadroom;
+      w.motorTorque * torqueMass * GRAVITY * Math.max(0.15, w.radius) * TUNING.motor.torqueHeadroom;
     const torque = clamp(err * TUNING.motor.feedbackGain, -maxTorque, maxTorque);
     w.body.addTorque(torque, true);
   }
@@ -2024,12 +2167,6 @@ function wheelOnGround(world: RAPIER.World, collider: RAPIER.Collider): boolean 
     });
   });
   return touching;
-}
-
-function totalMassOf(car: CarRuntime): number {
-  let m = car.chassis.mass();
-  for (const w of car.wheels) m += w.body.mass();
-  return m;
 }
 
 /**

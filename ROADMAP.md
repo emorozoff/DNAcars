@@ -3,7 +3,7 @@
 Living document — updated on every release. Tracks **what works now**,
 **what's next**, and the long-term direction.
 
-Current version: **0.8.2**. Live at <https://emorozoff.github.io/DNAcars/>.
+Current version: **1.50.0**. Live at <https://emorozoff.github.io/DNAcars/>.
 
 ## Legend
 

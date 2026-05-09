@@ -10,13 +10,17 @@
  * Edge cases the function handles:
  *
  *   - Parents may have different chassis vertex counts.  We pick one
- *     parent's count and fill the radii array from whichever parent
- *     has data at that index (with a sensible fallback).
+ *     parent's count and fill the per-vertex arrays (radii, angle
+ *     offsets) from whichever parent has data at that index.
  *   - Parents may have different wheel counts.  We pick one parent's
  *     count, then for each wheel slot pick from whichever parent has
  *     a wheel at that index.
- *   - A wheel's `attachVertex` may exceed the inherited vertex count;
- *     we clamp it so the wheel still attaches to a real vertex.
+ *   - A wheel's `attachVertex` (or the chassis' `ballastVertex`) may
+ *     exceed the inherited vertex count; we clamp it so the
+ *     attachment point is always real.
+ *   - Older genomes may lack v1.50 fields (angleOffsets, ballast,
+ *     grip, bounce); we substitute sensible defaults rather than
+ *     fail.
  */
 
 import type { Genome, Rng, WheelGene } from '../sim/world';
@@ -27,10 +31,14 @@ export function crossoverGenomes(a: Genome, b: Genome, rng: Rng): Genome {
   const vertexCount = pick(a.chassisVertexCount, b.chassisVertexCount);
 
   const radii: number[] = [];
+  const angleOffsets: number[] = [];
   for (let i = 0; i < vertexCount; i++) {
-    const fromA = a.chassisRadii[i] ?? 0.5;
-    const fromB = b.chassisRadii[i] ?? 0.5;
-    radii.push(pick(fromA, fromB));
+    const rA = a.chassisRadii[i] ?? 0.5;
+    const rB = b.chassisRadii[i] ?? 0.5;
+    radii.push(pick(rA, rB));
+    const aA = a.chassisAngleOffsets?.[i] ?? 0.5;
+    const aB = b.chassisAngleOffsets?.[i] ?? 0.5;
+    angleOffsets.push(pick(aA, aB));
   }
 
   const wheelCount = pick(a.wheels.length, b.wheels.length);
@@ -42,11 +50,17 @@ export function crossoverGenomes(a: Genome, b: Genome, rng: Rng): Genome {
     const wB = b.wheels[i] ?? b.wheels[b.wheels.length - 1];
     if (!wA && !wB) continue;
     if (!wA && wB) {
-      wheels.push({ ...wB, attachVertex: clampVertex(wB.attachVertex, vertexCount) });
+      wheels.push({
+        ...withWheelDefaults(wB),
+        attachVertex: clampVertex(wB.attachVertex, vertexCount),
+      });
       continue;
     }
     if (wA && !wB) {
-      wheels.push({ ...wA, attachVertex: clampVertex(wA.attachVertex, vertexCount) });
+      wheels.push({
+        ...withWheelDefaults(wA),
+        attachVertex: clampVertex(wA.attachVertex, vertexCount),
+      });
       continue;
     }
     if (!wA || !wB) continue; // narrow for TS
@@ -54,13 +68,19 @@ export function crossoverGenomes(a: Genome, b: Genome, rng: Rng): Genome {
       attachVertex: clampVertex(pick(wA.attachVertex, wB.attachVertex), vertexCount),
       radius: pick(wA.radius, wB.radius),
       power: pick(wA.power, wB.power),
+      grip: pick(wA.grip ?? 0.5, wB.grip ?? 0.5),
+      bounce: pick(wA.bounce ?? 0, wB.bounce ?? 0),
     });
   }
 
   return {
     chassisVertexCount: vertexCount,
     chassisRadii: radii,
+    chassisAngleOffsets: angleOffsets,
     chassisDensity: pick(a.chassisDensity, b.chassisDensity),
+    ballastVertex: clampVertex(pick(a.ballastVertex ?? 0, b.ballastVertex ?? 0), vertexCount),
+    ballastSize: pick(a.ballastSize ?? 0, b.ballastSize ?? 0),
+    ballastDensity: pick(a.ballastDensity ?? 0.5, b.ballastDensity ?? 0.5),
     wheels,
     motorSpeed: pick(a.motorSpeed, b.motorSpeed),
   };
@@ -70,4 +90,14 @@ function clampVertex(v: number, vertexCount: number): number {
   if (v < 0) return 0;
   if (v >= vertexCount) return vertexCount - 1;
   return v;
+}
+
+function withWheelDefaults(w: WheelGene): WheelGene {
+  return {
+    attachVertex: w.attachVertex,
+    radius: w.radius,
+    power: w.power,
+    grip: w.grip ?? 0.5,
+    bounce: w.bounce ?? 0,
+  };
 }

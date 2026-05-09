@@ -82,10 +82,6 @@ const COLORS = {
   obstacle: 0xd05d5d,
   /** Slick patch — light blue, "ice-like".  Drawn over the track polyline. */
   slick: 0x7ec8ff,
-  /** Mud patch — warm brown, the visual opposite of slick.  Same overlay
-   *  pattern, just a different colour so the player reads it as a
-   *  high-friction stretch rather than the icy slick patch. */
-  mud: 0x8a5a3c,
   /** Dashed finish-line stroke — soft white that reads against the
    *  dark canvas without overpowering the cars + track. */
   finishLight: 0xf2f2f5,
@@ -465,9 +461,15 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     // farther away.  Track the same anchor so the silhouettes line
     // up with the world's track surface regardless of aspect.
     const bgAnchor = anchor + 0.02;
-    bgFar.position.set(w / 2 - camera.x * PARALLAX_FAR * zoom, h * bgAnchor + camera.y * 0.05 * zoom);
+    bgFar.position.set(
+      w / 2 - camera.x * PARALLAX_FAR * zoom,
+      h * bgAnchor + camera.y * 0.05 * zoom,
+    );
     bgFar.scale.set(zoom, -zoom);
-    bgNear.position.set(w / 2 - camera.x * PARALLAX_NEAR * zoom, h * bgAnchor + camera.y * 0.1 * zoom);
+    bgNear.position.set(
+      w / 2 - camera.x * PARALLAX_NEAR * zoom,
+      h * bgAnchor + camera.y * 0.1 * zoom,
+    );
     bgNear.scale.set(zoom, -zoom);
   }
 
@@ -512,15 +514,13 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         // flag.  Same colour and stroke width as the regular track
         // line so the eye reads it as "the track ends here, going
         // up".  The wall sits on the run-out surface.
-        obstaclesGfx
-          .moveTo(ob.x, ob.yBase)
-          .lineTo(ob.x, ob.yBase + ob.height);
+        obstaclesGfx.moveTo(ob.x, ob.yBase).lineTo(ob.x, ob.yBase + ob.height);
         obstaclesGfx.stroke({ color: COLORS.track, width: 0.08, alpha: 1 });
       } else {
-        // Slick / mud patches: re-trace the track polyline between
-        // x1 and x2 in the corresponding overlay colour.  Drawn at
-        // a touch heavier stroke than the grey track so it reads
-        // as a surface treatment, not a separate object.
+        // Slick patch: re-trace the track polyline between x1 and
+        // x2 in the slick overlay colour.  Drawn at a touch heavier
+        // stroke than the grey track so it reads as a surface
+        // treatment, not a separate object.
         const stride = 0.6;
         let first = true;
         for (let x = ob.x1; x <= ob.x2 + 1e-4; x += stride) {
@@ -533,8 +533,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
             obstaclesGfx.lineTo(xc, y);
           }
         }
-        const surfaceColor = ob.kind === 'mud' ? COLORS.mud : COLORS.slick;
-        obstaclesGfx.stroke({ color: surfaceColor, width: 0.16, alpha: 0.95 });
+        obstaclesGfx.stroke({ color: COLORS.slick, width: 0.16, alpha: 0.95 });
       }
     }
 
@@ -611,11 +610,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     // cue.  Skip during the very first snapshot (lastLeaderIdx is
     // null) since "leader" hasn't been established yet.
     const newLeaderIdx = runningLead?.index ?? null;
-    if (
-      newLeaderIdx !== null &&
-      lastLeaderIdx !== null &&
-      newLeaderIdx !== lastLeaderIdx
-    ) {
+    if (newLeaderIdx !== null && lastLeaderIdx !== null && newLeaderIdx !== lastLeaderIdx) {
       const newView = carViews.get(newLeaderIdx);
       if (newView) newView.celebrateUntil = performance.now() + 700;
     }
@@ -637,9 +632,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     //               leader if the picked car isn't in the snapshot.
     //   leader    — follow the running leader's chassis.
     if (cameraMode.type === 'free') {
-      const groundY = trackPoints
-        ? sampleTrackY(trackPoints, freeCameraX)
-        : cameraTarget.y;
+      const groundY = trackPoints ? sampleTrackY(trackPoints, freeCameraX) : cameraTarget.y;
       cameraTarget = { x: freeCameraX, y: groundY };
     } else if (cameraMode.type === 'car' && pickedCar) {
       cameraTarget = visualCenter(pickedCar);
@@ -691,9 +684,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     // alone.  When the flag is off the cars all become visible
     // again on the very next call, so toggling mid-run is cheap.
     const onlyLeader = !!opts.showOnlyLeader;
-    const leaderForViewIdx = onlyLeader
-      ? (runningLead?.index ?? anyLead?.index ?? -1)
-      : -1;
+    const leaderForViewIdx = onlyLeader ? (runningLead?.index ?? anyLead?.index ?? -1) : -1;
 
     const seen = new Set<number>();
     for (const car of snap.cars) {
@@ -848,12 +839,7 @@ function makeCarView(car: CarSnapshot): CarView {
   };
 }
 
-function updateCarView(
-  view: CarView,
-  car: CarSnapshot,
-  tier: RenderTier,
-  isLeader: boolean,
-): void {
+function updateCarView(view: CarView, car: CarSnapshot, tier: RenderTier, isLeader: boolean): void {
   const isFinisher = car.finishTime !== null;
   // "Done" = either physics-frozen (stalled / out-of-time) or just
   // crossed the finish line.  Both freeze the renderer at the

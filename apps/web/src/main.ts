@@ -101,9 +101,6 @@ const trackTuning: {
     cliff: 0,
     slick: 0,
     stairs: 0,
-    tunnel: 0,
-    mud: 0,
-    zigzag: 0,
   },
 };
 
@@ -441,9 +438,7 @@ function updateThroughputDisplay(): void {
   }
 
   const FRAME_BUDGET_MS = 16.7;
-  const speedButtons = document.querySelectorAll<HTMLButtonElement>(
-    '#seg-speed [data-speed-idx]',
-  );
+  const speedButtons = document.querySelectorAll<HTMLButtonElement>('#seg-speed [data-speed-idx]');
   speedButtons.forEach((btn) => {
     const idx = Number(btn.dataset['speedIdx']);
     const tier = SPEED_STATES[idx];
@@ -751,7 +746,6 @@ async function bootstrap(): Promise<void> {
       shortcutBannerTimer = null;
     }, 700);
   }
-
 
   function freshRun(keepSeed: number | null = null): void {
     generation = 0;
@@ -1086,7 +1080,6 @@ async function bootstrap(): Promise<void> {
     });
   }
 
-
   // Fast-forward toggle.  Takes effect on the *next* generation
   // (the in-flight gen already captured shortcutCtx, so its
   // shortcut behaviour is locked in).
@@ -1110,7 +1103,6 @@ async function bootstrap(): Promise<void> {
       saveShowOnlyLeader(showOnlyLeader);
     });
   }
-
 
   // Advanced-settings modal: button in the dock opens it; close on
   // X-button click, click on the backdrop, or Escape.  The toggles
@@ -1340,8 +1332,7 @@ async function bootstrap(): Promise<void> {
       : null;
     // Elite carryover only makes sense from gen 1 onward — gen 0
     // has no parents to inherit from; everyone is random.
-    const sessionEliteCount =
-      generation > 0 && lastResults ? gaParams.eliteCount : 0;
+    const sessionEliteCount = generation > 0 && lastResults ? gaParams.eliteCount : 0;
     session = await startSession({
       trackSeed,
       trackOpts: trackParams.opts,
@@ -1412,9 +1403,7 @@ async function bootstrap(): Promise<void> {
         }
         // Record summary stats and refresh sparklines.
         const durationSec = (performance.now() - sessionStartedAt) / 1000;
-        history.push(
-          collectStats(generation, durationSec, results, session?.trackLength ?? 0),
-        );
+        history.push(collectStats(generation, durationSec, results, session?.trackLength ?? 0));
         if (charts) charts.update(history);
         generation += 1;
         const effective = effectiveSpeed();
@@ -1475,18 +1464,6 @@ function bindControls(): void {
   });
   bindSlider('ctrl-stairs', 'ctrl-stairs-val', (v) => {
     trackTuning.obstacles.stairs = v / 100;
-    return `${v}%`;
-  });
-  bindSlider('ctrl-tunnel', 'ctrl-tunnel-val', (v) => {
-    trackTuning.obstacles.tunnel = v / 100;
-    return `${v}%`;
-  });
-  bindSlider('ctrl-mud', 'ctrl-mud-val', (v) => {
-    trackTuning.obstacles.mud = v / 100;
-    return `${v}%`;
-  });
-  bindSlider('ctrl-zigzag', 'ctrl-zigzag-val', (v) => {
-    trackTuning.obstacles.zigzag = v / 100;
     return `${v}%`;
   });
 }
@@ -1583,7 +1560,6 @@ function updateSliderFill(input: HTMLInputElement): void {
   const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
   input.style.background = `linear-gradient(to right, var(--color-panel-accent) 0%, var(--color-panel-accent) ${pct}%, var(--color-surface-2) ${pct}%, var(--color-surface-2) 100%)`;
 }
-
 
 type Session = {
   world: WorldHandle;
@@ -1735,10 +1711,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
     // `allAliveAreElites` query so we don't have to build a full
     // snapshot every tick at high speeds.
     if (!shortcutApplied && shortcutCtx && shortcutCtx.eliteCount > 0) {
-      const safeEliteN = Math.min(
-        shortcutCtx.eliteCount,
-        shortcutCtx.cachedEntries.length,
-      );
+      const safeEliteN = Math.min(shortcutCtx.eliteCount, shortcutCtx.cachedEntries.length);
       if (safeEliteN > 0 && world.allAliveAreElites(safeEliteN)) {
         shortcutApplied = true;
         world.forceFinishAll();
@@ -1781,8 +1754,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
       if (dtRealMs > 0) {
         const dtSim = simSecAccum - lastPerfSimSec;
         const realSpeed = dtSim / (dtRealMs / 1000);
-        smoothedRealSpeed =
-          smoothedRealSpeed * (1 - PERF_SMOOTHING) + realSpeed * PERF_SMOOTHING;
+        smoothedRealSpeed = smoothedRealSpeed * (1 - PERF_SMOOTHING) + realSpeed * PERF_SMOOTHING;
       }
       lastPerfSampleMs = now;
       lastPerfSimSec = simSecAccum;

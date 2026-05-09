@@ -3,7 +3,7 @@
 Living document — updated on every release. Tracks **what works now**,
 **what's next**, and the long-term direction.
 
-Current version: **0.9.0**. Live at <https://emorozoff.github.io/DNAcars/>.
+Current version: **0.9.1**. Live at <https://emorozoff.github.io/DNAcars/>.
 
 ## Legend
 
@@ -38,7 +38,7 @@ Pages for the front, Cloudflare Workers + KV for the leaderboard later.
 | ✅  | GitHub Pages auto-deploy from this branch                         | `.github/workflows/deploy.yml`               |
 | ✅  | Visible version badge in the top bar                              | `apps/web/src/main.ts`                       |
 
-## Phase 2 — Convincing Physics (🔄 in iteration, v0.6.0 → 0.9.0)
+## Phase 2 — Convincing Physics (🔄 in iteration, v0.6.0 → 0.9.1)
 
 The user's recurring goal: cars must move in physically believable ways.
 Each release closed a specific "this looks fake" complaint.
@@ -62,6 +62,7 @@ Each release closed a specific "this looks fake" complaint.
 | 0.9.0   | **Ballast block**: optional heavy ball collider on the chassis body, evolvable position/size/density      | Heterogeneous mass distribution — counterweights become a real evolutionary tool |
 | 0.9.0   | **Wheel friction & restitution evolve** in narrow bands (0.6..1.8 / 0..0.35)                              | Tyre choice is now an evolvable trade-off, not a global constant                 |
 | 0.9.0   | **Wheel mass cost**: density range bumped to 50..180; motor torque budget computed from chassis mass only | Extra wheels are a real cost — the GA can no longer add wheels "just in case"    |
+| 0.9.1   | Deploy workflow points at `main` only — old `claude/research-genetic-cars-OipDI` trigger removed          | Push-to-`main` actually updates the live site again                              |
 
 ### Still to do in this phase
 
@@ -114,12 +115,12 @@ The GA already runs; this phase makes it **understandable**.
 - `MINOR` bumps on user-visible behavioural shifts (camera rule changes, new arena, schema breaks)
 - `PATCH` bumps on every commit that the user can verify by reloading the page
 
-Each commit message starts with the new version (`fix(v0.9.0): ...`) and
+Each commit message starts with the new version (`fix(v0.9.1): ...`) and
 the badge in the app header reflects what's deployed.
 
 ## How to read the live site
 
-- The badge `v0.9.0` in the top-left should match the latest version below.
+- The badge `v0.9.1` in the top-left should match the latest version below.
   If not, GitHub Pages is still building (~1-2 min after a push) or your
   browser is showing a cached copy (`Cmd+Shift+R` to bypass).
 - Workflow status: <https://github.com/emorozoff/DNAcars/actions>

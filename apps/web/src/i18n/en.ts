@@ -43,6 +43,9 @@ const enRaw = {
   'ribbon.alive': 'ALIVE',
   'ribbon.seed': 'SEED',
   'ribbon.throughput': 'SPEED',
+  'panel.showOnlyLeader': 'Show only leader',
+  'panel.showOnlyLeaderHint':
+    'Hides every car except the current leader so you can watch the champion driving the track on its own.  Physics still simulates the whole population in the background — flip the toggle off any time to see the swarm again.',
   'panel.fastForward': 'Fast-forward',
   'panel.fastForwardHint':
     'Ends a generation early once every still-alive car is a cached elite from the previous gen — its outcome is already known, replaying the same physics adds nothing. Turn off to watch every elite drive its full course to the natural finish each gen. Only effective alongside Strict determinism, which is what enables the elite caching in the first place.',

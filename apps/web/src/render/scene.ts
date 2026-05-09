@@ -143,6 +143,13 @@ export type SceneHandle = {
     opts?: {
       tier?: RenderTier;
       headless?: boolean;
+      /**
+       * When true, only the running leader is drawn; every other car
+       * gets `container.visible = false` so the player can watch the
+       * champion driving the track on its own.  Physics still
+       * simulates the whole population in the background.
+       */
+      showOnlyLeader?: boolean;
     },
   ): void;
   /**
@@ -562,6 +569,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     opts: {
       tier?: RenderTier;
       headless?: boolean;
+      showOnlyLeader?: boolean;
     } = {},
   ): void {
     const tier: RenderTier = opts.tier ?? 'full';
@@ -673,6 +681,15 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     // canvas is already invisible, so nobody sees the stale views.
     if (!renderCars) return;
 
+    // Show-only-leader mode: hide every car except the running
+    // leader so the player can watch the champion drive the track
+    // alone.  When the flag is off the cars all become visible
+    // again on the very next call, so toggling mid-run is cheap.
+    const onlyLeader = !!opts.showOnlyLeader;
+    const leaderForViewIdx = onlyLeader
+      ? (runningLead?.index ?? anyLead?.index ?? -1)
+      : -1;
+
     const seen = new Set<number>();
     for (const car of snap.cars) {
       seen.add(car.index);
@@ -682,6 +699,11 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         carsLayer.addChild(view.container);
         carViews.set(car.index, view);
       }
+      if (onlyLeader && car.index !== leaderForViewIdx) {
+        if (view.container.visible) view.container.visible = false;
+        continue;
+      }
+      if (!view.container.visible) view.container.visible = true;
       updateCarView(view, car, tier, car.index === newLeaderIdx);
     }
 

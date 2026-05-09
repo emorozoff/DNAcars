@@ -235,6 +235,30 @@ function saveFastForward(on: boolean): void {
 }
 let fastForwardEnabled = loadFastForward();
 
+/**
+ * Show-only-leader toggle — when on, the renderer hides every car
+ * except the current running leader.  Physics still simulates the
+ * full population in the background; this is purely a viewing
+ * mode for "the GA has converged, let me admire the champion
+ * driving the track on its own".  Persisted to localStorage.
+ */
+const SHOW_ONLY_LEADER_KEY = 'dnacars.showOnlyLeader';
+function loadShowOnlyLeader(): boolean {
+  try {
+    return localStorage.getItem(SHOW_ONLY_LEADER_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function saveShowOnlyLeader(on: boolean): void {
+  try {
+    localStorage.setItem(SHOW_ONLY_LEADER_KEY, on ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+let showOnlyLeader = loadShowOnlyLeader();
+
 function loadSeedHistory(): number[] {
   try {
     const raw = localStorage.getItem(SEED_HISTORY_KEY);
@@ -1071,6 +1095,18 @@ async function bootstrap(): Promise<void> {
     });
   }
 
+  // Show-only-leader toggle.  Per-frame effect — flipping mid-run
+  // immediately starts hiding / re-showing non-leader cars on the
+  // next setSnapshot.
+  const showOnlyLeaderInput = document.getElementById('ctrl-show-only-leader');
+  if (showOnlyLeaderInput instanceof HTMLInputElement) {
+    showOnlyLeaderInput.checked = showOnlyLeader;
+    showOnlyLeaderInput.addEventListener('change', () => {
+      showOnlyLeader = showOnlyLeaderInput.checked;
+      saveShowOnlyLeader(showOnlyLeader);
+    });
+  }
+
 
   // Advanced-settings modal: button in the dock opens it; close on
   // X-button click, click on the backdrop, or Escape.  The toggles
@@ -1741,6 +1777,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
       scene.setSnapshot(snap, {
         tier: skipPixiThisFrame ? 'none' : tier,
         headless: eff.headless,
+        showOnlyLeader,
       });
       // HUD text writes on their own slower cadence — see
       // HUD_TEXT_INTERVAL_MS.  Scene + minimap stay smooth via the

@@ -548,33 +548,37 @@ function placeObstacles(
   // of that kind.
   const gapFor = (intensity: number): number => lerp(200, 12, intensity);
 
-  // Cliffs — deep vertical-walled pits.  At low intensity:
-  // narrow shallow dimples a car bounces over.  At full intensity:
-  // 4 m wide × 8 m deep traps a small chassis falls into and
-  // can't climb out of.  Y-profile only — the polyline's near-
-  // vertical sides give the wall behaviour for free.
+  // Cliffs — deep vertical-walled pits.  At low intensity: narrow
+  // shallow dimples a car bounces over.  At full intensity: 8 m
+  // wide × 8 m deep traps that even a 5 m wheel diameter can't
+  // span on its own — the GA has to evolve a long-wheelbase chassis
+  // (front + back wheel together bridging the gap) to cross.
+  // Y-profile only — the polyline's near-vertical sides give the
+  // wall behaviour for free.
   if (obstacles.cliff > 0) {
     const meanGap = gapFor(obstacles.cliff);
     let x = OBSTACLE_START + rng() * meanGap;
     while (x < trackLength - 8) {
       const intensity = obstacles.cliff;
-      const width = lerp(0.5, 4.0, intensity) * (0.7 + rng() * 0.3);
+      const width = lerp(0.5, 8.0, intensity) * (0.7 + rng() * 0.3);
       const depth = lerp(0.3, 8.0, intensity) * (0.7 + rng() * 0.3);
       terrain.push({ kind: 'cliff', x, width, depth });
       x += width + meanGap * (0.55 + rng() * 0.9);
     }
   }
 
-  // Walls — vertical thin colliders.  Height scales 0.3..2 m with
-  // intensity (low intensity = bumps the size of curbs; full = real
-  // barriers cars must climb).  We don't pin them to the track
-  // surface here because we don't have point Y at this point in
-  // the pipeline; buildTrackColliders does the lookup.
+  // Walls — vertical thin colliders.  Height scales 0.3..5 m with
+  // intensity (low intensity = curb-sized bumps; full = a real
+  // barrier only big-wheeled cars can roll over — a 5 m wall meets
+  // the limit of the v1.28 wheel-diameter cap, so it's a
+  // size-discriminating obstacle by design).  We don't pin them to
+  // the track surface here because we don't have point Y at this
+  // point in the pipeline; buildTrackColliders does the lookup.
   if (obstacles.wall > 0) {
     const meanGap = gapFor(obstacles.wall);
     let x = OBSTACLE_START + rng() * meanGap;
     while (x < trackLength - 5) {
-      const height = lerp(0.3, 2.0, obstacles.wall) * (0.7 + rng() * 0.3);
+      const height = lerp(0.3, 5.0, obstacles.wall) * (0.7 + rng() * 0.3);
       physical.push({ kind: 'wall', x, height });
       x += meanGap * (0.55 + rng() * 0.9);
     }
@@ -624,11 +628,12 @@ function placeObstacles(
   // directly beneath a low ceiling is unbeatable: the car can't jump
   // over the wall (the ceiling blocks the arc) and can't drive under
   // the ceiling (the wall blocks the floor).  At max intensity walls
-  // are 2 m tall and ceilings hang 0.9 m above the surface — the gap
-  // is *negative*.  Even at moderate intensities the geometry leaves
-  // the car nowhere to go.  Buffer by 1 m on each side of the ceiling
-  // so the car has landing room when exiting the ceiling tunnel
-  // before having to lever over a wall.
+  // are now 5 m tall (v1.45) and ceilings hang 0.9 m above the
+  // surface — the gap is hugely negative.  Even at moderate
+  // intensities the geometry leaves the car nowhere to go.  Buffer
+  // by 1 m on each side of the ceiling so the car has landing room
+  // when exiting the ceiling tunnel before having to lever over a
+  // wall.
   const CEILING_WALL_BUFFER_M = 1.0;
   for (let i = physical.length - 1; i >= 0; i--) {
     const p = physical[i]!;

@@ -266,59 +266,6 @@ function saveFastForward(on: boolean): void {
 }
 let fastForwardEnabled = loadFastForward();
 
-/**
- * Render-top-only toggle — when on, the scene only updates Pixi
- * views for the top K (= TOP_K_CARS) cars by current world-x.  At
- * population sizes near 100, drawing every car each frame at ×1 is
- * a real fraction of the per-frame budget on a low-end CPU, and
- * the back-of-pack cars rarely teach the player anything visually
- * (most are stalled non-finishers anyway).  Default off — current
- * behaviour preserved for upgrades.
- */
-const RENDER_TOP_ONLY_KEY = 'dnacars.renderTopOnly';
-function loadRenderTopOnly(): boolean {
-  try {
-    return localStorage.getItem(RENDER_TOP_ONLY_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-function saveRenderTopOnly(on: boolean): void {
-  try {
-    localStorage.setItem(RENDER_TOP_ONLY_KEY, on ? '1' : '0');
-  } catch {
-    /* ignore */
-  }
-}
-let renderTopOnly = loadRenderTopOnly();
-
-/**
- * Hide-finished toggle — when on, every car that has reached its
- * "frozen final pose" frame (post-celebration for finishers,
- * immediately for stalled-out cars) gets `container.visible = false`
- * so Pixi skips it during scene-graph traversal.  Saves GPU work +
- * clears the visual clutter of dead cars piled at the wall.  The
- * existing `finalDrawn` early-return already skips per-frame Pixi
- * attribute writes, so the CPU saving is small — main win is
- * visual cleanliness.
- */
-const HIDE_FINISHED_KEY = 'dnacars.hideFinished';
-function loadHideFinished(): boolean {
-  try {
-    return localStorage.getItem(HIDE_FINISHED_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-function saveHideFinished(on: boolean): void {
-  try {
-    localStorage.setItem(HIDE_FINISHED_KEY, on ? '1' : '0');
-  } catch {
-    /* ignore */
-  }
-}
-let hideFinished = loadHideFinished();
-
 function loadSeedHistory(): number[] {
   try {
     const raw = localStorage.getItem(SEED_HISTORY_KEY);
@@ -1167,30 +1114,6 @@ async function bootstrap(): Promise<void> {
     });
   }
 
-  // Render-top-only toggle.  Effect is per-frame — flipping while a
-  // generation is in flight immediately starts hiding / re-showing
-  // back-of-pack cars on the next setSnapshot call.
-  const renderTopOnlyInput = document.getElementById('ctrl-render-top-only');
-  if (renderTopOnlyInput instanceof HTMLInputElement) {
-    renderTopOnlyInput.checked = renderTopOnly;
-    renderTopOnlyInput.addEventListener('change', () => {
-      renderTopOnly = renderTopOnlyInput.checked;
-      saveRenderTopOnly(renderTopOnly);
-    });
-  }
-
-  // Hide-finished toggle.  Per-frame effect like renderTopOnly —
-  // updateCarView's early-return path applies the visibility based
-  // on the current flag value, so toggling mid-run takes effect on
-  // the next snapshot for any already-finished car.
-  const hideFinishedInput = document.getElementById('ctrl-hide-finished');
-  if (hideFinishedInput instanceof HTMLInputElement) {
-    hideFinishedInput.checked = hideFinished;
-    hideFinishedInput.addEventListener('change', () => {
-      hideFinished = hideFinishedInput.checked;
-      saveHideFinished(hideFinished);
-    });
-  }
 
   // Advanced-settings modal: button in the dock opens it; close on
   // X-button click, click on the backdrop, or Escape.  The toggles
@@ -1861,8 +1784,6 @@ async function startSession(opts: StartOptions): Promise<Session> {
       scene.setSnapshot(snap, {
         tier: skipPixiThisFrame ? 'none' : tier,
         headless: eff.headless,
-        renderTopOnly,
-        hideFinished,
       });
       // HUD text writes on their own slower cadence — see
       // HUD_TEXT_INTERVAL_MS.  Scene + minimap stay smooth via the

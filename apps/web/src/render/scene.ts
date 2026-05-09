@@ -859,17 +859,25 @@ function updateCarView(
   isLeader: boolean,
   hideFinished: boolean,
 ): void {
-  // Skip the entire per-car update once a finished car has been
-  // rendered in its final pose at least once — the body is fixed
-  // in world.ts so its position will never change again.  Saves
-  // a Container.position/rotation write + per-wheel updates for
-  // every dead car still on screen.
+  const isFinisher = car.finishTime !== null;
+  // "Done" = either physics-frozen (stalled / out-of-time) or just
+  // crossed the finish line.  Both freeze the renderer at the
+  // car's current pose.  Note: a finisher's body keeps physically
+  // rolling forward toward the wall after crossing, but the
+  // renderer stops following it the moment finishTime is set so
+  // the player sees a clean "you made it, you're done" frame at
+  // the finish line.
+  const isDone = car.finished || isFinisher;
+  // Skip the entire per-car update once the car has been rendered
+  // in its final pose at least once — the position is fixed
+  // visually so we save a Container.position/rotation write +
+  // per-wheel updates for every "done" car still on screen.
   //
   // Apply the hide-finished visibility decision *before* the early
   // return, so toggling the flag mid-run takes effect on the next
   // frame instead of being stuck at whatever visibility state was
   // captured when finalDrawn was first set.
-  if (car.finished && view.finalDrawn) {
+  if (isDone && view.finalDrawn) {
     const wantVisible = !hideFinished;
     if (view.container.visible !== wantVisible) view.container.visible = wantVisible;
     return;
@@ -883,7 +891,7 @@ function updateCarView(
   // Finishers now read as "done" via alpha 0.4 + neutral white tint
   // (no celebration animation).  The leader-change ping below
   // still uses celebrateUntil / scale-pop for *non-finished* cars.
-  const isFinisher = car.finishTime !== null;
+  // (isFinisher / isDone are computed at the top of the function.)
   const now = performance.now();
   const celebrating = now < view.celebrateUntil;
   // Alpha:
@@ -951,11 +959,14 @@ function updateCarView(
       wg.tint = COLORS.wheel;
     }
   }
-  // Latch the "final pose" the moment a car becomes finished — no
-  // more 1.2-s celebration delay.  The next per-frame call hits the
-  // early-return at the top of updateCarView and the car stays
-  // frozen at whatever pose it was drawn here.
-  if (car.finished) view.finalDrawn = true;
+  // Latch the "final pose" the moment a car becomes done — either
+  // physics-finished (stalled / out-of-time) or just crossed the
+  // finish line.  The next per-frame call hits the early-return
+  // at the top of updateCarView and the car stays frozen at
+  // whatever pose was drawn here.  For finishers the body keeps
+  // physically rolling (until it stalls at the wall) but the
+  // renderer no longer follows it — visual freeze at the line.
+  if (isDone) view.finalDrawn = true;
 }
 
 /* ─── Helpers ──────────────────────────────────────────────────────────── */

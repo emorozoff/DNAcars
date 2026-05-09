@@ -54,17 +54,23 @@ export const TUNING = {
      * space to genuinely huge silhouettes — the GA only chooses
      * them when the track rewards them, so on flat tracks small
      * bodies still dominate.
+     *
+     * Bumped 3.5 → 5.0 in v1.51 to push the upper end further —
+     * a 10 m chassis is "monster truck" territory that can roll
+     * over walls of its own height.  Solver iterations bumped to
+     * 10 in the same release to keep contact resolution stable
+     * for the heavier bodies.
      */
-    maxRadius: 3.5,
+    maxRadius: 5.0,
     minDensity: 250,
     /**
      * Dropped 450 → 300 in v1.11 to compensate for the larger
-     * radius range.  Mass scales with area (≈ r²), so a 1.8 m
-     * chassis at the old 450 kg/m² density would be ≈ 3× heavier
-     * than the previous heaviest.  300 keeps the new max in the
-     * same ballpark as the old.
+     * radius range.  Bumped 300 → 400 in v1.51 alongside the
+     * 3.5 → 5.0 m radius bump so that genuinely heavy chassis
+     * (high density × large area) are reachable when the GA
+     * decides it needs them.
      */
-    maxDensity: 300,
+    maxDensity: 400,
     /**
      * High body friction so a toppled car drags against the track and
      * stops moving instead of sliding indefinitely down a slope.  The
@@ -119,24 +125,48 @@ export const TUNING = {
     ballast: {
       /** Below this decoded radius (m) the ballast is omitted entirely. */
       offThreshold: 0.18,
-      maxRadius: 0.45,
+      maxRadius: 0.7,
       minDensity: 600,
-      maxDensity: 1500,
+      maxDensity: 2200,
     },
+    /**
+     * Aerodynamic-drag band — added to the chassis' base linear
+     * damping.  Per-car gene (`aero` 0..1) maps into this range and
+     * makes "obtuse vs streamlined" a real evolutionary axis.
+     * Costs nothing at runtime — Rapier already integrates linear
+     * damping every step.
+     */
+    minAero: 0.0,
+    maxAero: 0.6,
+    /**
+     * Yaw-stabilizer band — added to the chassis' base angular
+     * damping.  Per-car gene (`stabilizer` 0..1) lets long bodies
+     * resist tumbling without changing geometry.  Same zero-cost
+     * mechanism as aero.
+     */
+    minStabilizer: 0.0,
+    maxStabilizer: 1.5,
   },
   wheel: {
     minCount: 1,
-    maxCount: 4,
+    /**
+     * Bumped 4 → 6 in v1.51.  Extra wheels are now pure mass cost
+     * (motor budget computed from chassis-only mass since v1.50),
+     * so a 6-wheel rover only wins when six contact points really
+     * help — for example on stairs or zigzag patterns where one
+     * lost contact still leaves five to push.  On flat tracks the
+     * GA should still converge on 2 wheels.
+     */
+    maxCount: 6,
     minRadius: 0.18,
     /**
-     * Bumped 1.2 → 2.5 in v1.28.  Lets a single wheel diameter (5 m)
-     * span comfortably past a 1 m cliff or roll over a 1 m wall on
-     * its own — at 1.2 m the wheel only just cleared and the GA had
-     * to find a working chassis-wheelbase combo to bridge wider
-     * gaps.  Now huge "balloon-tyre" cars are a viable strategy if
-     * the track punishes small wheels.
+     * Bumped 1.2 → 2.5 in v1.28; 2.5 → 4.0 in v1.51.  An 8 m wheel
+     * is a "balloon" that can crawl over almost any obstacle on
+     * its own, but the mass scales with r² so a max-density
+     * 4 m wheel weighs ≈ 11 t — it'll pancake any small chassis
+     * unless the body is also large.
      */
-    maxRadius: 2.5,
+    maxRadius: 4.0,
     /**
      * Per-wheel "power" gene (0..1) drives mass, motor strength and
      * visual stroke width together — the trio of {light, weak, thin}
@@ -152,7 +182,14 @@ export const TUNING = {
      * ≈ 588 kg; still substantial but tractable for the solver.
      */
     minDensity: 50,
-    maxDensity: 130,
+    /**
+     * Bumped 130 → 220 in v1.51 alongside the radius extension.
+     * Lets the heaviest legal wheel reach ≈ 11 t — useful for
+     * "tank tracks" that need real grip and torque.  Lighter
+     * cars are still cheaper to evolve so the GA doesn't run
+     * straight to the cap.
+     */
+    maxDensity: 220,
     minMotorFrac: 0.2,
     maxMotorFrac: 1.0,
     /** Visual stroke width range (world metres, multiplied by render zoom). */
@@ -185,6 +222,16 @@ export const TUNING = {
      */
     minBounce: 0.0,
     maxBounce: 0.3,
+    /**
+     * Wheel attach-point offset bound (m).  The per-wheel
+     * `offsetX` / `offsetY` genes (each [0,1]) are mapped to
+     * [-maxOffset, +maxOffset] and added to the chassis vertex
+     * the wheel is anchored to.  Lets the wheel sit slightly
+     * away from the vertex — extends the visual variety
+     * (low-rider stance, stretched wheelbase) at zero runtime
+     * cost (one vec2 per wheel resolved at build time).
+     */
+    maxOffset: 0.5,
     linearDamping: 0.05,
     /**
      * Baseline wheel angular damping.  Per-wheel damping in
@@ -205,7 +252,14 @@ export const TUNING = {
      * feel dynamic, gentle enough that bumps don't trampoline.
      */
     minSpeed: 8,
-    maxSpeed: 18,
+    /**
+     * Bumped 18 → 28 rad/s in v1.51.  At a 1 m wheel that's ≈ 28
+     * m/s of surface speed — plenty for genuinely fast cars on
+     * flats.  Capped lower than the wheel-radius × ω product would
+     * suggest because the safety.maxLinvel cap (35 m/s) clips the
+     * chassis well before the wheel can launch it that fast.
+     */
+    maxSpeed: 28,
     torqueHeadroom: 1.8,
     feedbackGain: 7,
     /** Beyond this chassis tilt the motor is gated off. */
@@ -234,8 +288,14 @@ export const TUNING = {
      * out of the polyline ground.  Bumping to 8 gives the solver
      * twice as many passes to resolve all contact / joint
      * constraints to convergence each step.
+     *
+     * Bumped 8 → 10 in v1.51 to keep up with the now-larger
+     * bodies and wheels (chassis up to 5 m, wheels up to 4 m,
+     * up to 6 wheels per car).  The extra two passes are cheap
+     * relative to broad-phase work and prevent jitter on heavy
+     * stacks.
      */
-    numIterations: 8,
+    numIterations: 10,
   },
   safety: {
     /**
@@ -243,7 +303,14 @@ export const TUNING = {
      * Top normal driving speed is ≈ 11 m/s, so 22 is still plenty of
      * head room for legitimate downhill bursts.
      */
-    maxLinvel: 22,
+    /**
+     * Bumped 22 → 35 m/s in v1.51 (≈ 80 km/h → 125 km/h).  The new
+     * maxSpeed (28 rad/s) × bigger wheels easily exceeds 22 m/s on
+     * downhills, so the old cap was clipping legitimate fast
+     * driving as if it were an explosion.  35 still cuts off the
+     * unbounded ballistic ejections we worry about.
+     */
+    maxLinvel: 35,
     /**
      * Maximum chassis velocity change in m/s per *substep* (= 1/120 s)
      * that we accept as a normal physics interaction.  At 2 m/s this
@@ -260,7 +327,13 @@ export const TUNING = {
      * v0.9.19 user-reported timeline (vx flipped +4.23 → -3.91 in
      * one game-tick).
      */
-    maxDvPerSubstep: 2,
+    /**
+     * Bumped 2 → 3 m/s in v1.51 to match the higher peak speeds
+     * the larger genome ranges allow — without it, fast cars
+     * picking up legitimate speed downhill would flicker through
+     * the spike clamp on every minor bump.
+     */
+    maxDvPerSubstep: 3,
   },
   lifecycle: {
     /**
@@ -1089,6 +1162,16 @@ export type WheelGene = {
    * tracks a touch of bounce can help clear obstacles.
    */
   bounce: number;
+  /**
+   * Horizontal offset of the wheel hub from its anchor vertex, in
+   * [0,1].  0.5 = no offset.  Mapped to ±TUNING.wheel.maxOffset
+   * metres at build time.  Lets the GA pull a wheel forward or
+   * back of its mounting vertex without changing the chassis
+   * shape.
+   */
+  offsetX: number;
+  /** Vertical offset; same convention as offsetX. */
+  offsetY: number;
 };
 
 export type Genome = {
@@ -1117,6 +1200,32 @@ export type Genome = {
   ballastDensity: number;
   wheels: WheelGene[];
   motorSpeed: number;
+  /**
+   * Aerodynamic-drag gene (0..1) mapped to extra linear damping on
+   * the chassis.  Higher = more "air resistance".  Cheap — Rapier
+   * applies linear damping at integration time anyway.
+   */
+  aero: number;
+  /**
+   * Yaw-stabilizer gene (0..1) mapped to extra angular damping on
+   * the chassis.  Higher = harder to spin / tumble.  Same near-zero
+   * runtime cost as aero.
+   */
+  stabilizer: number;
+  /**
+   * Drive bias (0..1).  0 = rear-only drive (only wheels behind the
+   * chassis centre apply torque), 0.5 = uniform across all wheels,
+   * 1 = front-only drive.  Implemented as a per-wheel multiplier
+   * baked into `motorTorque` at build time, so applyMotor itself
+   * pays nothing extra at runtime.
+   */
+  driveBias: number;
+  /**
+   * Visual hue (0..1) — purely cosmetic.  Surfaced in CarSnapshot
+   * so the renderer can colour the chassis distinctly per lineage.
+   * Has zero effect on physics.
+   */
+  hue: number;
 };
 
 export function randomGenome(rng: Rng): Genome {
@@ -1139,6 +1248,10 @@ export function randomGenome(rng: Rng): Genome {
       // searches outward from there.
       grip: 0.3 + 0.5 * rng(),
       bounce: 0.4 * rng(),
+      // Offsets default near the centre (no offset) so initial cars
+      // look like the v1.50 ones; mutation broadens the spread.
+      offsetX: 0.4 + 0.2 * rng(),
+      offsetY: 0.4 + 0.2 * rng(),
     });
   }
   return {
@@ -1153,6 +1266,15 @@ export function randomGenome(rng: Rng): Genome {
     ballastDensity: rng(),
     wheels,
     motorSpeed: lerp(TUNING.motor.minSpeed, TUNING.motor.maxSpeed, rng()),
+    // Start aero / stabilizer near the bottom of their bands so the
+    // GA has room to discover that more drag is sometimes better.
+    aero: 0.3 * rng(),
+    stabilizer: 0.3 * rng(),
+    // Drive bias starts near uniform (0.5); evolution can push it
+    // toward rear-wheel or front-wheel layouts when the track
+    // rewards them.
+    driveBias: 0.4 + 0.2 * rng(),
+    hue: rng(),
   };
 }
 
@@ -1195,7 +1317,10 @@ function carBottomExtent(g: Genome): number {
   for (const wg of g.wheels) {
     const anchor = verts[wg.attachVertex];
     if (!anchor) continue;
-    const wheelBottom = anchor.y - wg.radius;
+    // Wheel hub may be offset from its anchor vertex (v1.51 gene),
+    // so use the offset-adjusted y for the bottom-extent check.
+    const offY = ((wg.offsetY ?? 0.5) - 0.5) * 2 * TUNING.wheel.maxOffset;
+    const wheelBottom = anchor.y + offY - wg.radius;
     if (wheelBottom < minLocalY) minLocalY = wheelBottom;
   }
   return -minLocalY;
@@ -1341,6 +1466,16 @@ type CarRuntime = {
    * (high) on transition, instead of writing damping every tick.
    */
   airborne: boolean;
+  /**
+   * Cached chassis damping values incorporating the per-car `aero`
+   * and `stabilizer` genes.  buildCar() pre-computes these so
+   * updateAirborneDamping doesn't have to look up TUNING + the
+   * gene every time the car switches grounded ↔ airborne.
+   */
+  linearDampingGround: number;
+  linearDampingAir: number;
+  angularDampingGround: number;
+  angularDampingAir: number;
   /** Trajectory record — periodic samples + immediate event entries. */
   timeline: TimelineEntry[];
   /** Sim time of the last periodic sample. */
@@ -1380,6 +1515,12 @@ export type CarSnapshot = {
    * being overtaken by mutated children.
    */
   isElite: boolean;
+  /**
+   * Per-car visual hue (0..1).  Renderer can map it through HSL to
+   * give each lineage a distinct chassis colour.  Has no effect on
+   * physics — purely cosmetic.
+   */
+  hue: number;
   vertices: { x: number; y: number }[];
   wheels: {
     position: { x: number; y: number };
@@ -1841,14 +1982,35 @@ function buildCar(
 ): CarRuntime {
   const verts = chassisVertices(genome);
 
+  // Per-car aerodynamic / stabilizer additions — baked once into the
+  // four damping values (ground × {linear, angular} and air × {linear,
+  // angular}).  Cached on CarRuntime so the airborne ↔ grounded
+  // transition only has to set the right cached value, not look up
+  // the gene + TUNING every time.
+  const aeroExtra = lerp(
+    TUNING.chassis.minAero,
+    TUNING.chassis.maxAero,
+    clamp(genome.aero ?? 0, 0, 1),
+  );
+  const stabilizerExtra = lerp(
+    TUNING.chassis.minStabilizer,
+    TUNING.chassis.maxStabilizer,
+    clamp(genome.stabilizer ?? 0, 0, 1),
+  );
+  const linearDampingGround = TUNING.chassis.linearDamping + aeroExtra;
+  const linearDampingAir = TUNING.chassis.airborneLinearDamping + aeroExtra;
+  const angularDampingGround = TUNING.chassis.angularDamping + stabilizerExtra;
+  const angularDampingAir = TUNING.chassis.airborneAngularDamping + stabilizerExtra;
+
   const chassis = world.createRigidBody(
     RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(spawnX, spawnY)
-      // Spawn airborne, so use the higher airborne damping.  Switches
-      // to ground damping in step() when the first wheel makes
-      // contact (handled by updateAirborneDamping).
-      .setLinearDamping(TUNING.chassis.airborneLinearDamping)
-      .setAngularDamping(TUNING.chassis.airborneAngularDamping)
+      // Spawn airborne, so use the higher airborne damping (with the
+      // car's own aero / stabilizer baked in).  Switches to ground
+      // damping in step() when the first wheel makes contact
+      // (handled by updateAirborneDamping).
+      .setLinearDamping(linearDampingAir)
+      .setAngularDamping(angularDampingAir)
       .setCcdEnabled(true),
   );
 
@@ -1892,32 +2054,55 @@ function buildCar(
     );
   }
 
-  // De-duplicate wheels: skip those sharing an attachment vertex with an
-  // already-accepted wheel, or those that overlap geometrically.
-  const accepted: WheelGene[] = [];
-  const usedAnchors: { x: number; y: number; r: number }[] = [];
+  // Resolve each wheel's hub position in chassis-local coordinates,
+  // then de-duplicate.  Hub = vertex anchor + wheel.offset, where the
+  // offset gene is mapped from [0,1] to [-maxOffset, +maxOffset] m.
+  // De-dup checks geometric overlap on the resolved hub positions
+  // (offsets can move overlapping wheels apart enough to keep both).
+  type Resolved = { gene: WheelGene; hub: { x: number; y: number } };
+  const accepted: Resolved[] = [];
   for (const wg of genome.wheels) {
     const anchor = verts[wg.attachVertex];
     if (!anchor) continue;
+    const offX = ((wg.offsetX ?? 0.5) - 0.5) * 2 * TUNING.wheel.maxOffset;
+    const offY = ((wg.offsetY ?? 0.5) - 0.5) * 2 * TUNING.wheel.maxOffset;
+    const hub = { x: anchor.x + offX, y: anchor.y + offY };
     let conflict = false;
-    for (const u of usedAnchors) {
-      const d = Math.hypot(anchor.x - u.x, anchor.y - u.y);
-      if (d < (wg.radius + u.r) * 0.85) {
+    for (const u of accepted) {
+      const d = Math.hypot(hub.x - u.hub.x, hub.y - u.hub.y);
+      if (d < (wg.radius + u.gene.radius) * 0.85) {
         conflict = true;
         break;
       }
     }
     if (conflict) continue;
-    usedAnchors.push({ x: anchor.x, y: anchor.y, r: wg.radius });
-    accepted.push(wg);
+    accepted.push({ gene: wg, hub });
   }
 
-  const wheels: WheelRuntime[] = accepted.map((wg) => {
-    const anchor = verts[wg.attachVertex]!;
+  // Chassis x-extent — used to compute the per-wheel drive-bias
+  // factor.  Falls back to a small positive number if the body is
+  // somehow degenerate so we never divide by zero.
+  let chassisExtentX = 0;
+  for (const v of verts) {
+    const ax = Math.abs(v.x);
+    if (ax > chassisExtentX) chassisExtentX = ax;
+  }
+  if (chassisExtentX < 1e-3) chassisExtentX = 1;
+  const driveBias01 = clamp(genome.driveBias ?? 0.5, 0, 1);
+
+  const wheels: WheelRuntime[] = accepted.map(({ gene: wg, hub }) => {
     // Map the single 0..1 power gene onto the three concrete physical
     // axes — mass, motor strength, visual stroke width.
     const density = lerp(TUNING.wheel.minDensity, TUNING.wheel.maxDensity, wg.power);
-    const motorTorque = lerp(TUNING.wheel.minMotorFrac, TUNING.wheel.maxMotorFrac, wg.power);
+    // Drive-bias factor — concentrates torque toward the front
+    // (large positive local x) or the rear (large negative local x)
+    // depending on the per-car driveBias gene.  At driveBias=0.5
+    // the factor is 1 for every wheel (uniform drive).  Baked into
+    // motorTorque here so applyMotor pays nothing extra at runtime.
+    const relX = hub.x / chassisExtentX;
+    const biasFactor = Math.max(0, 1 + (driveBias01 - 0.5) * 2 * relX);
+    const motorTorque =
+      lerp(TUNING.wheel.minMotorFrac, TUNING.wheel.maxMotorFrac, wg.power) * biasFactor;
     // Rolling-resistance proxy.  Real-world rolling resistance scales
     // ≈ 1/r — bigger wheels lose less energy per revolution because
     // each revolution covers more ground.  Rapier doesn't model this
@@ -1932,7 +2117,7 @@ function buildCar(
     const wheelAngularDamping = TUNING.wheel.angularDamping / Math.max(0.2, wg.radius);
     const wb = world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
-        .setTranslation(spawnX + anchor.x, spawnY + anchor.y)
+        .setTranslation(spawnX + hub.x, spawnY + hub.y)
         .setLinearDamping(TUNING.wheel.linearDamping)
         .setAngularDamping(wheelAngularDamping)
         .setCcdEnabled(true),
@@ -1957,7 +2142,7 @@ function buildCar(
       wb,
     );
     const joint = world.createImpulseJoint(
-      RAPIER.JointData.revolute({ x: anchor.x, y: anchor.y }, { x: 0, y: 0 }),
+      RAPIER.JointData.revolute({ x: hub.x, y: hub.y }, { x: 0, y: 0 }),
       chassis,
       wb,
       true,
@@ -2003,6 +2188,10 @@ function buildCar(
     // the very first updateAirborneDamping call after the wheels touch
     // down switches them back to ground damping.
     airborne: true,
+    linearDampingGround,
+    linearDampingAir,
+    angularDampingGround,
+    angularDampingAir,
     timeline: [],
     lastSampleT: -Infinity,
     lastVelocity: { x: 0, y: 0 },
@@ -2039,11 +2228,11 @@ function updateAirborneDamping(car: CarRuntime): void {
   if (isAirborne === car.airborne) return;
   car.airborne = isAirborne;
   if (isAirborne) {
-    car.chassis.setLinearDamping(TUNING.chassis.airborneLinearDamping);
-    car.chassis.setAngularDamping(TUNING.chassis.airborneAngularDamping);
+    car.chassis.setLinearDamping(car.linearDampingAir);
+    car.chassis.setAngularDamping(car.angularDampingAir);
   } else {
-    car.chassis.setLinearDamping(TUNING.chassis.linearDamping);
-    car.chassis.setAngularDamping(TUNING.chassis.angularDamping);
+    car.chassis.setLinearDamping(car.linearDampingGround);
+    car.chassis.setAngularDamping(car.angularDampingGround);
   }
 }
 
@@ -2374,6 +2563,7 @@ function snapshotCar(car: CarRuntime): CarSnapshot {
     finished: car.finished,
     finishTime: car.finishTime,
     isElite: car.isElite,
+    hue: car.genome.hue ?? 0,
     vertices: car.vertices,
     wheels: car.wheels.map((w) => {
       const wp = w.body.translation();

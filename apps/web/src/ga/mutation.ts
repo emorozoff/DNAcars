@@ -54,6 +54,8 @@ export function mutateGenome(g: Genome, rate: number, rng: Rng): Genome {
       power: nudge(w.power, 0.15, 0, 1),
       grip: nudge(w.grip ?? 0.5, 0.12, 0, 1),
       bounce: nudge(w.bounce ?? 0, 0.12, 0, 1),
+      offsetX: nudge(w.offsetX ?? 0.5, 0.1, 0, 1),
+      offsetY: nudge(w.offsetY ?? 0.5, 0.1, 0, 1),
     };
   });
 
@@ -67,6 +69,8 @@ export function mutateGenome(g: Genome, rate: number, rng: Rng): Genome {
       power: rng(),
       grip: 0.3 + 0.5 * rng(),
       bounce: 0.4 * rng(),
+      offsetX: 0.4 + 0.2 * rng(),
+      offsetY: 0.4 + 0.2 * rng(),
     });
   }
 
@@ -97,6 +101,13 @@ export function mutateGenome(g: Genome, rate: number, rng: Rng): Genome {
       TUNING.motor.minSpeed,
       TUNING.motor.maxSpeed,
     ),
+    aero: nudge(g.aero ?? 0, 0.1, 0, 1),
+    stabilizer: nudge(g.stabilizer ?? 0, 0.1, 0, 1),
+    driveBias: nudge(g.driveBias ?? 0.5, 0.1, 0, 1),
+    // Hue mutates faster than physics genes — drift in colour space
+    // is desirable for visualising lineage, and unlike physical
+    // genes there's no fitness penalty for landing on any value.
+    hue: nudge(g.hue ?? 0, 0.25, 0, 1),
   };
 }
 

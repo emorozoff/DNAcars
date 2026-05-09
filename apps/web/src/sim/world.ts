@@ -1021,10 +1021,19 @@ type CarRuntime = {
    */
   finishTime: number | null;
   /**
-   * Chassis x at the end of the previous game tick.  Used solely
-   * for sub-tick interpolation of finishTime — see above.
+   * Chassis-centre x at the end of the previous game tick.  Used
+   * for stall detection / progress tracking that doesn't care
+   * about chassis size.
    */
   lastTickX: number;
+  /**
+   * Leading-edge world-x at the end of the previous game tick —
+   * the maximum +x extent across all transformed chassis vertices
+   * and all wheel rims.  When the leading edge crosses
+   * `track.finishLineX` we lerp between this and the current
+   * leading edge for sub-tick precision on `finishTime`.
+   */
+  lastTickLeadingX: number;
   /**
    * First snapshot built after the chassis + wheels were converted
    * to Fixed bodies (frozen).  Once latched, snapshotCar() returns
@@ -1298,28 +1307,32 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
           car.lastProgressX = x;
           car.lastProgressTime = car.ageSec;
         }
-        // First time the chassis crosses the visual finish line:
-        // stamp the finish time.  The line sits well in front of
-        // the end-of-track wall (WALL_RUNOUT_M metres) so cars get
-        // credit for finishing while still rolling forward; they
-        // bump into the wall later and stall normally.
+        // First time the *leading edge* of the car crosses the
+        // visual finish line: stamp the finish time.  Players read
+        // the screen and expect the timer to fire when the visible
+        // nose touches the line, not when the chassis centre does
+        // — at chassis radius 3.5 m + wheel 2.5 m the centre can
+        // be 5+ m behind the visible front.
         //
-        // Sub-tick interpolation: the chassis moves several cm per
-        // tick, so snapping finishTime to the discrete tick boundary
-        // (multiples of 1/60 s) loses precision a 0.01-s ranking
-        // would care about.  Lerp the crossing moment between
-        // lastTickX (start of tick) and x (end of tick) and weight
-        // the tick's SIM_DT by that fraction.
-        if (car.finishTime === null && x >= opts.track.finishLineX) {
-          const prevX = car.lastTickX;
-          const dx = x - prevX;
+        // Sub-tick interpolation: the leading edge moves several cm
+        // per tick, so snapping finishTime to the discrete tick
+        // boundary (multiples of 1/60 s) loses precision a 0.01-s
+        // ranking would care about.  Lerp the crossing moment
+        // between lastTickLeadingX (start of tick) and the current
+        // leading edge (end of tick) and weight the tick's SIM_DT
+        // by that fraction.
+        const leadingX = leadingEdgeX(car);
+        if (car.finishTime === null && leadingX >= opts.track.finishLineX) {
+          const prevLeading = car.lastTickLeadingX;
+          const dLead = leadingX - prevLeading;
           const fraction =
-            prevX < opts.track.finishLineX && dx > 0
-              ? (opts.track.finishLineX - prevX) / dx
+            prevLeading < opts.track.finishLineX && dLead > 0
+              ? (opts.track.finishLineX - prevLeading) / dLead
               : 1;
           car.finishTime = car.ageSec - SIM_DT + fraction * SIM_DT;
         }
         car.lastTickX = x;
+        car.lastTickLeadingX = leadingX;
         clampInsaneVelocity(car, opts.track, time);
         const wasFinished = car.finished;
         updateLifecycle(car);
@@ -1643,6 +1656,13 @@ function buildCar(
     lastProgressX: spawnX,
     finishTime: null,
     lastTickX: spawnX,
+    // Init the leading-edge tracker to spawnX (a generous lower
+    // bound — the real value is `spawnX + maxLocalRadius` ≈
+    // spawnX + 3.5 m at most, still ≪ finishLineX for any
+    // playable track length).  The very first physics tick
+    // overwrites this with the correct leadingEdgeX(car) value
+    // before the finish-line check can fire.
+    lastTickLeadingX: spawnX,
     cachedSnap: null,
     finished: false,
     frozen: false,
@@ -1694,6 +1714,32 @@ function updateAirborneDamping(car: CarRuntime): void {
     car.chassis.setLinearDamping(TUNING.chassis.linearDamping);
     car.chassis.setAngularDamping(TUNING.chassis.angularDamping);
   }
+}
+
+/**
+ * Maximum +x extent of any visible part of the car right now —
+ * the chassis polygon (transformed from local to world by the
+ * current pose) and every wheel rim (`wheelPos.x + wheel.radius`).
+ * Used by the finish-line crossing check so the timer fires the
+ * moment the car's *visible front edge* touches the marker, not
+ * when the chassis centre does.
+ */
+function leadingEdgeX(car: CarRuntime): number {
+  const pos = car.chassis.translation();
+  const angle = car.chassis.rotation();
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  let maxX = pos.x;
+  for (const v of car.vertices) {
+    const wx = pos.x + v.x * cos - v.y * sin;
+    if (wx > maxX) maxX = wx;
+  }
+  for (const w of car.wheels) {
+    const wPos = w.body.translation();
+    const wMaxX = wPos.x + w.radius;
+    if (wMaxX > maxX) maxX = wMaxX;
+  }
+  return maxX;
 }
 
 function applyMotor(car: CarRuntime): void {

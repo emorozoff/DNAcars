@@ -68,6 +68,8 @@ export function crossoverGenomes(a: Genome, b: Genome, rng: Rng): Genome {
       attachVertex: clampVertex(pick(wA.attachVertex, wB.attachVertex), vertexCount),
       radius: pick(wA.radius, wB.radius),
       power: pick(wA.power, wB.power),
+      offsetX: pick(wA.offsetX ?? 0.5, wB.offsetX ?? 0.5),
+      offsetY: pick(wA.offsetY ?? 0.5, wB.offsetY ?? 0.5),
       grip: pick(wA.grip ?? 0.5, wB.grip ?? 0.5),
       bounce: pick(wA.bounce ?? 0, wB.bounce ?? 0),
     });
@@ -83,6 +85,10 @@ export function crossoverGenomes(a: Genome, b: Genome, rng: Rng): Genome {
     ballastDensity: pick(a.ballastDensity ?? 0.5, b.ballastDensity ?? 0.5),
     wheels,
     motorSpeed: pick(a.motorSpeed, b.motorSpeed),
+    aero: pick(a.aero ?? 0, b.aero ?? 0),
+    stabilizer: pick(a.stabilizer ?? 0, b.stabilizer ?? 0),
+    driveBias: pick(a.driveBias ?? 0.5, b.driveBias ?? 0.5),
+    hue: pick(a.hue ?? 0, b.hue ?? 0),
   };
 }
 
@@ -99,5 +105,7 @@ function withWheelDefaults(w: WheelGene): WheelGene {
     power: w.power,
     grip: w.grip ?? 0.5,
     bounce: w.bounce ?? 0,
+    offsetX: w.offsetX ?? 0.5,
+    offsetY: w.offsetY ?? 0.5,
   };
 }

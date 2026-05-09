@@ -26,6 +26,7 @@ export const ru: Dictionary = {
   'panel.stairs': 'Ступени',
   'panel.tunnel': 'Тоннель',
   'panel.mud': 'Грязь',
+  'panel.zigzag': 'Зигзаг',
   'panel.restart': 'Новая популяция',
   'panel.restartConfirm': 'Создать новую популяцию?  Это удалит все гены текущего поколения.',
   'panel.confirmYes': 'Подтвердить',

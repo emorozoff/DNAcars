@@ -403,6 +403,18 @@ export type ObstacleConfig = {
    * 4..18 m with intensity.
    */
   mud: number;
+  /**
+   * Zigzag intensity, 0..1.  Places a series of alternating
+   * walls + low ceilings every 2–4 m (much closer than the
+   * regular wall / ceiling spacing) so the chassis has to
+   * hop over a wall, duck under a ceiling, hop, duck, hop —
+   * a long-bodied car never has time to settle between
+   * obstacles, only short / agile chassis weave through.
+   * Bypasses the wall-under-ceiling buffer that protects
+   * regular placement (zigzag is hand-placed and known to be
+   * passable when designed right).
+   */
+  zigzag: number;
 };
 
 /**
@@ -489,6 +501,7 @@ const DEFAULT_TRACK: TrackOptions = {
     stairs: 0,
     tunnel: 0,
     mud: 0,
+    zigzag: 0,
   },
 };
 
@@ -757,6 +770,43 @@ function placeObstacles(
         physical.splice(i, 1);
         break;
       }
+    }
+  }
+
+  // Zigzag — placed *after* the wall-under-ceiling buffer cleanup
+  // so the alternating wall + ceiling pattern doesn't get pruned.
+  // The zigzag is hand-tuned: walls and ceilings are far enough
+  // apart (stepX m) that a car nimble enough for the spacing can
+  // always weave through, but close enough that a long-bodied
+  // chassis is always partially under one obstacle while still
+  // clearing the previous one — only short, agile cars survive.
+  if (obstacles.zigzag > 0) {
+    const intensity = obstacles.zigzag;
+    // Sparser than other obstacles since each group is ~20-30 m
+    // wide.  Mean gap shrinks 320 → 100 m as intensity rises.
+    const meanGap = lerp(320, 100, intensity);
+    let x = OBSTACLE_START + rng() * meanGap;
+    while (x < trackLength - 30) {
+      const groupCount = Math.max(4, Math.round(lerp(4, 8, intensity)));
+      const stepX = lerp(4.0, 2.2, intensity);
+      const wallH = lerp(0.6, 1.5, intensity);
+      const ceilingClearance = lerp(2.0, 1.0, intensity);
+      const ceilingHalfW = stepX * 0.4;
+      let zx = x;
+      for (let j = 0; j < groupCount; j++) {
+        if (j % 2 === 0) {
+          physical.push({ kind: 'wall', x: zx, height: wallH });
+        } else {
+          physical.push({
+            kind: 'ceiling',
+            xCenter: zx,
+            halfWidth: ceilingHalfW,
+            y: ceilingClearance,
+          });
+        }
+        zx += stepX;
+      }
+      x = zx + meanGap * (0.55 + rng() * 0.9);
     }
   }
 

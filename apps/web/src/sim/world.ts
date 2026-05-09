@@ -44,7 +44,12 @@ export const TUNING = {
   chassis: {
     minVertices: 5,
     maxVertices: 10,
-    minRadius: 0.35,
+    /**
+     * Bumped 0.35 → 0.20 in v1.53.  A 0.4 m chassis is "tiny RC car"
+     * scale — combined with the matching wheel-min cut, lets the GA
+     * find very compact bodies that can squeeze under tight ceilings.
+     */
+    minRadius: 0.2,
     /**
      * Bumped 1.8 → 3.5 in v1.28 by player request: even at 1.8 m
      * (≈ 3.6 m wide chassis) the cap still bottle-necked a real
@@ -60,17 +65,33 @@ export const TUNING = {
      * over walls of its own height.  Solver iterations bumped to
      * 10 in the same release to keep contact resolution stable
      * for the heavier bodies.
+     *
+     * Bumped 5.0 → 7.0 in v1.53 — a 14 m chassis is "barge" scale
+     * that lets a single body span massive cliffs/walls without
+     * needing a long wheelbase.  Combined with the larger wheels
+     * the GA has substantially more "size" axis to explore.
      */
-    maxRadius: 5.0,
-    minDensity: 250,
+    maxRadius: 7.0,
+    /**
+     * Bumped 250 → 150 in v1.53 to widen the body-density axis
+     * downward.  A light 0.4 m chassis (≈ 19 kg with d=150) is
+     * playful + nimble — opposite of the previous "all bodies are
+     * heavy" attractor.
+     */
+    minDensity: 150,
     /**
      * Dropped 450 → 300 in v1.11 to compensate for the larger
      * radius range.  Bumped 300 → 400 in v1.51 alongside the
      * 3.5 → 5.0 m radius bump so that genuinely heavy chassis
      * (high density × large area) are reachable when the GA
      * decides it needs them.
+     *
+     * Bumped 400 → 600 in v1.53 — with the radius reaching 7 m
+     * a 600 kg/m² monolith is the new "ultraheavy" extreme that
+     * the GA should still be able to power-through-walls with
+     * the corresponding maxed-out wheels.
      */
-    maxDensity: 400,
+    maxDensity: 600,
     /**
      * High body friction so a toppled car drags against the track and
      * stops moving instead of sliding indefinitely down a slope.  The
@@ -125,9 +146,11 @@ export const TUNING = {
     ballast: {
       /** Below this decoded radius (m) the ballast is omitted entirely. */
       offThreshold: 0.18,
-      maxRadius: 0.7,
+      /** Bumped 0.7 → 1.0 in v1.53 to match the larger chassis range. */
+      maxRadius: 1.0,
       minDensity: 600,
-      maxDensity: 2200,
+      /** Bumped 2200 → 3000 in v1.53 — heaviest legal ballast is now ≈ 9.4 t at max radius. */
+      maxDensity: 3000,
     },
     /**
      * Aerodynamic-drag band — added to the chassis' base linear
@@ -158,15 +181,25 @@ export const TUNING = {
      * GA should still converge on 2 wheels.
      */
     maxCount: 6,
-    minRadius: 0.18,
+    /**
+     * Bumped 0.18 → 0.10 in v1.53.  A 0.10 m wheel pairs with the
+     * 0.20 m chassis-min for genuinely tiny "RC-car" cars that fit
+     * under 1 m ceilings without tricks.  Below 0.10 Rapier's
+     * narrow-phase starts to glitch on the polyline ground; this
+     * is the practical floor.
+     */
+    minRadius: 0.1,
     /**
      * Bumped 1.2 → 2.5 in v1.28; 2.5 → 4.0 in v1.51.  An 8 m wheel
      * is a "balloon" that can crawl over almost any obstacle on
      * its own, but the mass scales with r² so a max-density
      * 4 m wheel weighs ≈ 11 t — it'll pancake any small chassis
      * unless the body is also large.
+     *
+     * Bumped 4.0 → 5.5 in v1.53 — the v1.53 chassis cap (7 m) and
+     * the new ceiling-pole obstacle reward genuinely massive wheels.
      */
-    maxRadius: 4.0,
+    maxRadius: 5.5,
     /**
      * Per-wheel "power" gene (0..1) drives mass, motor strength and
      * visual stroke width together — the trio of {light, weak, thin}
@@ -181,15 +214,24 @@ export const TUNING = {
      * whole rest of the car.  130 caps the heaviest wheel at
      * ≈ 588 kg; still substantial but tractable for the solver.
      */
-    minDensity: 50,
+    /**
+     * Bumped 50 → 30 in v1.53 — pairs with the 0.10 m wheel-min so
+     * a tiny chassis can have feather-weight wheels too (≈ 0.94 kg
+     * at minimum), preserving the "lightweight nimble" attractor.
+     */
+    minDensity: 30,
     /**
      * Bumped 130 → 220 in v1.51 alongside the radius extension.
      * Lets the heaviest legal wheel reach ≈ 11 t — useful for
      * "tank tracks" that need real grip and torque.  Lighter
      * cars are still cheaper to evolve so the GA doesn't run
      * straight to the cap.
+     *
+     * Bumped 220 → 320 in v1.53 — alongside the 5.5 m radius cap a
+     * max-density wheel weighs ≈ 30 t, enough to flatten anything
+     * underneath and serve as a "tank-tread" extreme.
      */
-    maxDensity: 220,
+    maxDensity: 320,
     minMotorFrac: 0.2,
     maxMotorFrac: 1.0,
     /** Visual stroke width range (world metres, multiplied by render zoom). */
@@ -251,15 +293,24 @@ export const TUNING = {
      * highest hill.  18 rad/s ≈ 11 m/s on average — quick enough to
      * feel dynamic, gentle enough that bumps don't trampoline.
      */
-    minSpeed: 8,
+    /**
+     * Bumped 8 → 6 rad/s in v1.53 to widen the slow end — useful
+     * when a cautious GA finds that creeping over a tall step is
+     * the only way past it.
+     */
+    minSpeed: 6,
     /**
      * Bumped 18 → 28 rad/s in v1.51.  At a 1 m wheel that's ≈ 28
      * m/s of surface speed — plenty for genuinely fast cars on
      * flats.  Capped lower than the wheel-radius × ω product would
      * suggest because the safety.maxLinvel cap (35 m/s) clips the
      * chassis well before the wheel can launch it that fast.
+     *
+     * Bumped 28 → 36 rad/s in v1.53.  With safety.maxLinvel up to
+     * 50 m/s, a 1 m wheel × 36 rad/s = 36 m/s legitimately reaches
+     * speeds the cap no longer clips.
      */
-    maxSpeed: 28,
+    maxSpeed: 36,
     torqueHeadroom: 1.8,
     feedbackGain: 7,
     /** Beyond this chassis tilt the motor is gated off. */
@@ -294,8 +345,12 @@ export const TUNING = {
      * up to 6 wheels per car).  The extra two passes are cheap
      * relative to broad-phase work and prevent jitter on heavy
      * stacks.
+     *
+     * Bumped 10 → 12 in v1.53 alongside chassis up to 7 m and
+     * wheels up to 5.5 m so contact resolution stays stable on
+     * the now-30-tonne extremes.
      */
-    numIterations: 10,
+    numIterations: 12,
   },
   safety: {
     /**
@@ -304,13 +359,13 @@ export const TUNING = {
      * head room for legitimate downhill bursts.
      */
     /**
-     * Bumped 22 → 35 m/s in v1.51 (≈ 80 km/h → 125 km/h).  The new
-     * maxSpeed (28 rad/s) × bigger wheels easily exceeds 22 m/s on
-     * downhills, so the old cap was clipping legitimate fast
-     * driving as if it were an explosion.  35 still cuts off the
-     * unbounded ballistic ejections we worry about.
+     * Bumped 22 → 35 m/s in v1.51, then 35 → 50 m/s in v1.53
+     * (≈ 80 → 125 → 180 km/h) to keep up with the new max
+     * motorSpeed × wheel radius product.  Above this we still
+     * treat the chassis as having ejected — but legitimate fast
+     * driving no longer hits the clamp.
      */
-    maxLinvel: 35,
+    maxLinvel: 50,
     /**
      * Maximum chassis velocity change in m/s per *substep* (= 1/120 s)
      * that we accept as a normal physics interaction.  At 2 m/s this
@@ -476,10 +531,16 @@ export type ObstacleConfig = {
    */
   wall: number;
   /**
-   * Low-overhead ceiling intensity, 0..1.  At full strength: a
-   * 4-m-wide horizontal beam ≈ 2.5 m above the local track surface.
-   * Counters jumpy strategies — a chassis launching into the air
-   * crashes into it.  Cars hugging the surface fit underneath.
+   * Low-overhead ceiling intensity, 0..1.  Geometry was overhauled
+   * in v1.53: a thin vertical "stalactite" hanging from the sky
+   * down to a configurable clearance above the local track.  The
+   * **clearance** is the difficulty knob:
+   *   - intensity 0.01 → clearance ≈ TUNING.chassis.maxRadius * 3,
+   *     plenty of room even for the biggest legal car.
+   *   - intensity 1.00 → clearance ≈ TUNING.chassis.minRadius * 4,
+   *     just enough for the smallest legal car to squeeze through.
+   * The pole still acts as a hard barrier in the air; a chassis
+   * that jumps into it is stopped.
    */
   ceiling: number;
   /**
@@ -513,7 +574,21 @@ export type ObstacleConfig = {
  */
 export type PhysicalObstacle =
   | { kind: 'wall'; x: number; height: number }
-  | { kind: 'ceiling'; xCenter: number; halfWidth: number; y: number }
+  | {
+      /**
+       * Vertical "stalactite" hanging from the sky.  A thin tall
+       * cuboid centred at world-x = `x`.  During placement `y`
+       * carries the relative clearance above the track surface;
+       * after the resolve pass it carries the absolute world-y of
+       * the bottom edge of the pole (the top edge is fixed at
+       * y = bottomY + CEILING_POLE_HEIGHT, which is well into the
+       * sky for any plausible camera).  Renderer + collider
+       * builder both treat `y` as absolute post-resolve.
+       */
+      kind: 'ceiling';
+      x: number;
+      y: number;
+    }
   | { kind: 'slick'; x1: number; x2: number }
   | {
       /**
@@ -617,6 +692,31 @@ const OBSTACLE_START = 80;
  * finish wall.
  */
 const STAIRS_START = 25;
+/**
+ * Vertical "stalactite" pole geometry (v1.53).  A ceiling obstacle
+ * is a thin tall vertical cuboid hanging from the sky to a
+ * configurable clearance above the local track surface.  Cars must
+ * pass under the bottom edge.
+ *
+ * The pole is `2 * CEILING_POLE_HALF_W` metres wide (≈ 14 cm — a
+ * thin column) and extends from `bottomY` to `bottomY +
+ * CEILING_POLE_HEIGHT` (= 35 m, well above any reasonable camera
+ * frame at any zoom).
+ */
+const CEILING_POLE_HALF_W = 0.07;
+const CEILING_POLE_HEIGHT = 35;
+/**
+ * Clearance bounds for the ceiling obstacle, in metres.  At
+ * intensity 0 the bottom of the pole sits CLEARANCE_MAX above the
+ * local track — comfortably clears even a max-radius (≈ 19.5 m
+ * tall) chassis with a 5.5 m wheel.  At intensity 1 it sits
+ * CLEARANCE_MIN above — calibrated to the post-v1.53 minimum-size
+ * car (chassis radius 0.20 m + wheel 0.10 m → ≈ 0.50 m total
+ * height) plus a comfortable margin so the smallest legal car
+ * always fits even after the placement jitter.
+ */
+const CEILING_CLEARANCE_MAX = 22;
+const CEILING_CLEARANCE_MIN = 0.8;
 /**
  * Finish-zone layout — kept deliberately simple after the v1.31.x
  * cliff + basin experiments.  Ambient terrain runs all the way to
@@ -741,28 +841,32 @@ function placeObstacles(
     }
   }
 
-  // Ceilings — horizontal beams above the track surface.  A car
-  // hugging the ground passes underneath; one launching into the
-  // air at this x slams into it.  Width and clearance both scale
-  // with intensity: low = wide and high (easy to slip under), full
-  // = narrow and low (must hit just right).
+  // Ceilings — vertical "stalactite" poles hanging from the sky to
+  // a configurable clearance above the local track (v1.53 redesign,
+  // see CEILING_POLE_* constants).  A car hugging the ground passes
+  // underneath; one launching into the air slams into the bottom of
+  // the pole.  At intensity 0 the pole hangs ≈ 22 m up (every legal
+  // car fits); at intensity 1 it sits ≈ 0.8 m up (only the smallest
+  // legal car fits).  Width is constant — the pole is intentionally
+  // thin so the obstacle reads as "duck under here" not "drive
+  // around something wide".
   if (obstacles.ceiling > 0) {
-    const meanGap = gapFor(obstacles.ceiling);
+    const intensity = obstacles.ceiling;
+    const meanGap = gapFor(intensity);
     let x = OBSTACLE_START + rng() * meanGap;
     while (x < trackLength - 5) {
-      const halfWidth = lerp(2.5, 1.0, obstacles.ceiling) * (0.8 + rng() * 0.4);
-      // Clearance above local track surface, m.  Lower at higher
-      // intensity → harder to pass.  At full intensity the
-      // clearance floor is 0.9 m — a typical chassis is ≈ 1 m
-      // tall, so 100 % ceilings are *meant* to be borderline
-      // impossible to pass without hugging the surface exactly.
-      const clearance = lerp(4.0, 0.9, obstacles.ceiling) * (0.85 + rng() * 0.3);
-      // We stash clearance in `y` here — buildTrackColliders adds
-      // the local track surface y so the absolute world-y can be
-      // computed.  Mild abuse of the field but keeps the type
-      // small; renderer treats this as the relative offset until
-      // it samples the surface.
-      physical.push({ kind: 'ceiling', xCenter: x, halfWidth, y: clearance });
+      const baseClearance = lerp(CEILING_CLEARANCE_MAX, CEILING_CLEARANCE_MIN, intensity);
+      // Small ±8 % jitter so identical-intensity ceilings don't
+      // line up at the exact same height.  Floored at
+      // CEILING_CLEARANCE_MIN so even a downward jitter at full
+      // intensity can't squeeze below the minimum-car threshold.
+      const jittered = baseClearance * (0.92 + rng() * 0.16);
+      const clearance = Math.max(CEILING_CLEARANCE_MIN, jittered);
+      // We stash the *relative* clearance in `y` here — the resolve
+      // pass at the bottom of generateTrack samples the local
+      // surface height and replaces this with the absolute world-y
+      // of the pole's bottom edge.
+      physical.push({ kind: 'ceiling', x, y: clearance });
       x += meanGap * (0.55 + rng() * 0.9);
     }
   }
@@ -823,8 +927,8 @@ function placeObstacles(
     for (const c of physical) {
       if (c.kind !== 'ceiling') continue;
       if (
-        p.x >= c.xCenter - c.halfWidth - CEILING_WALL_BUFFER_M &&
-        p.x <= c.xCenter + c.halfWidth + CEILING_WALL_BUFFER_M
+        p.x >= c.x - CEILING_POLE_HALF_W - CEILING_WALL_BUFFER_M &&
+        p.x <= c.x + CEILING_POLE_HALF_W + CEILING_WALL_BUFFER_M
       ) {
         physical.splice(i, 1);
         break;
@@ -972,33 +1076,14 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
     yBase: wallY,
     height: WALL_HEIGHT_M,
   });
-  // Resolve absolute world-y for ceilings (their `y` field carries
-  // the *relative* clearance during placement; we add the local
-  // surface height now that the points array exists).
-  //
-  // Use the *maximum* surface height across the ceiling's full
-  // [xCenter - halfWidth, xCenter + halfWidth] span — not just the
-  // centre — so the configured clearance gene is the actual minimum
-  // gap to the track everywhere under the beam.  Sampling at the
-  // centre alone fails on rising terrain: a 5 m-wide beam over a
-  // hill that climbs 1.5 m across that span ends up touching (or
-  // below) the surface on the high side, becoming an impassable
-  // hard wall instead of the intended overhead obstacle.
-  const sampleStep = points.length > 1 ? points[1]!.x - points[0]!.x : 0.6;
+  // Resolve absolute world-y for ceiling poles.  The `y` field
+  // carries the *relative* clearance during placement; here we add
+  // the local surface height (sampled at the pole's x — the pole is
+  // thin so a single sample is enough, no need for the wide-span
+  // max-y scan the previous beam-shaped ceilings required).
   const resolved: PhysicalObstacle[] = physicalObstacles.map((p) => {
     if (p.kind === 'ceiling') {
-      const left = p.xCenter - p.halfWidth;
-      const right = p.xCenter + p.halfWidth;
-      let maxSurfaceY = Math.max(sampleY(points, left), sampleY(points, right));
-      const iLeft = Math.max(0, Math.floor(left / sampleStep));
-      const iRight = Math.min(points.length - 1, Math.ceil(right / sampleStep));
-      for (let i = iLeft; i <= iRight; i++) {
-        const tp = points[i]!;
-        if (tp.x < left) continue;
-        if (tp.x > right) break;
-        if (tp.y > maxSurfaceY) maxSurfaceY = tp.y;
-      }
-      return { ...p, y: maxSurfaceY + p.y };
+      return { ...p, y: sampleY(points, p.x) + p.y };
     }
     return p;
   });
@@ -1839,11 +1924,15 @@ function buildTrackColliders(world: RAPIER.World, track: Track): void {
         ground,
       );
     } else if (ob.kind === 'ceiling') {
-      // Ceiling: thin horizontal cuboid centred at (xCenter, y).
-      // Half-thickness 0.08 m makes a clearly visible beam.
+      // Ceiling pole: thin tall vertical cuboid.  Bottom edge sits
+      // at (ob.x, ob.y) — `ob.y` is the absolute world-y after the
+      // resolve pass.  Pole extends `CEILING_POLE_HEIGHT` upward
+      // so a chassis launching skyward also slams into it, not
+      // just the immediate underside.
+      const halfH = CEILING_POLE_HEIGHT / 2;
       world.createCollider(
-        RAPIER.ColliderDesc.cuboid(ob.halfWidth, 0.08)
-          .setTranslation(ob.xCenter, ob.y)
+        RAPIER.ColliderDesc.cuboid(CEILING_POLE_HALF_W, halfH)
+          .setTranslation(ob.x, ob.y + halfH)
           .setFriction(0.6)
           .setRestitution(0.0)
           .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL)),

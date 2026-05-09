@@ -504,9 +504,12 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         obstaclesGfx.rect(ob.x - 0.05, surfaceY, 0.1, ob.height);
         obstaclesGfx.fill({ color: COLORS.obstacle, alpha: 0.95 });
       } else if (ob.kind === 'ceiling') {
-        // Ceiling: filled rectangle from the underside-y down by
-        // 16 cm, centred at xCenter.
-        obstaclesGfx.rect(ob.xCenter - ob.halfWidth, ob.y - 0.08, ob.halfWidth * 2, 0.16);
+        // Ceiling pole (v1.53): thin vertical "stalactite" hanging
+        // from the sky down to ob.y.  Drawn 14 cm wide and 35 m
+        // tall — outside the typical camera frame at the top, so
+        // the eye reads it as a column descending from somewhere
+        // above the visible world.
+        obstaclesGfx.rect(ob.x - 0.07, ob.y, 0.14, 35);
         obstaclesGfx.fill({ color: COLORS.obstacle, alpha: 0.95 });
       } else if (ob.kind === 'finish') {
         // End-of-track wall — drawn as a continuation of the grey

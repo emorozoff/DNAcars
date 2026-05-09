@@ -7,24 +7,24 @@ describe('i18n', () => {
   });
 
   it('returns english by default', () => {
-    expect(t('footer.tagline')).toBe('Evolution, in your browser.');
+    expect(t('panel.cars')).toBe('Population');
   });
 
   it('switches to russian', () => {
     setLocale('ru');
-    expect(t('footer.tagline')).toBe('Эволюция в твоём браузере.');
+    expect(t('panel.cars')).toBe('Популяция');
     expect($locale.get()).toBe('ru');
   });
 
   it('rewrites DOM nodes with data-i18n', () => {
-    document.body.innerHTML = `<span data-i18n="nav.daily"></span>`;
+    document.body.innerHTML = `<span data-i18n="panel.lead"></span>`;
     setLocale('en');
     applyTranslations();
-    const el = document.querySelector<HTMLElement>('[data-i18n="nav.daily"]');
-    expect(el?.textContent).toBe('Daily');
+    const el = document.querySelector<HTMLElement>('[data-i18n="panel.lead"]');
+    expect(el?.textContent).toBe('Leader');
 
     setLocale('ru');
     applyTranslations();
-    expect(el?.textContent).toBe('Дейли');
+    expect(el?.textContent).toBe('Лидер');
   });
 });

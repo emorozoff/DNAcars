@@ -1,32 +1,35 @@
 /**
- * Tournament selection.
- *
- * Pick `k` random individuals, return the one with the highest fitness.
- * Larger k → more selection pressure (faster convergence, less diversity).
+ * Selection — pick parents for the next generation, with probability
+ * proportional to fitness ("roulette wheel" / "fitness-proportional"
+ * selection).  The all-time canonical GA selection scheme.
  */
 
-import { rngInt } from '../sim/prng';
-import type { Rng } from '../sim/prng';
-import type { Scored } from './types';
+import type { Rng } from '../sim/world';
 
-export function tournamentSelect<T>(population: Scored<T>[], k: number, rng: Rng): T {
-  if (population.length === 0) {
-    throw new Error('tournamentSelect: population is empty');
+/**
+ * Pick one item from `items` with probability ∝ its non-negative
+ * weight.  When all weights are zero (everyone tied with fitness 0
+ * — first generation can't move at all), fall back to uniform.
+ */
+export function rouletteSelect<T>(items: readonly T[], weights: readonly number[], rng: Rng): T {
+  if (items.length === 0) throw new Error('rouletteSelect: empty pool');
+  let total = 0;
+  for (const w of weights) total += w > 0 ? w : 0;
+  if (total <= 0) return items[Math.floor(rng() * items.length)]!;
+  let r = rng() * total;
+  for (let i = 0; i < items.length; i++) {
+    r -= weights[i]! > 0 ? weights[i]! : 0;
+    if (r <= 0) return items[i]!;
   }
-  let bestIndex = rngInt(rng, 0, population.length - 1);
-  let bestFitness = population[bestIndex]!.fitness;
-  for (let i = 1; i < k; i++) {
-    const idx = rngInt(rng, 0, population.length - 1);
-    const f = population[idx]!.fitness;
-    if (f > bestFitness) {
-      bestFitness = f;
-      bestIndex = idx;
-    }
-  }
-  return population[bestIndex]!.individual;
+  return items[items.length - 1]!;
 }
 
-/** Sort by fitness descending — convenience used by elitism. */
-export function rankByFitness<T>(population: Scored<T>[]): Scored<T>[] {
-  return [...population].sort((a, b) => b.fitness - a.fitness);
+/**
+ * Return the indices of the top `n` entries in `scores`, sorted from
+ * best to worst.  Used to pull the elite cars out of a population.
+ */
+export function topNIndices(scores: readonly number[], n: number): number[] {
+  const idx = scores.map((_, i) => i);
+  idx.sort((a, b) => scores[b]! - scores[a]!);
+  return idx.slice(0, Math.min(n, idx.length));
 }

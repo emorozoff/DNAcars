@@ -6,7 +6,18 @@
   box-sizing: border-box;
 }
 
-html,
+/* Fluid root font-size — every rem-based dimension (font sizes,
+   spacing tokens, radii, layout heights) scales linearly between
+   small laptops and 27"/4K monitors.  Formula picked so:
+   - 1280 px viewport → 15.2 px root  (compact laptop)
+   - 1440 px            → 16.4 px       (13" macbook ≈ baseline)
+   - 1920 px            → 18.8 px       (full HD desktop)
+   - 2560 px            → 22.6 px       (27" 1440p — was way too small)
+   Lower clamp keeps mobile readable, upper avoids absurdity on 8K. */
+html {
+  font-size: clamp(14px, 0.5vw + 8.8px, 26px);
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -18,12 +29,28 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  overflow: hidden;
+  /* Mobile-friendly defaults: keep iOS Safari from interpreting
+     edge-swipes as page nav, kill the blue tap-highlight on
+     buttons, and let the canvas swallow gestures cleanly without
+     the page bouncing under it. */
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+button,
+label,
+input,
+select {
+  -webkit-tap-highlight-color: transparent;
 }
 
 #app {
-  min-height: 100dvh;
+  position: fixed;
+  inset: 0;
   display: grid;
-  grid-template-rows: var(--topbar-h) 1fr var(--footer-h);
+  grid-template-rows: var(--topbar-h) 1fr;
 }
 
 button {
@@ -36,9 +63,11 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--sp-4);
   padding: 0 var(--sp-5);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
+  z-index: 2;
 }
 
 .brand {
@@ -62,18 +91,13 @@ button {
 .brand__version {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  color: var(--color-fg-dim);
+  color: var(--color-fg);
   letter-spacing: 0.04em;
   margin-left: var(--sp-2);
-  padding: 2px 6px;
+  padding: 2px 8px;
   border: 1px solid var(--color-border);
-  border-radius: var(--r-sm);
+  border-radius: 999px;
   font-variant-numeric: tabular-nums;
-}
-
-.topbar__nav {
-  display: flex;
-  gap: var(--sp-2);
 }
 
 /* ─── Buttons ────────────────────────────────────────────────────────────── */
@@ -105,28 +129,273 @@ button {
 }
 
 .btn--primary {
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-  border-color: var(--color-accent);
+  background: rgba(22, 22, 26, 0.78);
+  color: var(--color-panel-accent);
+  border-color: var(--color-border);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  padding: var(--sp-2) var(--sp-4);
+  backdrop-filter: blur(8px);
 }
 
 .btn--primary:hover {
-  background: var(--color-accent);
-  color: var(--color-bg);
+  border-color: var(--color-panel-accent);
 }
 
-/* ─── Stage ──────────────────────────────────────────────────────────────── */
+.btn--active {
+  background: var(--color-panel-accent);
+  color: rgba(0, 0, 0, 0.9);
+  border-color: var(--color-panel-accent);
+}
+
+.btn--active:hover {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: var(--color-panel-accent);
+}
+
+/* ─── Segmented control ─────────────────────────────────────────────────── */
+
+.seg-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.seg-group__label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  color: var(--color-fg-muted);
+  text-transform: uppercase;
+  padding-left: 2px;
+}
+
+.segmented {
+  display: flex;
+  background: rgba(22, 22, 26, 0.78);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-md);
+  padding: 2px;
+  gap: 1px;
+  backdrop-filter: blur(8px);
+}
+
+/* Vertical-stack variant — used for the four-option track preset
+   selector where horizontal labels would make the right sidebar
+   unmanageably wide.  Each segment becomes a full-width row. */
+.segmented--stack {
+  flex-direction: column;
+}
+
+/* Ribbon-cell variant — slimmer buttons + smaller font so the
+   track-mode toggle fits inside a stat cell without dominating
+   the row. */
+.segmented--inline {
+  padding: 1px;
+}
+
+.segmented--inline .segmented__item {
+  font-size: var(--fs-xs);
+  padding: 0 var(--sp-2);
+  letter-spacing: 0.02em;
+}
+
+.segmented__item {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--color-fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  padding: var(--sp-1) var(--sp-2);
+  cursor: pointer;
+  border-radius: calc(var(--r-md) - 2px);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+  white-space: nowrap;
+  /* Compact text — segments need to fit four labels in a stack
+     where a single button used to live. */
+  min-width: 0;
+  text-align: center;
+}
+
+.segmented--stack .segmented__item {
+  text-align: left;
+  padding-left: var(--sp-3);
+}
+
+.segmented__item:hover {
+  color: var(--color-fg);
+}
+
+.segmented__item--active {
+  background: var(--color-panel-accent);
+  color: rgba(0, 0, 0, 0.9);
+  font-weight: 600;
+}
+
+.segmented__item--active:hover {
+  color: rgba(0, 0, 0, 0.9);
+}
+
+/* Predictive load colouring for speed-tier buttons.  The host
+   updates these classes each UI tick based on the EMA of frame
+   work-time × predicted-multiplier ratio, so the player can see
+   at a glance which tiers are safe to push to.  The current
+   (active) tier ignores these — it has its own pill styling. */
+.segmented__item--load-ok {
+  box-shadow: inset 0 0 0 1px rgba(168, 255, 96, 0.55);
+}
+
+.segmented__item--load-tight {
+  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.65);
+}
+
+.segmented__item--load-saturated {
+  box-shadow: inset 0 0 0 1px rgba(208, 93, 93, 0.7);
+  color: rgba(208, 93, 93, 0.9);
+}
+
+/* Ribbon throughput ("ТЕМП") cell colours by saturation state. */
+.ribbon-stat__value--ok {
+  color: var(--color-fg);
+}
+
+.ribbon-stat__value--tight {
+  color: #ffd166;
+}
+
+.ribbon-stat__value--saturated {
+  color: #ff8c8c;
+  font-weight: 600;
+}
+
+.btn--floating {
+  position: absolute;
+  top: calc(var(--sp-4) + 3.75rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  background: rgba(22, 22, 26, 0.88);
+  color: var(--color-panel-accent);
+  border: 1px solid var(--color-panel-accent);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  padding: var(--sp-2) var(--sp-4);
+  backdrop-filter: blur(8px);
+}
+
+.btn--floating:hover {
+  background: rgba(40, 40, 48, 0.92);
+}
+
+.btn--floating[hidden] {
+  display: none;
+}
+
+/* ─── Inline confirm popover ────────────────────────────────────────────── */
+
+/* The wrapper places the popover above the trigger button without
+   knocking surrounding controls around when it appears. */
+.confirm-anchor {
+  position: relative;
+}
+
+.confirm-popover {
+  position: absolute;
+  bottom: calc(100% + var(--sp-2));
+  right: 0;
+  /* Wider than the trigger button so the body text doesn't wrap into
+     unreadable two-character columns. */
+  width: 16.25rem;
+  background: rgba(22, 22, 26, 0.95);
+  color: var(--color-fg);
+  border: 1px solid var(--color-panel-accent);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  font-size: var(--fs-sm);
+  font-family: var(--font-mono);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  z-index: 3;
+  animation: confirm-pop 0.12s ease-out;
+}
+
+.confirm-popover[hidden] {
+  display: none;
+}
+
+.confirm-popover__text {
+  margin: 0 0 var(--sp-3);
+  line-height: 1.35;
+}
+
+.confirm-popover__actions {
+  display: flex;
+  gap: var(--sp-2);
+  justify-content: flex-end;
+}
+
+.btn--confirm-yes {
+  background: var(--color-panel-accent);
+  color: rgba(0, 0, 0, 0.85);
+  border: 1px solid var(--color-panel-accent);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  padding: var(--sp-1) var(--sp-3);
+}
+
+.btn--confirm-yes:hover {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.btn--confirm-no {
+  color: var(--color-fg-muted);
+  border: 1px solid var(--color-border);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  padding: var(--sp-1) var(--sp-3);
+}
+
+.btn--confirm-no:hover {
+  color: var(--color-fg);
+  border-color: var(--color-fg-muted);
+}
+
+@keyframes confirm-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ─── Stage (full-canvas + floating overlays) ────────────────────────────── */
 
 .stage {
-  display: grid;
-  grid-template-columns: 1fr var(--panel-w);
-  min-height: 0;
-}
-
-.stage__canvas {
   position: relative;
   background: var(--color-bg);
   overflow: hidden;
+}
+
+.stage__canvas {
+  position: absolute;
+  inset: 0;
+  /* Hint that the world is grabbable.  Pixi overrides this when
+     the pointer is over a car (sets to "pointer" via the
+     container.cursor property), so the grab cursor only shows
+     where a drag would actually pan the camera. */
+  cursor: grab;
+  touch-action: none;
+}
+
+.stage__canvas--dragging,
+.stage__canvas--dragging canvas {
+  cursor: grabbing;
 }
 
 .stage__canvas canvas {
@@ -135,101 +404,1866 @@ button {
   height: 100%;
 }
 
-/* ─── Panel ──────────────────────────────────────────────────────────────── */
+/* ─── Top ribbon: live stats + full-width minimap ───────────────────────── */
 
-.panel {
-  border-left: 1px solid var(--color-border);
-  background: var(--color-surface);
-  padding: var(--sp-5);
-  overflow-y: auto;
+/* Stats block — fixed-shape grid in the top-left.  Six stats laid
+   out 2 cols × 3 rows so the block stays roughly square (≈ 17 rem ×
+   8 rem) regardless of which value happens to render.  Crucially
+   it's a separate absolute element from the minimap, so a length
+   change in the throughput cell can't push the minimap sideways. */
+.ribbon-stats {
+  position: absolute;
+  /* Sit just above the dock on the left so the canvas claims the
+     full mid-screen area between minimap (top) and dock-row
+     (bottom).  v1.39 — moved from top-left by player request:
+     "только мини-карта сверху, остальной интерфейс снизу".
+     Dock is two rows ≈ 7.5 rem tall + sp-3 inset, so the stats
+     bottom-anchor accounts for both. */
+  bottom: calc(var(--sp-3) + 7.5rem + var(--sp-2));
+  left: var(--sp-4);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(7rem, max-content));
+  grid-auto-rows: auto;
+  gap: var(--sp-2) var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  background: rgba(22, 22, 26, 0.78);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-md);
+  backdrop-filter: blur(8px);
+  z-index: 2;
 }
 
-.panel__title {
-  margin: 0 0 var(--sp-3);
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+/* Each stat is stacked: small uppercase label on top, mono value
+   below.  Fixed-min-width on the value's column keeps the right
+   half of the grid stable even when "ТЕМП" flips between "×32"
+   and "×27 / ×32" — no more dimensional shimmy. */
+.ribbon-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  white-space: nowrap;
+}
+
+.ribbon-stat__label {
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
   color: var(--color-fg-muted);
+  text-transform: uppercase;
 }
 
-.panel__title--minor {
-  margin-top: var(--sp-6);
+.ribbon-stat__value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.15rem;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+  color: var(--color-fg);
+}
+
+.ribbon-stat__hash {
+  color: var(--color-fg-muted);
+  font-weight: 400;
+  margin-right: 0.05rem;
+}
+
+.ribbon-stat__sub {
+  color: var(--color-fg-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+}
+
+.ribbon-stat__value--accent {
+  color: var(--color-panel-accent);
+  font-weight: 600;
+}
+
+.ribbon-stat__value--copyable {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+  color: var(--color-fg);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out);
+  text-align: left;
+}
+
+.ribbon-stat__value--copyable:hover {
+  color: var(--color-panel-accent);
+}
+
+.ribbon-stat__value--copied {
+  color: var(--color-panel-accent);
+}
+
+/* ─── Bottom dock: transport + drawers + new-population ─────────────────── */
+
+.dock {
+  position: absolute;
+  bottom: var(--sp-3);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  background: rgba(22, 22, 26, 0.84);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-lg);
+  backdrop-filter: blur(10px);
+  z-index: 2;
+  max-width: calc(100vw - 2 * var(--sp-4));
+}
+
+.dock__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+}
+
+/* Top row: always-visible Evolution params.  Hairline separates
+   it from the action row below. */
+.dock__row--params {
+  border-bottom: 1px solid var(--color-border);
+  gap: var(--sp-4);
+}
+
+.dock__row--actions {
+  gap: var(--sp-2);
+}
+
+.dock__section {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  position: relative;
+}
+
+.dock__sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--color-border);
+  margin: var(--sp-1) var(--sp-1);
+}
+
+.dock__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  color: var(--color-fg);
+  font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  color: var(--color-fg-dim);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: var(--sp-2) var(--sp-3);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
 }
 
-.panel__actions {
+.dock__toggle:hover {
+  border-color: var(--color-fg-muted);
+}
+
+.dock__toggle[aria-expanded='true'] {
+  background: var(--color-surface-2);
+  border-color: var(--color-panel-accent);
+}
+
+.dock__toggle-num {
+  color: var(--color-panel-accent);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.dock__toggle-chevron {
+  font-size: 0.625rem;
+  color: var(--color-fg-muted);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.dock__toggle[aria-expanded='true'] .dock__toggle-chevron {
+  transform: rotate(180deg);
+}
+
+/* Drawer popover — opens upward from its toggle button.  The toggle's
+   .dock__section ancestor is `position: relative`, providing the
+   containing block; the drawer itself is `position: absolute` and
+   `bottom: 100% + sp-3` so its bottom edge sits just above the dock. */
+.dock-drawer {
+  position: absolute;
+  bottom: calc(100% + var(--sp-3));
+  left: 0;
+  min-width: 17.5rem;
+  background: rgba(22, 22, 26, 0.96);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4);
+  backdrop-filter: blur(10px);
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-  margin: var(--sp-4) 0 var(--sp-2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  z-index: 3;
+  animation: confirm-pop 0.12s ease-out;
 }
 
-.panel__hint {
-  margin: 0;
-  color: var(--color-fg-dim);
-  font-size: var(--fs-sm);
+.dock-drawer[hidden] {
+  display: none;
 }
 
-.stat {
+.dock-drawer--seed {
+  width: 17.5rem;
+}
+
+.dock-drawer--wide {
+  width: 37.5rem;
+}
+
+.dock-drawer__head {
   display: flex;
-  align-items: baseline;
+  justify-content: flex-end;
+  margin-bottom: var(--sp-1);
+}
+
+.dock-drawer__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2) var(--sp-4);
+}
+
+.seed-input-row {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+
+.seed-input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(10, 10, 14, 0.6);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-1) var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  letter-spacing: 0.04em;
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+.seed-input:focus {
+  border-color: var(--color-panel-accent);
+}
+
+.seed-input--error {
+  border-color: var(--color-bad);
+  animation: seed-shake 0.3s ease-out;
+}
+
+@keyframes seed-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+
+/* ─── Tutorial modal ───────────────────────────────────────────────────── */
+
+.tutorial {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 8, 10, 0.92);
+  backdrop-filter: blur(6px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  animation: tutorial-fade 0.18s ease-out;
+}
+
+.tutorial[hidden] {
+  display: none;
+}
+
+@keyframes tutorial-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.tutorial__panel {
+  background: rgba(18, 18, 22, 0.96);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-md);
+  width: min(60rem, 100%);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+
+.tutorial__head {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
-  padding: var(--sp-2) 0;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
   border-bottom: 1px solid var(--color-border);
 }
 
-.stat:last-of-type {
-  border-bottom: none;
+.tutorial__title {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--color-fg);
+  letter-spacing: 0.01em;
 }
 
-.stat__label {
+.tutorial__step-label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-muted);
+}
+
+.tutorial__close {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-fg-muted);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tutorial__close:hover {
+  color: var(--color-fg);
+  border-color: var(--color-border);
+}
+
+.tutorial__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--sp-5) var(--sp-5) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.tutorial__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.tutorial__foot .btn {
+  font-family: var(--font-mono);
   font-size: var(--fs-sm);
+  padding: var(--sp-2) var(--sp-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  background: transparent;
+  color: var(--color-fg-muted);
+}
+
+.tutorial__foot .btn:hover {
+  color: var(--color-fg);
+  border-color: var(--color-fg-muted);
+}
+
+.tutorial__foot .btn--primary {
+  background: var(--color-accent);
+  color: rgba(0, 0, 0, 0.9);
+  border-color: var(--color-accent);
+}
+
+.tutorial__foot .btn--primary:hover {
+  background: rgba(255, 255, 255, 0.92);
+  color: rgba(0, 0, 0, 0.9);
+}
+
+.tutorial__foot .btn[disabled] {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ── Stage 1 — guided generation ──────────────────────────────────────── */
+
+.tutorial-step__heading {
+  font-size: var(--fs-md);
+  font-weight: 500;
+  margin: 0 0 var(--sp-2);
+  color: var(--color-accent);
+}
+
+.tutorial-step__body {
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--color-fg);
+  margin: 0 0 var(--sp-3);
+  max-width: 720px;
+}
+
+.tutorial-step__visual {
+  background: rgba(8, 8, 10, 0.6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+}
+
+.tutorial-step__visual svg {
+  width: 100%;
+  height: 100%;
+}
+
+.tutorial-step__action {
+  align-self: flex-start;
+  background: var(--color-accent);
+  color: rgba(0, 0, 0, 0.9);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.tutorial-step__action:hover {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.tutorial-step__action[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* SVG car icon used inside Stage 1 visuals — chassis polygon + wheels. */
+.tut-car__chassis {
+  fill: rgba(230, 230, 233, 0.9);
+  stroke: rgba(230, 230, 233, 0.95);
+  stroke-width: 1.5;
+}
+
+.tut-car__wheel {
+  fill: rgba(0, 0, 0, 0.4);
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 1.5;
+}
+
+.tut-car--top {
+  filter: drop-shadow(0 0 6px var(--color-accent));
+}
+
+.tut-car--top .tut-car__chassis {
+  stroke: var(--color-accent);
+}
+
+.tut-car--top .tut-car__wheel {
+  stroke: var(--color-accent);
+}
+
+.tut-car--dim {
+  opacity: 0.35;
+}
+
+.tut-arrow {
+  stroke: var(--color-accent);
+  stroke-width: 2;
+  fill: none;
+  marker-end: url(#tut-arrowhead);
+}
+
+/* ── Stage 2 — lineage tree + sliders ─────────────────────────────────── */
+
+.tutorial-stage2 {
+  display: grid;
+  grid-template-columns: 1fr 15rem;
+  gap: var(--sp-4);
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .tutorial-stage2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tutorial-tree {
+  background: rgba(8, 8, 10, 0.6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2);
+  height: 280px;
+  position: relative;
+}
+
+.tutorial-tree svg {
+  width: 100%;
+  height: 100%;
+}
+
+.tutorial-tree__line {
+  stroke: rgba(140, 140, 150, 0.4);
+  stroke-width: 1;
+  fill: none;
+}
+
+.tutorial-tree__line--elite {
+  stroke: var(--color-accent);
+  stroke-opacity: 0.8;
+}
+
+.tutorial-tree__node {
+  stroke: rgba(0, 0, 0, 0.8);
+  stroke-width: 0.8;
+}
+
+.tutorial-stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.tutorial-stats__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.tutorial-stats__label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-fg-muted);
+}
+
+.tutorial-stats__value {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--color-fg);
+}
+
+.tutorial-controls {
+  background: rgba(8, 8, 10, 0.6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.tutorial-hint {
+  background: rgba(168, 255, 96, 0.06);
+  border-left: 2px solid var(--color-accent);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--color-fg);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  min-height: 48px;
+}
+
+.tutorial-note {
+  font-size: 0.6875rem;
+  color: var(--color-fg-muted);
+  font-style: italic;
+  margin-top: var(--sp-2);
+}
+
+.btn--seed-apply {
+  background: rgba(22, 22, 26, 0.78);
+  color: var(--color-panel-accent);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  padding: var(--sp-1) var(--sp-3);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+.btn--seed-apply:hover {
+  border-color: var(--color-panel-accent);
+}
+
+.seed-history {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  min-height: 22px;
+}
+
+.seed-chip {
+  background: rgba(10, 10, 14, 0.5);
+  color: var(--color-fg-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  padding: 2px var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.seed-chip:hover {
+  color: var(--color-fg);
+  border-color: var(--color-fg-muted);
+}
+
+.seed-chip--current {
+  color: var(--color-panel-accent);
+  border-color: var(--color-panel-accent);
+}
+
+.seed-history__empty {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--color-fg-muted);
+  letter-spacing: 0.04em;
+}
+
+/* ─── Sliders ────────────────────────────────────────────────────────────── */
+
+.ctrl {
+  display: grid;
+  grid-template-columns: 5rem 1fr 2.5rem;
+  align-items: center;
+  gap: var(--sp-2);
+  cursor: pointer;
+}
+
+/* Compact horizontal variant for the always-visible Evolution row in
+   the bottom dock — single-line layout, narrow slider, value
+   right-aligned to a fixed minimum width so all three sliders' value
+   columns line up vertically across the row. */
+.ctrl--inline {
+  display: flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.ctrl--inline .ctrl__slider {
+  width: 6rem;
+  flex: 0 0 auto;
+}
+
+.ctrl--inline .ctrl__value {
+  min-width: 2.5rem;
+  flex: 0 0 auto;
+}
+
+.ctrl__label {
+  font-size: var(--fs-xs);
   color: var(--color-fg-muted);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-.stat__value {
+.ctrl__value {
   font-family: var(--font-mono);
-  font-size: var(--fs-md);
+  font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
   color: var(--color-fg);
+  text-align: right;
 }
 
-.stat__value--accent {
-  color: var(--color-accent);
+/* Slider track shows the current value as a filled left segment +
+   unfilled right segment.  The split is driven by a JS-injected
+   linear-gradient on the input's `background` style attribute (see
+   updateSliderFill in main.ts) — a value of N% paints up to N% in
+   the panel-accent and the remainder in the dark surface tone.
+   accent-color additionally tints the native thumb in browsers
+   that respect it. */
+.ctrl__slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--color-surface-2);
+  height: 0.25rem;
+  border-radius: 0.125rem;
+  outline: none;
+  margin: 0;
+  accent-color: var(--color-panel-accent);
 }
 
-/* ─── Footer ─────────────────────────────────────────────────────────────── */
+.ctrl__slider::-webkit-slider-runnable-track {
+  background: transparent;
+  height: 0.25rem;
+  border-radius: 0.125rem;
+}
 
-.footer {
+.ctrl__slider::-moz-range-track {
+  background: transparent;
+  height: 0.25rem;
+  border-radius: 0.125rem;
+}
+
+.ctrl__slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 50%;
+  background: var(--color-panel-accent);
+  cursor: pointer;
+  border: none;
+  margin-top: -0.3125rem;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+
+.ctrl__slider::-moz-range-thumb {
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 50%;
+  background: var(--color-panel-accent);
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+
+.ctrl--toggle {
+  grid-template-columns: 1rem 1fr;
+  margin-top: var(--sp-2);
+}
+
+/* When the toggle variant is also inline (Evolution row), drop the
+   margin-top — the row's flex alignment handles vertical centring. */
+.ctrl--inline.ctrl--toggle {
+  margin-top: 0;
+}
+
+.ctrl__checkbox {
+  width: 0.875rem;
+  height: 0.875rem;
+  margin: 0;
+  accent-color: var(--color-panel-accent);
+  cursor: pointer;
+}
+
+.ctrl__hint {
+  margin: 4px 0 0;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  color: var(--color-fg-muted);
+  letter-spacing: 0.02em;
+}
+
+/* Centred modal — used by the strict-determinism warning.  Body-
+   level overlay with a dimmed backdrop so the prompt reads as a
+   real "do you want to do this" decision rather than a passive
+   tooltip.  Click on the dimmed area or pressing Escape cancels. */
+.modal-confirm {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-top: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-fg-dim);
+  z-index: 50;
+  animation: modal-fade 0.16s ease-out;
+}
+
+.modal-confirm[hidden] {
+  display: none;
+}
+
+.modal-confirm__panel {
+  width: min(24rem, calc(100vw - 2 * var(--sp-4)));
+  background: rgba(22, 22, 26, 0.98);
+  border: 1px solid var(--color-panel-accent);
+  border-radius: var(--r-md);
+  padding: var(--sp-4) var(--sp-5);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  animation: confirm-pop 0.16s ease-out;
+}
+
+.modal-confirm__heading {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-panel-accent);
+}
+
+.modal-confirm__text {
+  margin: 0 0 var(--sp-4);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--color-fg);
+  white-space: pre-line;
+}
+
+.modal-confirm__actions {
+  display: flex;
+  gap: var(--sp-2);
+  justify-content: flex-end;
+}
+
+/* Advanced settings modal — same backdrop / centring scaffolding as
+   modal-confirm, but a wider panel and a list of toggle rows with
+   inline descriptions instead of a single confirm prompt. */
+.modal-settings {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  animation: modal-fade 0.16s ease-out;
+}
+
+.modal-settings[hidden] {
+  display: none;
+}
+
+.modal-settings__panel {
+  width: min(34rem, calc(100vw - 2 * var(--sp-4)));
+  /* Cap the panel height so it never grows past the viewport.  The
+     header + close button stay put, the toggle list scrolls when
+     necessary (rare with all descriptions collapsed; always works
+     when several are expanded). */
+  max-height: calc(100vh - 4rem);
+  background: rgba(22, 22, 26, 0.98);
+  border: 1px solid var(--color-panel-accent);
+  border-radius: var(--r-md);
+  padding: var(--sp-4) var(--sp-5);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  animation: confirm-pop 0.16s ease-out;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.modal-settings__heading {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-panel-accent);
+  flex-shrink: 0;
+}
+
+.modal-settings__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-4);
+  /* The list itself scrolls when content overflows; header + actions
+     stay pinned.  min-height: 0 lets flex children shrink properly. */
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: var(--sp-2);
+  /* Subtle scrollbar styling so it doesn't dominate when present. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+.modal-settings__item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  column-gap: var(--sp-3);
+  align-items: center;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.modal-settings__item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.modal-settings__item--expanded {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--color-border);
+}
+
+.modal-settings__item .ctrl__checkbox {
+  margin: 0;
+}
+
+.modal-settings__item-label {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--color-fg);
+  cursor: pointer;
+  user-select: none;
+  min-width: 0;
+}
+
+/* Info-chevron: small caret that rotates 180° on expand.  The arrow
+   itself is rendered via a CSS pseudo-element so the button has no
+   text content (keeps the markup language-agnostic) and the rotate
+   animation gets a clean transform target. */
+.modal-settings__item-info {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-fg-muted);
+  border-radius: var(--r-sm);
+  width: 1.5rem;
+  height: 1.5rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+
+.modal-settings__item-info::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translate(-1.5px, -1.5px);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.modal-settings__item-info:hover {
+  color: var(--color-fg);
+  border-color: var(--color-fg-muted);
+}
+
+.modal-settings__item-info[aria-expanded='true'] {
+  color: var(--color-panel-accent);
+  border-color: var(--color-panel-accent);
+}
+
+.modal-settings__item-info[aria-expanded='true']::before {
+  transform: rotate(225deg) translate(-1.5px, -1.5px);
+}
+
+.modal-settings__item-desc {
+  grid-column: 1 / -1;
   font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--color-fg-muted);
+  /* Collapsed by default — max-height + opacity transition gives a
+     smooth expand/collapse without the JS having to measure heights.
+     12rem is generous for the longest hint text in this modal. */
+  max-height: 0;
+  opacity: 0;
+  margin-top: 0;
+  overflow: hidden;
+  transition:
+    max-height 200ms var(--ease-out),
+    opacity 200ms var(--ease-out),
+    margin-top 200ms var(--ease-out);
+}
+
+.modal-settings__item--expanded .modal-settings__item-desc {
+  max-height: 16rem;
+  opacity: 1;
+  margin-top: var(--sp-2);
+}
+
+.modal-settings__actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+@keyframes modal-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ─── Minimap ────────────────────────────────────────────────────────────── */
+
+.minimap {
+  /* Pinned to the very top of the stage, spanning the full width
+     between the side margins.  v1.19.2: split out from the old
+     ribbon flex row so a length change in the throughput readout
+     can no longer push the minimap sideways.  The stats block sits
+     UNDER the minimap (top-left), independently positioned.
+
+     Width MUST be explicit, not "auto" via left+right.  The SVG
+     has viewBox="0 0 1500 86" — a ~17:1 intrinsic ratio.  When
+     only height is fixed, browsers honour that ratio and shrink
+     the rendered width to ~17 × height (≈ 625 px) regardless of
+     `right`.  `calc(100% - 2 * sp-4)` overrides the ratio and
+     stretches the box to fill the stage between margins. */
+  position: absolute;
+  top: var(--sp-3);
+  left: var(--sp-4);
+  width: calc(100% - 2 * var(--sp-4));
+  height: var(--minimap-h);
+  background: rgba(22, 22, 26, 0.78);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-md);
+  backdrop-filter: blur(8px);
+  display: block;
+  pointer-events: auto;
+  z-index: 2;
+  /* Click or drag anywhere on the minimap to move the camera.
+     `grab` signals "you can grab this and drag it"; the JS side
+     switches to `grabbing` while a drag is active via the
+     .minimap--dragging class. */
+  cursor: grab;
+  touch-action: none;
+}
+
+.minimap--dragging {
+  cursor: grabbing;
+}
+
+/* ─── Headless / ×32 layout ─────────────────────────────────────────────── */
+
+/* ×32 speed-mode layout:
+   - Ribbon stacks vertically: stats card on top, minimap underneath.
+     The stats card stays its normal compact size; the minimap grows
+     to a "useful but not dominant" height so the player can still
+     scan car positions at a glance.
+   - Charts panel auto-opens (driven from main.ts) and takes the
+     remaining vertical space between the ribbon and the dock —
+     stats are the main attraction in this mode.
+   - The headless banner is hidden; the dock's highlighted ×32
+     button + the auto-opened stats panel are sufficient cues that
+     rendering is off. */
+.mode-headless {
+  /* In headless mode the minimap grows tall so the player can scan
+     car positions.  All ".minimap-relative" elements (stats block
+     position, charts panel top) reference --minimap-h, so changing
+     this variable cascades automatically. */
+  --minimap-h: 8rem;
+}
+
+.mode-headless .charts-panel {
+  /* Stretch to fill the canvas area: from directly below the
+     minimap (the stats panel now lives at the bottom, so no top
+     clearance is needed) down to just above the dock + ribbon-
+     stats, centred with a sensible max-width so it doesn't smear
+     edge-to-edge on ultrawide / 27" screens. */
+  top: calc(var(--sp-3) + var(--minimap-h) + var(--sp-2));
+  left: 50%;
+  right: auto;
+  bottom: calc(var(--sp-3) + 7.5rem + var(--sp-2) + 8rem);
+  width: calc(100vw - 2 * var(--sp-4));
+  max-width: 80rem;
+  max-height: none;
+  transform: translateX(-50%);
+}
+
+/* Strict-det fast-forward indicator — flashed centre-screen for
+   ~700 ms when the elite-cache shortcut fires and ends a gen early.
+   Accent green to read as "good thing happened" rather than warning. */
+.shortcut-banner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-5);
+  background: rgba(168, 255, 96, 0.12);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--r-md);
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 5;
+  backdrop-filter: blur(6px);
+  animation: shortcut-pulse 0.7s var(--ease-out) forwards;
+}
+
+.shortcut-banner[hidden] {
+  display: none;
+}
+
+.shortcut-banner__chev {
+  letter-spacing: 0;
+  opacity: 0.6;
+}
+
+@keyframes shortcut-pulse {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.92);
+  }
+  18% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.04);
+  }
+}
+
+.headless-banner {
+  display: none;
+}
+
+.minimap__track {
+  fill: none;
+  stroke: var(--color-fg-muted);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+
+.minimap__viewport {
+  fill: var(--color-accent);
+  fill-opacity: 0.1;
+  stroke: var(--color-accent);
+  stroke-opacity: 0.5;
+  stroke-width: 1;
+  /* Pure visual indicator — let pointer events fall through to
+     the underlying minimap SVG so the user can drag straight
+     across the green rect without the gesture vanishing. */
+  pointer-events: none;
+}
+
+.minimap__leader {
+  stroke: var(--color-accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+  /* Visual-only marker — clicks should hit the underlying car
+     tick instead of the leader highlight on top of it. */
+  pointer-events: none;
+}
+
+.minimap__record {
+  stroke: var(--color-bad);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.minimap__car {
+  stroke: var(--color-fg);
+  stroke-width: 1.5;
+  stroke-linecap: butt;
+  /* Cars are no longer individually clickable on the minimap (the
+     follow-this-car gesture was removed in v1.20.1).  Pointer
+     events fall through to the surrounding minimap surface so
+     drag-to-pan works across the ticks. */
+  pointer-events: none;
+}
+
+/* Leader-line colour switches to the warm accent when the running
+   leader is NOT a prev-gen elite — i.e. a newcomer just overtook
+   the inherited champions.  Mirrors the chassis tint on canvas so
+   both views agree on "fresh blood vs old champion". */
+.minimap__leader--newcomer {
+  stroke: var(--color-accent-warm);
+}
+
+/* ─── Stats / charts panel ──────────────────────────────────────────────── */
+
+.charts-panel {
+  position: absolute;
+  right: var(--sp-4);
+  /* Clear the dock at the bottom — two rows now, ≈ 7 rem tall total
+     (params row + actions row + dividers).  Bump the offset so the
+     charts panel doesn't overlap the always-visible Evolution row. */
+  bottom: calc(var(--sp-3) + 7.5rem);
+  width: min(40rem, calc(100vw - 2 * var(--sp-4)));
+  max-height: calc(100vh - var(--topbar-h) - 10rem);
+  overflow-y: auto;
+  background: rgba(22, 22, 26, 0.86);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-md);
+  padding: var(--sp-4);
+  backdrop-filter: blur(10px);
+  z-index: 1;
+}
+
+/* Header sits above the body grid: window selector pinned to the
+   right with its label as a chip beside it.  flex-end (rather than
+   space-between) keeps the label + segments visually grouped instead
+   of orphaned at opposite edges of a wide panel. */
+.charts-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+
+.charts-panel__label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  color: var(--color-fg-muted);
+  text-transform: uppercase;
+}
+
+.charts-panel__window {
+  flex: 0 0 auto;
+}
+
+.charts-panel[hidden] {
+  display: none;
+}
+
+/* ─── Stats panel: hero + histogram + genome trend grid ─────────── */
+
+/* Body uses a CSS grid with named areas.  Default stack:
+     hero        — best/mean line
+     stall       — stall heatmap (where on the track cars stop)
+     insights    — small sparklines (records broken + champion age)
+     genome      — average-genome sparkline grid
+   Speed-mode adds `speed` card next to hero on row 1, plus the
+   `finishDist` row right below with finish-time spread. */
+.stats-panel__body {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    'hero'
+    'stall'
+    'insights'
+    'genome';
+  gap: var(--sp-3);
+}
+
+.charts-panel--speed-mode .stats-panel__body {
+  grid-template-columns: minmax(20rem, 1fr) minmax(18rem, 1fr);
+  grid-template-areas:
+    'hero speed'
+    'finishDist finishDist'
+    'stall stall'
+    'insights insights'
+    'genome genome';
+}
+
+@media (max-width: 56rem) {
+  .charts-panel--speed-mode .stats-panel__body {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      'hero'
+      'speed'
+      'finishDist'
+      'stall'
+      'insights'
+      'genome';
+  }
+}
+
+.stats-card--speed {
+  grid-area: speed;
+}
+
+.stats-card--finish-dist {
+  grid-area: finishDist;
+}
+
+.stats-card--stall {
+  grid-area: stall;
+}
+
+.stats-card--insights {
+  grid-area: insights;
+}
+
+.stats-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  padding: var(--sp-3);
+  background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.stats-card--hero {
+  grid-area: hero;
+}
+
+.stats-card--genome {
+  grid-area: genome;
+}
+
+/* Stall heatmap — short, wide bar chart that mirrors the track length
+   so the player can read "trouble spot at 80m" at a glance. */
+.stats-stall__wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 22 / 3;
+  max-height: 8rem;
+}
+
+.stats-stall {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.stats-stall__bar {
+  fill: var(--color-fg-muted);
+  opacity: 0.85;
+}
+
+.stats-stall__baseline {
+  stroke: var(--color-border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.stats-stall__axis {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  color: var(--color-fg-dim);
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  user-select: none;
+}
+
+.stats-stall__axis--start {
+  bottom: 0.25rem;
+  left: 0.25rem;
+}
+
+.stats-stall__axis--end {
+  bottom: 0.25rem;
+  right: 0.25rem;
+}
+
+/* Insights — two sparkline cells, reuses the genome-grid cell layout
+   for visual consistency.  Just a 2-up grid that wraps on narrow. */
+.stats-insights__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 16rem));
+  justify-content: start;
+  gap: var(--sp-3) var(--sp-4);
+}
+
+/* Finish-time distribution — tall card with 3 lines (min/median/max)
+   over a soft band.  Same axis-label scaffolding as the hero chart so
+   y-min and y-max read cleanly outside the SVG. */
+.stats-finish-dist__wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 18 / 5;
+  max-height: 12rem;
+}
+
+.stats-finish-dist {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.stats-finish-dist__band {
+  fill: var(--color-fg-muted);
+  opacity: 0.12;
+}
+
+.stats-finish-dist__line {
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.stats-finish-dist__line--min {
+  stroke: var(--color-accent);
+}
+
+.stats-finish-dist__line--med {
+  stroke: var(--color-fg);
+  stroke-width: 1.8;
+}
+
+.stats-finish-dist__line--max {
+  stroke: var(--color-fg-muted);
+  stroke-dasharray: 3 3;
+}
+
+.stats-card__title {
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-muted);
+}
+
+.stats-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+/* Hero: combined best+mean line chart with two big readouts. */
+.stats-hero__values {
+  display: flex;
+  gap: var(--sp-5);
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.stats-hero__big {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stats-hero__big-label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  color: var(--color-fg-muted);
+  text-transform: uppercase;
+}
+
+.stats-hero__big-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-lg);
+  color: var(--color-fg);
+  font-weight: 600;
+}
+
+/* Chart wrap is a relative container so the absolutely-positioned
+   HTML axis labels anchor to the chart corners.  aspect-ratio gives
+   the chart a sensible shape even when the card grows wide. */
+.stats-hero__wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 7;
+  max-height: 14rem;
+}
+
+.stats-hero__chart {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.stats-hero__grid {
+  stroke: var(--color-border);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+  opacity: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+
+/* HTML axis labels stay crisp regardless of the SVG's stretch. */
+.stats-hero__axis {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  color: var(--color-fg-dim);
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  user-select: none;
+}
+
+.stats-hero__axis--y-top {
+  top: 0.25rem;
+  left: 0.25rem;
+}
+
+.stats-hero__axis--y-bot {
+  bottom: 0.25rem;
+  left: 0.25rem;
+}
+
+.stats-hero__axis--x-end {
+  bottom: 0.25rem;
+  right: 0.25rem;
+}
+
+/* Hover hairline — vertical line that follows the cursor across
+   the chart so the player sees exactly which gen the tooltip is
+   reading from. */
+.stats-hero__hairline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  margin-left: -0.5px;
+  background: rgba(168, 255, 96, 0.55);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.stats-hero__hairline[hidden] {
+  display: none;
+}
+
+/* Hover tooltip — small floating card with the exact value at
+   the hovered generation.  Positioned by JS near the cursor and
+   clamped to the wrap so it can't escape sideways. */
+.stats-hero__tooltip {
+  position: absolute;
+  top: 0.25rem;
+  background: rgba(22, 22, 26, 0.95);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
+  padding: 0.25rem var(--sp-2);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  line-height: 1.4;
+  color: var(--color-fg);
+  pointer-events: none;
+  z-index: 3;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+
+.stats-hero__tooltip[hidden] {
+  display: none;
+}
+
+.stats-hero__tooltip-gen {
+  color: var(--color-fg-muted);
+  font-size: 0.5625rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  margin-bottom: 1px;
+}
+
+.stats-hero__tooltip-row {
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-hero__tooltip-row--best {
+  color: #a8ff60;
+  font-weight: 600;
+}
+
+/* Hover affordance: tell the player the chart reacts to mouse. */
+.stats-hero__wrap {
+  cursor: crosshair;
+}
+
+/* Genome grid: auto-fill cells capped at a sensible max-width so
+   each cell stays readable.  At 60rem panel = 3 cols, 80rem = 4
+   cols, 100rem+ = 5+ cols (auto-fill).  Cells flow without
+   stretching to fill leftover space, so the title + value sit close
+   together on the left rather than orphaned at opposite edges. */
+.stats-genome__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 16rem));
+  justify-content: start;
+  gap: var(--sp-3) var(--sp-4);
+}
+
+.stats-genome__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.stats-genome__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.stats-genome__title {
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stats-genome__value {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg);
+  flex: 0 0 auto;
+}
+
+.stats-genome__spark {
+  width: 100%;
+  height: 2.25rem;
+  display: block;
 }
 
 /* ─── Mobile ─────────────────────────────────────────────────────────────── */
 
 @media (max-width: 720px) {
-  :root {
-    --panel-w: 100%;
-  }
-
-  .stage {
+  /* On narrow screens the stats block collapses to a single column
+     so it doesn't elbow out into the canvas. */
+  .ribbon-stats {
     grid-template-columns: 1fr;
-    grid-template-rows: 60vh auto;
   }
 
-  .panel {
-    border-left: none;
-    border-top: 1px solid var(--color-border);
+  /* Track drawer's two-column grid collapses to one column so each
+     slider gets its full row width on narrow screens. */
+  .dock-drawer--wide {
+    width: calc(100vw - 2 * var(--sp-4));
+  }
+
+  .dock-drawer__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Phone-portrait — switch the whole shell from a viewport-filling
+   absolute layout to a scrollable column.  The desktop dance of
+   "canvas fills the stage and chrome floats on top" doesn't fit a
+   narrow screen: with the dock + charts overlapping the canvas and
+   nothing scrollable, half the controls get clipped past the
+   viewport edge.  On mobile we instead stack:
+
+       topbar (sticky)
+       canvas (60 dvh — game stays visible while at scroll-top)
+       minimap
+       ribbon-stats
+       dock
+       charts-panel (when open)
+
+   Everything below the canvas is naturally scrollable, so the
+   player can flick down to reach every control + read every chart
+   without anything getting clipped.  Floating overlays (follow-
+   leader button, headless banner, shortcut banner) are hidden on
+   phone — they're nice-to-haves, the user already has direct
+   touch access to the same actions through the dock + idle-return
+   timer. */
+@media (max-width: 640px) {
+  body {
+    /* Page scrolls.  The whole point of the stack is being able to
+       flick past the canvas to reach controls. */
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  #app {
+    /* Drop the desktop fixed-grid; let children flow vertically and
+       grow the page height to fit. */
+    position: static;
+    display: flex;
+    flex-direction: column;
+    min-height: 100dvh;
+    grid-template-rows: none;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding: 0 var(--sp-3);
+    gap: var(--sp-2);
+  }
+
+  .brand__name {
+    /* Drop the wordmark — version chip + tutorial + lang are what
+       the player actually clicks on a phone. */
+    display: none;
+  }
+
+  /* Stage becomes a flex column that flows children naturally.
+     Children that were absolute-positioned overlays (canvas,
+     minimap, ribbon-stats, dock, charts-panel) all switch back to
+     static below so they pile up in document order. */
+  .stage {
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+    padding: var(--sp-3);
+  }
+
+  .stage__canvas {
+    /* The visible game viewport — 60 dvh is a comfortable slice of
+       canvas that stays readable, with enough screen left below
+       for a peek at the minimap so the player knows there's more
+       to scroll to.  flex-shrink: 0 prevents the canvas from
+       collapsing if the page contents push above the viewport. */
+    position: relative;
+    inset: auto;
+    width: 100%;
+    height: 60dvh;
+    border-radius: var(--r-md);
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .minimap {
+    position: static;
+    top: auto;
+    left: auto;
+    width: 100%;
+  }
+
+  .ribbon-stats {
+    position: static;
+    top: auto;
+    left: auto;
+    width: 100%;
+  }
+
+  .dock {
+    position: static;
+    transform: none;
+    width: 100%;
+    max-width: none;
+    bottom: auto;
+    left: auto;
+  }
+
+  /* Dock rows wrap so each slider gets its full width — easier to
+     drag with a thumb than a 6-rem-wide stub. */
+  .dock__row {
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-3);
+  }
+
+  .dock__row--params {
+    gap: var(--sp-2) var(--sp-3);
+  }
+
+  .dock__row--params .ctrl--inline {
+    flex-basis: 100%;
+  }
+
+  .dock__sep {
+    display: none;
+  }
+
+  .dock__section {
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+  }
+
+  /* Bigger touch targets — Apple HIG says 44 × 44 pt minimum.  Cars
+     are watched, not micro-managed; comfy beats compact. */
+  .segmented__item,
+  .dock__toggle,
+  .btn {
+    min-height: 2.5rem;
+  }
+
+  /* Drawers (Seed / Track) are positioned absolute relative to
+     their dock section.  On phone the dock is at the bottom of the
+     visible chunk; popping the drawer downward (instead of upward
+     into the canvas) keeps it within the scrollable area, and a
+     full-width drawer is easier to read than the desktop's fixed
+     17.5 rem / 37.5 rem widths. */
+  .dock-drawer--seed,
+  .dock-drawer--wide {
+    width: calc(100vw - 2 * var(--sp-3));
+    left: var(--sp-3);
+    bottom: auto;
+    top: calc(100% + var(--sp-2));
+  }
+
+  /* Charts panel flows like everything else.  No more fullscreen-
+     overlay trick from the v1.34.0 attempt — the page already
+     scrolls, the panel just sits in the column. */
+  .charts-panel {
+    position: static;
+    inset: auto;
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    z-index: auto;
+  }
+
+  /* In headless mode (×32+) the desktop rules stretch the charts
+     panel to fill the empty canvas area; on phone we already give
+     it full width via the rule above, so cancel the desktop
+     positioning. */
+  .mode-headless .charts-panel {
+    position: static;
+    transform: none;
+    inset: auto;
+    width: 100%;
+    max-width: none;
+    bottom: auto;
+    top: auto;
+    left: auto;
+  }
+
+  /* The follow-leader floating button stays — it's the player's
+     only way to manually re-engage leader-follow after a pan +
+     the visible cue that the camera went manual.  Reposition to
+     sit at the top of the canvas section instead of clearing a
+     desktop minimap that no longer overlays the canvas, and let
+     it scroll with the canvas (when the player scrolls down to
+     reach controls, the button leaves view alongside its host
+     canvas — that's intended). */
+  .btn--floating {
+    top: var(--sp-3);
+  }
+
+  /* Headless + shortcut banners stay hidden on mobile — both
+     communicate transient state cues that the dock + auto-opened
+     stats panel already make obvious without floating overlays. */
+  .headless-banner,
+  .shortcut-banner {
+    display: none;
+  }
+
+  /* Modal panels: keep the breathing-room rules from v1.34.0. */
+  .modal-settings__panel,
+  .modal-confirm__panel {
+    width: calc(100vw - 2 * var(--sp-3));
   }
 }

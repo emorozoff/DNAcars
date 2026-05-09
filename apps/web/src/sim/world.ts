@@ -373,6 +373,15 @@ export type ObstacleConfig = {
    * grip and slide.  Higher intensity = longer/denser regions.
    */
   slick: number;
+  /**
+   * Stairs intensity, 0..1.  Folded into the polyline as a series
+   * of vertical step-ups followed by step-downs (so the surface
+   * returns to ambient after the pile).  At high intensity the
+   * step height meets a typical wheel diameter so small wheels
+   * jam against the lip while big wheels accumulate elevation
+   * cleanly — a deliberate size-discriminator obstacle.
+   */
+  stairs: number;
 };
 
 /**
@@ -455,6 +464,7 @@ const DEFAULT_TRACK: TrackOptions = {
     ceiling: 0,
     cliff: 0,
     slick: 0,
+    stairs: 0,
   },
 };
 
@@ -509,15 +519,27 @@ const WALL_HEIGHT_M = 18;
  * transition the resulting trapezoid sides slope at ≈ 86°
  * which a chassis can't easily climb.
  */
-type PlacedObstacle = {
-  kind: 'cliff';
-  /** World-x of the pit's left edge. */
-  x: number;
-  /** Pit horizontal extent in metres. */
-  width: number;
-  /** Pit depth below ambient surface, metres. */
-  depth: number;
-};
+type PlacedObstacle =
+  | {
+      kind: 'cliff';
+      /** World-x of the pit's left edge. */
+      x: number;
+      /** Pit horizontal extent in metres. */
+      width: number;
+      /** Pit depth below ambient surface, metres. */
+      depth: number;
+    }
+  | {
+      kind: 'stairs';
+      /** World-x of the staircase's left edge (first step base). */
+      x: number;
+      /** Number of steps in the up half (so total = 2 × stepCount up + down). */
+      stepCount: number;
+      /** Vertical rise per step, metres. */
+      stepH: number;
+      /** Horizontal length of each step's flat tread, metres. */
+      stepLen: number;
+    };
 
 /**
  * Lay out the obstacle list deterministically from `rng`.  Density
@@ -624,6 +646,25 @@ function placeObstacles(
     }
   }
 
+  // Stairs — a folded-into-polyline staircase that climbs
+  // `stepCount` steps up, then `stepCount` steps back down to
+  // ambient.  Step height scales 0.4..2.5 m with intensity:
+  // small steps any car rolls over, tall steps make a wheel-
+  // diameter discriminator.  Step tread length is short (1..1.6 m)
+  // so the staircase has a steep, demanding profile.
+  if (obstacles.stairs > 0) {
+    const meanGap = gapFor(obstacles.stairs);
+    let x = OBSTACLE_START + rng() * meanGap;
+    while (x < trackLength - 15) {
+      const intensity = obstacles.stairs;
+      const stepCount = Math.max(2, Math.round(lerp(2, 5, intensity) * (0.85 + rng() * 0.3)));
+      const stepH = lerp(0.4, 2.5, intensity) * (0.8 + rng() * 0.4);
+      const stepLen = 1.0 + rng() * 0.6;
+      terrain.push({ kind: 'stairs', x, stepCount, stepH, stepLen });
+      x += stepCount * 2 * stepLen + meanGap * (0.55 + rng() * 0.9);
+    }
+  }
+
   // Drop walls that fall under (or right next to) a ceiling.  A wall
   // directly beneath a low ceiling is unbeatable: the car can't jump
   // over the wall (the ceiling blocks the arc) and can't drive under
@@ -725,23 +766,43 @@ export function generateTrack(seed: number, opts: Partial<TrackOptions> = {}): T
     // visually it reads as a vertical wall and a small chassis
     // can fall straight in without climbing back out.
     for (const ob of obstacles) {
-      if (ob.kind !== 'cliff') continue;
-      const d = x - ob.x;
-      if (d < 0 || d > ob.width) continue;
-      const distFromLeftEdge = d;
-      const distFromRightEdge = ob.width - d;
-      if (distFromLeftEdge < CLIFF_EDGE_M) {
-        const t = distFromLeftEdge / CLIFF_EDGE_M;
-        y = lerp(y, -ob.depth, t) * baseRamp + (1 - baseRamp) * y;
-      } else if (distFromRightEdge < CLIFF_EDGE_M) {
-        const t = distFromRightEdge / CLIFF_EDGE_M;
-        y = lerp(y, -ob.depth, t) * baseRamp + (1 - baseRamp) * y;
-      } else {
-        y = -ob.depth * baseRamp + (1 - baseRamp) * y;
+      if (ob.kind === 'cliff') {
+        const d = x - ob.x;
+        if (d < 0 || d > ob.width) continue;
+        const distFromLeftEdge = d;
+        const distFromRightEdge = ob.width - d;
+        if (distFromLeftEdge < CLIFF_EDGE_M) {
+          const t = distFromLeftEdge / CLIFF_EDGE_M;
+          y = lerp(y, -ob.depth, t) * baseRamp + (1 - baseRamp) * y;
+        } else if (distFromRightEdge < CLIFF_EDGE_M) {
+          const t = distFromRightEdge / CLIFF_EDGE_M;
+          y = lerp(y, -ob.depth, t) * baseRamp + (1 - baseRamp) * y;
+        } else {
+          y = -ob.depth * baseRamp + (1 - baseRamp) * y;
+        }
+        // A point can be inside at most one cliff in normal
+        // placement (gaps ≥ pit width), so it's safe to break.
+        break;
+      } else if (ob.kind === 'stairs') {
+        const totalLen = ob.stepCount * 2 * ob.stepLen;
+        const d = x - ob.x;
+        if (d < 0 || d > totalLen) continue;
+        // First half climbs up: step 0..stepCount-1.
+        // Second half climbs down: step stepCount..2*stepCount-1.
+        // The "elevation level" at each step is min(stepIdx,
+        // 2*stepCount-1-stepIdx) so we get a symmetric pyramid.
+        const stepIdx = Math.min(
+          ob.stepCount * 2 - 1,
+          Math.floor(d / ob.stepLen),
+        );
+        const level = Math.min(stepIdx, ob.stepCount * 2 - 1 - stepIdx) + 1;
+        // Add the staircase elevation on top of the ambient
+        // amplitude.  baseRamp keeps the spawn pad flat (so the
+        // first 25 m have no stairs even if the placer put one
+        // near x=0 — defensive against future placement changes).
+        y = y + level * ob.stepH * baseRamp;
+        break;
       }
-      // A point can be inside at most one cliff in normal
-      // placement (gaps ≥ pit width), so it's safe to break.
-      break;
     }
     // Run-out zone: from `finishZoneStart` to `length` the track
     // is held flat at whatever Y the terrain happened to be at the

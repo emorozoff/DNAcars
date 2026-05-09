@@ -100,6 +100,7 @@ const trackTuning: {
     ceiling: 0,
     cliff: 0,
     slick: 0,
+    stairs: 0,
   },
 };
 
@@ -1467,6 +1468,10 @@ function bindControls(): void {
   });
   bindSlider('ctrl-slick', 'ctrl-slick-val', (v) => {
     trackTuning.obstacles.slick = v / 100;
+    return `${v}%`;
+  });
+  bindSlider('ctrl-stairs', 'ctrl-stairs-val', (v) => {
+    trackTuning.obstacles.stairs = v / 100;
     return `${v}%`;
   });
 }

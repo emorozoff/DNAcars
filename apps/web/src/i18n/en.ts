@@ -21,6 +21,7 @@ const enRaw = {
   'panel.ceilings': 'Ceilings',
   'panel.cliffs': 'Cliffs',
   'panel.slick': 'Slick',
+  'panel.stairs': 'Stairs',
   'panel.restart': 'New population',
   'panel.restartConfirm': 'Start a new population?  This wipes every gene of the current run.',
   'panel.confirmYes': 'Confirm',

@@ -23,6 +23,7 @@ export const ru: Dictionary = {
   'panel.ceilings': 'Потолки',
   'panel.cliffs': 'Обрывы',
   'panel.slick': 'Скользко',
+  'panel.stairs': 'Ступени',
   'panel.restart': 'Новая популяция',
   'panel.restartConfirm': 'Создать новую популяцию?  Это удалит все гены текущего поколения.',
   'panel.confirmYes': 'Подтвердить',

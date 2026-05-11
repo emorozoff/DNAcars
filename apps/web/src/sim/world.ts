@@ -1238,7 +1238,11 @@ export function randomGenome(rng: Rng): Genome {
       // tyres — most rng() values will be near 0.5, evolution
       // searches outward from there.
       grip: 0.3 + 0.5 * rng(),
-      bounce: 0.4 * rng(),
+      // Quadratic bias toward zero in v1.54 — most generation-zero
+      // wheels start non-bouncy.  Evolution can push bounce up
+      // when the track rewards it (jumps, bumpy stairs), but flat-
+      // track populations no longer all start mid-band.
+      bounce: rng() * rng() * 0.4,
       // Offsets default near the centre (no offset) so initial cars
       // look like the v1.50 ones; mutation broadens the spread.
       offsetX: 0.4 + 0.2 * rng(),
@@ -1332,6 +1336,8 @@ type WheelRuntime = {
   radius: number;
   /** Cached genome power scalar 0..1, surfaced on snapshot for the renderer. */
   power: number;
+  /** Cached genome bounce scalar 0..1, surfaced for the renderer's tire inset. */
+  bounce: number;
   /** Pre-computed motor-torque fraction (mapped from power at build time). */
   motorTorque: number;
   onGround: boolean;
@@ -1519,6 +1525,14 @@ export type CarSnapshot = {
     radius: number;
     /** 0..1 power scalar — drives wheel-stroke thickness in the renderer. */
     power: number;
+    /**
+     * 0..1 bounce gene — drives the visual "tire" inset on the
+     * renderer.  At 0 the wheel reads as a solid puck; at 1 it
+     * reads as a hollow tyre with a small inner ring.  No effect
+     * on physics from the snapshot side (physics already applied
+     * the corresponding restitution at build time).
+     */
+    bounce: number;
     onGround: boolean;
   }[];
 };
@@ -1866,7 +1880,12 @@ function buildTrackColliders(world: RAPIER.World, track: Track): void {
       const desc = RAPIER.ColliderDesc.polyline(verts);
       desc
         .setFriction(frictionFor(kind))
-        .setRestitution(0.05)
+        // Restitution 0 in v1.54 (was 0.05).  Even a tiny rubbery
+        // baseline meant landed wheels and chassis micro-bounced
+        // forever on perfectly flat tracks — bouncing should be
+        // an evolved choice via the per-wheel `bounce` gene, not
+        // a universal track property.
+        .setRestitution(0)
         .setCollisionGroups(packGroups(GROUP.TRACK, GROUP.CHASSIS | GROUP.WHEEL));
       world.createCollider(desc, ground);
     };
@@ -2144,6 +2163,7 @@ function buildCar(
       joint,
       radius: wg.radius,
       power: wg.power,
+      bounce: clamp(wg.bounce ?? 0, 0, 1),
       motorTorque,
       onGround: false,
     };
@@ -2563,6 +2583,7 @@ function snapshotCar(car: CarRuntime): CarSnapshot {
         angle: w.body.rotation(),
         radius: w.radius,
         power: w.power,
+        bounce: w.bounce,
         onGround: w.onGround,
       };
     }),

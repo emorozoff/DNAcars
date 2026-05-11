@@ -824,6 +824,19 @@ function makeCarView(car: CarSnapshot): CarView {
     // White stroke so the per-frame tint (grey / green) renders at full
     // saturation.  A grey stroke would multiply colours down to mud.
     g.stroke({ color: 0xffffff, width: stroke });
+    // Bounce visualisation (v1.54): a thinner inner concentric ring
+    // whose radius shrinks with the per-wheel `bounce` gene.  At
+    // bounce ≈ 0 the inner ring sits flush with the rim and reads
+    // as a solid puck; at bounce ≈ 1 it shrinks to ~45 % of the
+    // wheel radius, producing a hollow "tyre with a hub" silhouette
+    // that's immediately recognisable as "this wheel is bouncy".
+    // Drawn only above a small threshold so non-bouncy wheels stay
+    // crisply solid.
+    if (w.bounce > 0.05) {
+      const innerR = w.radius * lerp(0.92, 0.45, w.bounce);
+      g.circle(0, 0, innerR);
+      g.stroke({ color: 0xffffff, width: stroke * 0.6 });
+    }
     // Spoke from hub to rim — a touch thinner than the rim so the orientation
     // reads at a glance.
     g.moveTo(0, 0).lineTo(w.radius, 0);

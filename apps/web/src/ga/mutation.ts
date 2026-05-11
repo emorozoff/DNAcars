@@ -68,7 +68,9 @@ export function mutateGenome(g: Genome, rate: number, rng: Rng): Genome {
       radius: lerp(TUNING.wheel.minRadius, TUNING.wheel.maxRadius, rng()),
       power: rng(),
       grip: 0.3 + 0.5 * rng(),
-      bounce: 0.4 * rng(),
+      // Quadratic bias toward zero — new wheels start non-bouncy.
+      // Same convention as world.randomGenome.
+      bounce: rng() * rng() * 0.4,
       offsetX: 0.4 + 0.2 * rng(),
       offsetY: 0.4 + 0.2 * rng(),
     });

@@ -261,9 +261,17 @@ export const TUNING = {
      * evolve toward 0 (no bounce), but a small positive value can
      * help with curbs/jumps.  Cap stays low so we don't get
      * superball cars.
+     *
+     * Lowered 0.3 → 0.18 in v1.54.2: even moderate bounce genes
+     * were producing visible "trampoline" behaviour on landings
+     * after the v1.51 size expansion (bigger wheels = more KE on
+     * impact = bigger rebound at the same restitution).  0.18
+     * keeps the gene meaningful (bouncy wheels still bounce
+     * noticeably on stairs and ramps) without ever turning a
+     * wheel into a literal spring.
      */
     minBounce: 0.0,
-    maxBounce: 0.3,
+    maxBounce: 0.18,
     /**
      * Wheel attach-point offset bound (m).  The per-wheel
      * `offsetX` / `offsetY` genes (each [0,1]) are mapped to
@@ -337,6 +345,18 @@ export const TUNING = {
   contact: {
     /** Max distance from track surface to count a wheel as "on ground". */
     wheelTolerance: 0.06,
+    /**
+     * Ground-stick threshold, m/s.  After each physics substep, any
+     * wheel that was grounded going in AND has a tiny upward linear
+     * velocity (< stickThreshold) has its vy zeroed out.  Eliminates
+     * solver-induced micro-bouncing on flat tracks where wheels
+     * otherwise oscillate between "in contact" and "1 cm above
+     * surface" forever.  Real jumps with high vy (> threshold)
+     * pass through unchanged.  Calibrated below typical ramp /
+     * stair launch velocities (≥ 3 m/s) so it doesn't suppress
+     * legitimate intentional air time.
+     */
+    stickThreshold: 1.2,
   },
   solver: {
     /**
@@ -1728,7 +1748,14 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
         }
         for (const w of worlds) w.step();
         for (const car of cars) {
-          if (!car.finished) clampImpulseSpike(car, opts.track, time + (s + 1) * subDt);
+          if (car.finished) continue;
+          // Suppress micro-bouncing before any downstream physics
+          // logic sees the post-step velocities.  Real intentional
+          // jumps (vy >> threshold) pass through; tiny solver
+          // tolerance impulses get zeroed so wheels stay glued to
+          // flat ground.
+          stickGroundedWheels(car);
+          clampImpulseSpike(car, opts.track, time + (s + 1) * subDt);
         }
       }
       time += SIM_DT;
@@ -2223,6 +2250,39 @@ function buildCar(
 function updateWheelContacts(car: CarRuntime, world: RAPIER.World): void {
   for (const w of car.wheels) {
     w.onGround = wheelOnGround(world, w.collider);
+  }
+}
+
+/**
+ * Eliminate micro-bouncing on flat tracks (v1.54.2).
+ *
+ * Why this exists: even with track restitution at 0 and the wheel
+ * `bounce` gene near 0, Rapier's contact solver still allows tiny
+ * upward impulses on wheels rolling along a polyline ground.
+ * Across 100 generations on a 0 % difficulty flat track, evolved
+ * race cars visibly chattered between "in contact" and "1 cm
+ * above" forever.  The bouncing isn't from the bounce gene — it's
+ * solver-tolerance noise.
+ *
+ * Fix: after each substep, for every wheel that was grounded
+ * coming into the substep, look at its current vy.  If it's small
+ * and positive (i.e. a micro-bounce is starting), zero it.  Real
+ * jumps with vy >> threshold pass through unchanged so the
+ * mechanic is invisible on ramps / stairs / cliff edges.
+ *
+ * Using the *pre-substep* `w.onGround` is intentional: even if the
+ * wheel left contact during this substep, suppressing a small
+ * upward velocity keeps it stuck to the ground next substep,
+ * which is exactly the behaviour we want.
+ */
+function stickGroundedWheels(car: CarRuntime): void {
+  const threshold = TUNING.contact.stickThreshold;
+  for (const w of car.wheels) {
+    if (!w.onGround) continue;
+    const vel = w.body.linvel();
+    if (vel.y > 0 && vel.y < threshold) {
+      w.body.setLinvel({ x: vel.x, y: 0 }, true);
+    }
   }
 }
 

@@ -447,11 +447,23 @@ export const TUNING = {
      *   4.0 m  → 0.8 m/s   — catches zombie drift AND slow
      *                       oscillators.  Real evolved cars
      *                       cruise at 5–10 m/s, so a 0.8 m/s
-     *                       cutoff is well below normal driving
-     *                       and only kills cars that aren't
-     *                       meaningfully going anywhere.
+     *                       cutoff was below normal driving.
+     *  10.0 m  → 2.0 m/s   — bumped in v1.56.1 after a user-
+     *                       reported zombie that landed on its
+     *                       side (tilt-gate killed the motor),
+     *                       dragged forward at 0.91 m/s for two
+     *                       minutes, and was never killed because
+     *                       the old 0.8 m/s threshold sat just
+     *                       below its drag speed.  2 m/s is still
+     *                       well below the slowest evolved cruise
+     *                       and leaves room for deliberate slow
+     *                       climbers on tall stairs (the bottleneck
+     *                       is the 5 s window, not the per-second
+     *                       rate — a climber that pauses for one
+     *                       step then resumes still clears 10 m
+     *                       over the window).
      */
-    progressEpsilon: 4,
+    progressEpsilon: 10,
     /**
      * If a car rolls back this far from its peak `maxX` we finish
      * it on the spot.  Catches the "leader lands upside-down after

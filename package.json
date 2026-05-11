@@ -1,6 +1,6 @@
 {
   "name": "dnacars",
-  "version": "1.55.0",
+  "version": "1.55.1",
   "private": true,
   "description": "Evolutionary 2D car simulation — genetic algorithm in your browser",
   "type": "module",

@@ -1368,6 +1368,19 @@ type WheelRuntime = {
   bounce: number;
   /** Pre-computed motor-torque fraction (mapped from power at build time). */
   motorTorque: number;
+  /**
+   * Hysteresis counter for the grounded state (in substeps).  Set
+   * to GROUND_HYSTERESIS_SUBSTEPS whenever Rapier's narrow phase
+   * reports a contact pair; decrements each substep that the wheel
+   * is *not* touching.  `onGround` reads `counter > 0` instead of
+   * the raw contact-pair check — masks the 1-tick flicker that
+   * happens at high speed on polyline edges (60 segment crossings
+   * a second, the contact manifold momentarily drops out at each
+   * vertex transition).  Real jumps last 100+ ms so the
+   * hysteresis grace period (≈ 33 ms at 120 Hz substep) is too
+   * short to mask them.
+   */
+  groundedHysteresis: number;
   onGround: boolean;
 };
 
@@ -2205,6 +2218,7 @@ function buildCar(
       power: wg.power,
       bounce: clamp(wg.bounce ?? 0, 0, 1),
       motorTorque,
+      groundedHysteresis: 0,
       onGround: false,
     };
   });
@@ -2254,9 +2268,26 @@ function buildCar(
 
 function updateWheelContacts(car: CarRuntime, world: RAPIER.World): void {
   for (const w of car.wheels) {
-    w.onGround = wheelOnGround(world, w.collider);
+    const raw = wheelOnGround(world, w.collider);
+    if (raw) {
+      w.groundedHysteresis = GROUND_HYSTERESIS_SUBSTEPS;
+    } else if (w.groundedHysteresis > 0) {
+      w.groundedHysteresis -= 1;
+    }
+    w.onGround = w.groundedHysteresis > 0;
   }
 }
+
+/**
+ * Number of physics substeps a wheel stays "grounded" after Rapier's
+ * narrow phase last reported a contact pair.  At 2 substeps × 60 Hz
+ * = 120 Hz substep rate, 4 substeps = ≈ 33 ms.  Real jumps stay
+ * airborne for 100+ ms so the grace period never masks them; the
+ * 1-substep polyline-edge contact dropout that produced the
+ * cosmetic white/green wheel flicker at high speed is fully
+ * covered.
+ */
+const GROUND_HYSTERESIS_SUBSTEPS = 4;
 
 /**
  * Eliminate micro-bouncing on flat tracks (v1.54.2).

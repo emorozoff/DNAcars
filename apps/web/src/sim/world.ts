@@ -1614,6 +1614,8 @@ export type WorldHandle = {
   getCarTimeline(idx: number): TimelineEntry[];
   /** Return how many times each safety net has fired for car `idx`. */
   getCarEventCounts(idx: number): { velClamp: number; spike: number };
+  /** Return the genome of car `idx`, for debug-bundle export. */
+  getCarGenome(idx: number): Genome | null;
   destroy(): void;
 };
 
@@ -1853,6 +1855,9 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
     },
     getCarEventCounts(idx): { velClamp: number; spike: number } {
       return cars[idx]?.eventCounts ?? { velClamp: 0, spike: 0 };
+    },
+    getCarGenome(idx): Genome | null {
+      return cars[idx]?.genome ?? null;
     },
     destroy(): void {
       for (const w of worlds) w.free();

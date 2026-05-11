@@ -40,6 +40,7 @@ import {
   randomGenome,
   SIM_DT,
   TUNING,
+  type CarSnapshot,
   type Genome,
   type ObstacleConfig,
   type Track,
@@ -602,6 +603,61 @@ async function bootstrap(): Promise<void> {
     throw new Error('pixi-root element missing');
   }
   const scene = await mountScene(host);
+
+  // Canvas click → build a debug bundle for the picked car and
+  // copy it to the clipboard.  Player can paste this to me when
+  // a specific car is doing something weird and I need to see
+  // its full state (genome + recent trajectory + event counts +
+  // track context).  Registered once at startup; the closure
+  // captures the mutable `session` variable so each click reads
+  // the *current* session even after generation rollovers.
+  scene.onCarPick((carIdx) => {
+    if (!session) return;
+    let carSnap: CarSnapshot | null = null;
+    try {
+      const snap = session.world.snapshot();
+      carSnap = snap.cars.find((c) => c.index === carIdx) ?? null;
+    } catch (err) {
+      console.warn('[debug-bundle] snapshot failed', err);
+    }
+    const genome = session.world.getCarGenome(carIdx);
+    const timeline = session.world.getCarTimeline(carIdx);
+    const events = session.world.getCarEventCounts(carIdx);
+    const bundle = {
+      version: __APP_VERSION__,
+      capturedAt: new Date().toISOString(),
+      trackSeed: session.trackSeed.toString(16).padStart(8, '0'),
+      trackLength: session.trackLength,
+      generation: session.generation,
+      carIndex: carIdx,
+      state: carSnap,
+      eventCounts: events,
+      genome,
+      timeline,
+    };
+    const json = JSON.stringify(bundle, null, 2);
+    void navigator.clipboard
+      .writeText(json)
+      .then(() => {
+        const bytes = new TextEncoder().encode(json).byteLength;
+        console.info(
+          `[debug-bundle] copied car #${carIdx} — gen ${session?.generation ?? '?'}, ` +
+            `${timeline.length} timeline samples, ${bytes} bytes.  Paste anywhere.`,
+        );
+        // Brief visible confirmation — flash the canvas border via
+        // a one-shot CSS class.  Falls back to a no-op if no
+        // matching rule is defined.
+        host.classList.add('stage__canvas--copied');
+        setTimeout(() => host.classList.remove('stage__canvas--copied'), 600);
+      })
+      .catch((err) => {
+        console.error('[debug-bundle] clipboard write failed', err);
+        console.info(
+          '[debug-bundle] full bundle for car #' + carIdx + ' below — copy it manually:',
+        );
+        console.info(json);
+      });
+  });
 
   const hud: Hud = {
     total: requireEl('stat-total'),
@@ -1568,6 +1624,13 @@ type Session = {
    *  host reads it at gen-end to feed collectStats so the stall-
    *  heatmap chart has a stable x-axis. */
   trackLength: number;
+  /** Seed of the track this session is running on — surfaced for
+   *  debug-bundle export when the user clicks a car. */
+  trackSeed: number;
+  /** Generation index for the current session.  Surfaced alongside
+   *  trackSeed for debug bundles so the bundle is fully
+   *  self-contained. */
+  generation: number;
 };
 
 type StartOptions = {
@@ -1859,6 +1922,8 @@ async function startSession(opts: StartOptions): Promise<Session> {
   return {
     world,
     trackLength: track.options.length,
+    trackSeed,
+    generation,
     stop(): void {
       running = false;
     },

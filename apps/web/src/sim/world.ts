@@ -297,8 +297,16 @@ export const TUNING = {
      * Bumped 8 → 6 rad/s in v1.53 to widen the slow end — useful
      * when a cautious GA finds that creeping over a tall step is
      * the only way past it.
+     *
+     * Bumped 6 → 14 rad/s in v1.54.1 by player feedback: at the
+     * low end the slowest cars looked like they were crawling
+     * forward, especially when paired with the new sub-0.2 m
+     * wheels (where ω = 6 rad/s gives only ≈ 1.2 m/s surface
+     * speed).  14 rad/s × min wheel = 1.4 m/s still leaves room
+     * for "deliberate slow climber" strategies but rules out
+     * "barely moving" as a viable random gen-0 baseline.
      */
-    minSpeed: 6,
+    minSpeed: 14,
     /**
      * Bumped 18 → 28 rad/s in v1.51.  At a 1 m wheel that's ≈ 28
      * m/s of surface speed — plenty for genuinely fast cars on

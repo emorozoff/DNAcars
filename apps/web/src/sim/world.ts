@@ -1277,7 +1277,7 @@ export function randomGenome(rng: Rng): Genome {
       offsetY: 0.4 + 0.2 * rng(),
     });
   }
-  return {
+  const genome: Genome = {
     chassisVertexCount: n,
     chassisRadii: radii,
     chassisAngleOffsets: angleOffsets,
@@ -1299,6 +1299,50 @@ export function randomGenome(rng: Rng): Genome {
     driveBias: 0.4 + 0.2 * rng(),
     hue: rng(),
   };
+  // Ensure the random genome itself is internally consistent — no
+  // two wheels at overlapping hub positions.  Without this the GA
+  // sees "5 wheels" in the genome but buildCar quietly drops
+  // overlaps, so evolution acts on a phantom wheel count.
+  return pruneOverlappingWheels(genome);
+}
+
+/**
+ * Drop any wheel whose decoded hub position overlaps a wheel earlier
+ * in the list (same circle-overlap test buildCar runs at construction
+ * time, but operating on the genome so the result is stable across
+ * runs and so the GA never sees phantom wheels).  Returns the same
+ * genome reference when no pruning was needed — cheap to call from
+ * randomGenome, crossover and mutation alike.
+ *
+ * Geometric rule: two wheels overlap when their hub-to-hub distance
+ * is below 85 % of the sum of their radii.  Matches the runtime
+ * dedup exactly so genomes pruned here produce identical car
+ * silhouettes in buildCar's safety pass.
+ */
+export function pruneOverlappingWheels(g: Genome): Genome {
+  if (g.wheels.length <= 1) return g;
+  const verts = chassisVertices(g);
+  const maxOff = TUNING.wheel.maxOffset;
+  type Slot = { gene: WheelGene; hub: { x: number; y: number } };
+  const accepted: Slot[] = [];
+  for (const wg of g.wheels) {
+    const anchor = verts[wg.attachVertex];
+    if (!anchor) continue;
+    const offX = ((wg.offsetX ?? 0.5) - 0.5) * 2 * maxOff;
+    const offY = ((wg.offsetY ?? 0.5) - 0.5) * 2 * maxOff;
+    const hub = { x: anchor.x + offX, y: anchor.y + offY };
+    let conflict = false;
+    for (const u of accepted) {
+      const d = Math.hypot(hub.x - u.hub.x, hub.y - u.hub.y);
+      if (d < (wg.radius + u.gene.radius) * 0.85) {
+        conflict = true;
+        break;
+      }
+    }
+    if (!conflict) accepted.push({ gene: wg, hub });
+  }
+  if (accepted.length === g.wheels.length) return g;
+  return { ...g, wheels: accepted.map((s) => s.gene) };
 }
 
 function randInt(rng: Rng, lo: number, hi: number): number {

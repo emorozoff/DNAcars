@@ -9,7 +9,13 @@
  * search.
  */
 
-import { TUNING, type Genome, type Rng, type WheelGene } from '../sim/world';
+import {
+  pruneOverlappingWheels,
+  TUNING,
+  type Genome,
+  type Rng,
+  type WheelGene,
+} from '../sim/world';
 
 export function mutateGenome(g: Genome, rate: number, rng: Rng): Genome {
   // Continuous-axis nudge: with probability `rate` push the value by
@@ -83,7 +89,7 @@ export function mutateGenome(g: Genome, rate: number, rng: Rng): Genome {
   if (rng() < rate * 0.2) ballastVertex = Math.floor(rng() * vertexCount);
   ballastVertex = clamp(ballastVertex, 0, Math.max(0, vertexCount - 1));
 
-  return {
+  const mutated: Genome = {
     chassisVertexCount: vertexCount,
     chassisRadii: radii,
     chassisAngleOffsets: angleOffsets,
@@ -111,6 +117,11 @@ export function mutateGenome(g: Genome, rate: number, rng: Rng): Genome {
     // genes there's no fitness penalty for landing on any value.
     hue: nudge(g.hue ?? 0, 0.25, 0, 1),
   };
+  // Mutation can shift a wheel's radius/offset enough to push it
+  // into another wheel's footprint.  Prune so the genome that
+  // crossover / fitness sees actually matches what buildCar will
+  // build, not a phantom-wheel ghost count.
+  return pruneOverlappingWheels(mutated);
 }
 
 function clamp(x: number, lo: number, hi: number): number {

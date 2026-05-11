@@ -23,7 +23,7 @@
  *     fail.
  */
 
-import type { Genome, Rng, WheelGene } from '../sim/world';
+import { pruneOverlappingWheels, type Genome, type Rng, type WheelGene } from '../sim/world';
 
 export function crossoverGenomes(a: Genome, b: Genome, rng: Rng): Genome {
   const pick = <T>(x: T, y: T): T => (rng() < 0.5 ? x : y);
@@ -75,7 +75,7 @@ export function crossoverGenomes(a: Genome, b: Genome, rng: Rng): Genome {
     });
   }
 
-  return {
+  const child: Genome = {
     chassisVertexCount: vertexCount,
     chassisRadii: radii,
     chassisAngleOffsets: angleOffsets,
@@ -90,6 +90,11 @@ export function crossoverGenomes(a: Genome, b: Genome, rng: Rng): Genome {
     driveBias: pick(a.driveBias ?? 0.5, b.driveBias ?? 0.5),
     hue: pick(a.hue ?? 0, b.hue ?? 0),
   };
+  // Crossover can pair a wheel from parent A with a chassis from
+  // parent B and produce overlaps that neither parent had on its
+  // own.  Prune so the child genome's wheel list matches what
+  // buildCar will physically construct.
+  return pruneOverlappingWheels(child);
 }
 
 function clampVertex(v: number, vertexCount: number): number {

@@ -423,19 +423,26 @@ button {
   border-radius: var(--r-sm);
 }
 
+/* Match the canvas style: outlined chassis polygon (no fill) +
+   wheels with rim + optional inner ring (bounce viz) + radial
+   spoke.  Per-element stroke-width is set inline by main.ts from
+   the wheel's `power` gene so the visual weight matches what
+   scene.ts draws on the Pixi canvas. */
 .leader-card__chassis {
-  fill: rgba(230, 230, 233, 0.18);
+  fill: none;
   stroke: var(--color-panel-accent);
   stroke-width: 0.06;
   stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
 }
 
-.leader-card__wheels circle {
-  fill: rgba(10, 10, 14, 0.85);
-  stroke: var(--color-fg-muted);
-  stroke-width: 0.05;
-  vector-effect: non-scaling-stroke;
+.leader-card__rim,
+.leader-card__inner {
+  fill: none;
+  stroke: var(--color-fg);
+}
+
+.leader-card__spoke {
+  stroke: var(--color-fg);
 }
 
 .leader-card__specs {

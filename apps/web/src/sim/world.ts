@@ -1797,12 +1797,18 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
         }
       }
       time += SIM_DT;
+      const trackLength = opts.track.options.length;
       for (const car of cars) {
         if (car.finished) continue;
         car.ageSec += SIM_DT;
         const x = car.chassis.translation().x;
         // maxX is the absolute peak — feeds GA fitness, must stay precise.
-        if (x > car.maxX) car.maxX = x;
+        // Clamped to trackLength so that solver-penetration through the
+        // end wall at high speed multipliers (×3+ uses fewer substeps,
+        // so a fast chassis can tunnel past the thin finish wall) can
+        // never produce records longer than the track itself
+        // (v1.59 fix).
+        if (x > car.maxX) car.maxX = Math.min(x, trackLength);
         // lastProgressX/Time only advance on a meaningful step (10 cm
         // by default), so noise-level drift can't keep the stall
         // timer from accumulating.

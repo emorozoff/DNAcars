@@ -285,6 +285,16 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   let cameraTarget = { x: 0, y: 0 };
   let cameraMode: CameraMode = { type: 'leader' };
   /**
+   * Cached position of the most recent running-leader (v1.59).  In
+   * leader mode the camera target tracks this value.  When no car is
+   * still running (everyone finished or stalled), we *keep* the last
+   * known target instead of falling back to "max-x of all cars" —
+   * that fallback was picking finished cars whose visual position
+   * differed from their physical one, which produced the "camera
+   * drifts backwards at the finish" report.
+   */
+  let lastLeaderTarget: { x: number; y: number } | null = null;
+  /**
    * Most recent leader index seen across setSnapshot calls.  When
    * it changes — i.e. some car overtook the previous leader by even
    * 1 cm — we kick the new leader's CarView into the same brief
@@ -544,8 +554,23 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         emitCameraChange();
       }
     }
-    camera.x += (cameraTarget.x - camera.x) * CAMERA_LERP;
-    camera.y += (cameraTarget.y - camera.y) * CAMERA_LERP;
+    // Snap-jump protection (v1.59): if the camera target jumps by
+    // more than the visible viewport width, lerping toward it
+    // produces a long unreadable slide.  This fires legitimately
+    // when a new generation starts (cars re-spawn at x ≈ 6 m while
+    // the camera was at x ≈ 200 m near the finish line) and when
+    // a different leader takes over from a great distance back.
+    // Just snap.  Otherwise lerp as before.
+    const dx = cameraTarget.x - camera.x;
+    const dy = cameraTarget.y - camera.y;
+    const viewportWidth = app.renderer.width / (window.devicePixelRatio || 1) / zoom;
+    if (Math.abs(dx) > viewportWidth || Math.abs(dy) > viewportWidth * 0.5) {
+      camera.x = cameraTarget.x;
+      camera.y = cameraTarget.y;
+    } else {
+      camera.x += dx * CAMERA_LERP;
+      camera.y += dy * CAMERA_LERP;
+    }
     applyTransform();
   });
 
@@ -750,23 +775,28 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     } else if (cameraMode.type === 'car' && pickedCar) {
       cameraTarget = visualCenter(pickedCar);
     } else {
-      const leader = runningLead ?? anyLead;
-      if (leader) {
-        const center = visualCenter(leader);
-        // Cap the leader-follow camera at the finish line.  Once a
-        // car has crossed the line its physical position keeps
-        // rolling forward (toward the wall), but the renderer
-        // freezes the visual at the finish line — so following the
-        // physical position would slide the camera right past the
-        // visual leader, leaving the finish marker stuck on the
-        // far left of the canvas with empty run-out filling the
-        // right.  Clamp to finishLineX so the marker stays
-        // centred + the visually-frozen leader stays at canvas
-        // centre as the run-out scrolls behind it.
+      // Leader mode (v1.59 rewrite):
+      //   - Track ONLY the still-running leader.  Do not fall back
+      //     to any finished car — that fallback was the source of
+      //     "camera drifts backwards at the finish": when the last
+      //     alive car finished, the camera jumped to a finished
+      //     car whose snapshot position differed from its visual
+      //     freeze-position, sliding the view backwards.
+      //   - When nobody is still running, hold at the last known
+      //     leader target.  Camera stays put instead of darting
+      //     to a random straggler.
+      if (runningLead) {
+        const center = visualCenter(runningLead);
+        // Cap at the finish line for visual continuity (the renderer
+        // freezes finishing cars there; following physical position
+        // would push the camera past the visible leader).
         if (trackFinishLineX !== null && center.x > trackFinishLineX) {
           center.x = trackFinishLineX;
         }
         cameraTarget = center;
+        lastLeaderTarget = { x: center.x, y: center.y };
+      } else if (lastLeaderTarget) {
+        cameraTarget = { x: lastLeaderTarget.x, y: lastLeaderTarget.y };
       }
     }
 
@@ -830,6 +860,14 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       trackPoints = points;
       trackPhysicalObstacles = physicalObstacles ?? [];
       trackFinishLineX = finishLineX ?? null;
+      // Drop the cached leader target — new generation, new cars,
+      // the old "leader at x=200" data point is meaningless on a
+      // fresh track.  Without this the snap-jump protection sees
+      // the first frame's new-spawn position as a huge delta and
+      // works correctly anyway, but clearing it explicitly is
+      // cleaner and avoids edge cases (e.g. very long track where
+      // the spawn is still inside the snap threshold).
+      lastLeaderTarget = null;
       drawTrack();
       if (minimap) minimap.setTrack(points);
       // Drop every cached per-car view.  Views are keyed by car index
@@ -869,6 +907,15 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     },
     followLeader(): void {
       cameraMode = { type: 'leader' };
+      // Hand the camera a target right now instead of waiting for
+      // the next setSnapshot tick.  Without this, clicking the
+      // "back to leader" button left the target on whatever the
+      // free-mode drag set, and the camera lerped toward that
+      // stale point for one frame before snapping forward — looked
+      // broken on screen.
+      if (lastLeaderTarget) {
+        cameraTarget = { x: lastLeaderTarget.x, y: lastLeaderTarget.y };
+      }
       emitCameraChange();
     },
     followCar(idx): void {

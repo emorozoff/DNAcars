@@ -2,11 +2,10 @@
  * Mutation — perturb each gene of a genome with probability `rate`.
  *
  * Continuous genes (radii, density, power, motor speed, angle offsets,
- * ballast, grip, bounce) get a small gaussian-ish kick.  Structural
- * genes (vertex count, wheel count, wheel attachment vertex, ballast
- * vertex) mutate more rarely — they tend to break the body plan rather
- * than refine it, so a high rate would just drown out useful local
- * search.
+ * grip, bounce) get a small gaussian-ish kick.  Structural genes
+ * (vertex count, wheel count, wheel attachment vertex) mutate more
+ * rarely — they tend to break the body plan rather than refine it,
+ * so a high rate would just drown out useful local search.
  */
 
 import {
@@ -82,13 +81,6 @@ export function mutateGenome(g: Genome, rate: number, rng: Rng): Genome {
     });
   }
 
-  // Ballast: vertex hops occasionally (like wheel attach), size and
-  // density nudge as continuous genes.  Default fallbacks make
-  // pre-v1.50 genomes mutate-clean.
-  let ballastVertex = g.ballastVertex ?? 0;
-  if (rng() < rate * 0.2) ballastVertex = Math.floor(rng() * vertexCount);
-  ballastVertex = clamp(ballastVertex, 0, Math.max(0, vertexCount - 1));
-
   const mutated: Genome = {
     chassisVertexCount: vertexCount,
     chassisRadii: radii,
@@ -99,9 +91,6 @@ export function mutateGenome(g: Genome, rate: number, rng: Rng): Genome {
       TUNING.chassis.minDensity,
       TUNING.chassis.maxDensity,
     ),
-    ballastVertex,
-    ballastSize: nudge(g.ballastSize ?? 0, 0.12, 0, 1),
-    ballastDensity: nudge(g.ballastDensity ?? 0.5, 0.12, 0, 1),
     wheels,
     motorSpeed: nudge(
       g.motorSpeed,

@@ -692,6 +692,7 @@ async function bootstrap(): Promise<void> {
 
   bindControls();
   bindDockDrawers();
+  bindLeaderCard();
 
   // Stats dashboard: a grid of sparklines that grows one column per
   // generation.  Hidden by default — toggle via the "📊 stats" button.
@@ -1557,6 +1558,174 @@ function bindStepButtons(): void {
   }
 }
 
+/* ─── Leader card (top-1 car model + specs) ──────────────────────────────── */
+
+const LEADER_CARD_COLLAPSED_KEY = 'dnacars.leaderCardCollapsed';
+
+/**
+ * Wire the collapsible header on the leader-card aside.  Persists
+ * the collapsed state across reloads in localStorage.
+ */
+function bindLeaderCard(): void {
+  const card = document.getElementById('leader-card');
+  const toggle = document.getElementById('leader-card-toggle');
+  if (!(card instanceof HTMLElement) || !(toggle instanceof HTMLButtonElement)) return;
+  const initial = localStorage.getItem(LEADER_CARD_COLLAPSED_KEY) === 'true';
+  setLeaderCardCollapsed(card, toggle, initial);
+  toggle.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    const next = card.getAttribute('data-collapsed') !== 'true';
+    setLeaderCardCollapsed(card, toggle, next);
+    localStorage.setItem(LEADER_CARD_COLLAPSED_KEY, String(next));
+  });
+}
+
+function setLeaderCardCollapsed(
+  card: HTMLElement,
+  toggle: HTMLButtonElement,
+  collapsed: boolean,
+): void {
+  card.setAttribute('data-collapsed', String(collapsed));
+  toggle.setAttribute('aria-expanded', String(!collapsed));
+}
+
+/**
+ * Pick the top-1 car for the leader card.
+ *  - When speed-mode is on AND at least one car has finished: choose
+ *    the finisher with the smallest finishTime.
+ *  - Otherwise: choose the car furthest along the track (`position.x`,
+ *    same rule the camera uses).
+ * Returns null only if the population is empty.
+ */
+function selectTop1(snap: WorldSnapshot): CarSnapshot | null {
+  if (snap.cars.length === 0) return null;
+  if (speedMode) {
+    let best: CarSnapshot | null = null;
+    for (const car of snap.cars) {
+      if (!car.finished || car.finishTime === null) continue;
+      if (best === null || (best.finishTime ?? Infinity) > (car.finishTime ?? Infinity)) {
+        best = car;
+      }
+    }
+    if (best) return best;
+  }
+  let furthest: CarSnapshot | null = null;
+  for (const car of snap.cars) {
+    if (furthest === null || car.position.x > furthest.position.x) furthest = car;
+  }
+  return furthest;
+}
+
+/** Cached top-1 index so the SVG model is only redrawn when the
+ *  leader actually changes (the wheel/chassis SVG layout doesn't
+ *  change per frame for a given car — only its world position
+ *  does, which we don't show in the local-space model view). */
+let lastLeaderIdx = -1;
+
+function updateLeaderCard(snap: WorldSnapshot, world: WorldHandle): void {
+  const card = document.getElementById('leader-card');
+  if (!(card instanceof HTMLElement)) return;
+  const top = selectTop1(snap);
+  if (!top) {
+    lastLeaderIdx = -1;
+    return;
+  }
+
+  // Index / spec values update every tick — these read from the
+  // current snapshot rather than the genome so finish-time and
+  // distance reflect the live state.
+  setLeaderText('leader-index', `#${top.index + 1}`);
+  setLeaderText('leader-spec-distance', `${top.position.x.toFixed(1)} m`);
+  setLeaderText(
+    'leader-spec-finish',
+    top.finished && top.finishTime !== null ? `${top.finishTime.toFixed(2)} s` : '—',
+  );
+  setLeaderText('leader-spec-speed', `${top.velocity.x.toFixed(2)} m/s`);
+  setLeaderText('leader-spec-wheels', String(top.wheels.length));
+
+  // Genome-derived specs only need to update when the leader changes
+  // (genome is constant for the lifetime of a car).  The SVG model
+  // likewise: chassis + wheel positions in local space don't change
+  // while the car is alive.
+  if (top.index === lastLeaderIdx) return;
+  lastLeaderIdx = top.index;
+
+  const genome = world.getCarGenome(top.index);
+  if (genome) {
+    setLeaderText('leader-spec-motor', genome.motorSpeed.toFixed(1));
+    setLeaderText('leader-spec-density', genome.chassisDensity.toFixed(0));
+    setLeaderText('leader-spec-aero', genome.aero.toFixed(2));
+    setLeaderText('leader-spec-stabilizer', genome.stabilizer.toFixed(2));
+  }
+
+  renderLeaderModel(top);
+}
+
+function setLeaderText(id: string, value: string): void {
+  const el = document.getElementById(id);
+  if (el && el.textContent !== value) el.textContent = value;
+}
+
+/**
+ * Redraw the SVG car model from the local-space chassis vertices
+ * and wheel positions on the CarSnapshot.  We don't apply the live
+ * orientation — the model shows the design as-built, not the
+ * rolling state, so the player can read the geometry.
+ */
+function renderLeaderModel(car: CarSnapshot): void {
+  const chassis = document.getElementById('leader-chassis');
+  const wheels = document.getElementById('leader-wheels');
+  const svg = document.getElementById('leader-model');
+  if (!(svg instanceof SVGSVGElement) || !chassis || !wheels) return;
+
+  // Rapier/Pixi use y-up; SVG uses y-down.  Negate y on every coord
+  // so the model reads with the chassis upright and wheels below
+  // it (matching how the player sees the car on canvas).  Vertices
+  // on the snapshot are already in chassis-local space — no need
+  // to undo the live world rotation.
+  const pts = car.vertices.map((v) => `${v.x.toFixed(3)},${(-v.y).toFixed(3)}`).join(' ');
+  chassis.setAttribute('points', pts);
+
+  while (wheels.firstChild) wheels.removeChild(wheels.firstChild);
+  for (const w of car.wheels) {
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', w.position.x.toFixed(3));
+    circle.setAttribute('cy', (-w.position.y).toFixed(3));
+    circle.setAttribute('r', w.radius.toFixed(3));
+    wheels.appendChild(circle);
+  }
+
+  // Fit the SVG viewBox to the (y-flipped) model bounds with a
+  // small padding so a bicycle-sized car and a SUV-sized car both
+  // fill the model panel sensibly.
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minYFlipped = Infinity;
+  let maxYFlipped = -Infinity;
+  for (const v of car.vertices) {
+    if (v.x < minX) minX = v.x;
+    if (v.x > maxX) maxX = v.x;
+    const yf = -v.y;
+    if (yf < minYFlipped) minYFlipped = yf;
+    if (yf > maxYFlipped) maxYFlipped = yf;
+  }
+  for (const w of car.wheels) {
+    if (w.position.x - w.radius < minX) minX = w.position.x - w.radius;
+    if (w.position.x + w.radius > maxX) maxX = w.position.x + w.radius;
+    const yf = -w.position.y;
+    if (yf - w.radius < minYFlipped) minYFlipped = yf - w.radius;
+    if (yf + w.radius > maxYFlipped) maxYFlipped = yf + w.radius;
+  }
+  if (!Number.isFinite(minX)) {
+    svg.setAttribute('viewBox', '-2 -1.5 4 3');
+    return;
+  }
+  const pad = 0.2;
+  const width = maxX - minX + 2 * pad;
+  const height = maxYFlipped - minYFlipped + 2 * pad;
+  svg.setAttribute('viewBox', `${minX - pad} ${minYFlipped - pad} ${width} ${height}`);
+}
+
 /**
  * Wire the dock toggles (Seed / Evolution / Track) so each opens
  * its sibling drawer popover above the dock and only one drawer is
@@ -1876,6 +2045,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
         lastHudTextMs = now;
         updateHud(hud, snap);
         updateThroughputDisplay();
+        updateLeaderCard(snap, world);
       }
     }
 

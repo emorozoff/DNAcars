@@ -1,4 +1,13 @@
 const enRaw = {
+  'leader.title': 'Top 1',
+  'leader.distance': 'Distance',
+  'leader.finish': 'Finish',
+  'leader.speed': 'Speed',
+  'leader.wheels': 'Wheels',
+  'leader.motor': 'Motor',
+  'leader.density': 'Density',
+  'leader.aero': 'Aero',
+  'leader.stabilizer': 'Stabilizer',
   'panel.generation': 'Generation',
   'panel.cars': 'Population',
   'panel.lead': 'Leader',

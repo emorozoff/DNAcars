@@ -810,6 +810,7 @@ async function bootstrap(): Promise<void> {
     eliteCache = null;
     bestEver = 0;
     history.length = 0;
+    clearLeaderCard();
     // Drop the cached fixed seed unless the caller is preserving
     // it (the seed-paste flow asks to keep its just-applied seed
     // through the reset; the default "↻ New population" button
@@ -1458,6 +1459,10 @@ async function bootstrap(): Promise<void> {
           trackRecordHistory.length = 0;
           scene.setRecordHistory([]);
         }
+        // Refresh the champion card with this generation's winner —
+        // fastest finisher if speed-mode + any finishers, otherwise
+        // the furthest-traveled car.
+        updateLeaderCardFromGenEnd(results, generation);
         // Record summary stats and refresh sparklines.
         const durationSec = (performance.now() - sessionStartedAt) / 1000;
         history.push(collectStats(generation, durationSec, results, session?.trackLength ?? 0));
@@ -1558,9 +1563,10 @@ function bindStepButtons(): void {
   }
 }
 
-/* ─── Leader card (top-1 car model + specs) ──────────────────────────────── */
+/* ─── Leader card (champion of previous race) ───────────────────────────── */
 
 const LEADER_CARD_COLLAPSED_KEY = 'dnacars.leaderCardCollapsed';
+const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /**
  * Wire the collapsible header on the leader-card aside.  Persists
@@ -1590,75 +1596,94 @@ function setLeaderCardCollapsed(
 }
 
 /**
- * Pick the top-1 car for the leader card.
- *  - When speed-mode is on AND at least one car has finished: choose
- *    the finisher with the smallest finishTime.
- *  - Otherwise: choose the car furthest along the track (`position.x`,
- *    same rule the camera uses).
- * Returns null only if the population is empty.
+ * Pick the champion from the previous generation's Scored results.
+ *  - Speed-mode on AND at least one car finished: the finisher with
+ *    the smallest finishTime.
+ *  - Otherwise (speed-mode off OR no finishers): the car that
+ *    traveled the furthest distance.
  */
-function selectTop1(snap: WorldSnapshot): CarSnapshot | null {
-  if (snap.cars.length === 0) return null;
+function selectChampion(results: Scored[]): Scored | null {
+  if (results.length === 0) return null;
   if (speedMode) {
-    let best: CarSnapshot | null = null;
-    for (const car of snap.cars) {
-      if (!car.finished || car.finishTime === null) continue;
-      if (best === null || (best.finishTime ?? Infinity) > (car.finishTime ?? Infinity)) {
-        best = car;
-      }
+    let bestFin: Scored | null = null;
+    for (const r of results) {
+      if (r.finishTime === null) continue;
+      if (bestFin === null || r.finishTime < (bestFin.finishTime ?? Infinity)) bestFin = r;
     }
-    if (best) return best;
+    if (bestFin) return bestFin;
   }
-  let furthest: CarSnapshot | null = null;
-  for (const car of snap.cars) {
-    if (furthest === null || car.position.x > furthest.position.x) furthest = car;
+  let best: Scored | null = null;
+  for (const r of results) {
+    if (best === null || r.travel > best.travel) best = r;
   }
-  return furthest;
+  return best;
 }
 
-/** Cached top-1 index so the SVG model is only redrawn when the
- *  leader actually changes (the wheel/chassis SVG layout doesn't
- *  change per frame for a given car — only its world position
- *  does, which we don't show in the local-space model view). */
-let lastLeaderIdx = -1;
-
-function updateLeaderCard(snap: WorldSnapshot, world: WorldHandle): void {
-  const card = document.getElementById('leader-card');
-  if (!(card instanceof HTMLElement)) return;
-  const top = selectTop1(snap);
-  if (!top) {
-    lastLeaderIdx = -1;
-    return;
-  }
-
-  // Index / spec values update every tick — these read from the
-  // current snapshot rather than the genome so finish-time and
-  // distance reflect the live state.
-  setLeaderText('leader-index', `#${top.index + 1}`);
-  setLeaderText('leader-spec-distance', `${top.position.x.toFixed(1)} m`);
+/**
+ * Called from onGenerationEnd with the just-finished generation's
+ * results.  Picks the champion, redraws the SVG model from the
+ * winning genome (chassis vertex formula + wheel hub formula match
+ * world.ts so the model looks like the canvas representation), and
+ * fills the spec list with genome + run-result values.
+ */
+function updateLeaderCardFromGenEnd(results: Scored[], generation: number): void {
+  const top = selectChampion(results);
+  if (!top) return;
+  setLeaderText('leader-index', `gen #${generation}`);
+  setLeaderText('leader-spec-distance', `${top.travel.toFixed(1)} m`);
   setLeaderText(
-    'leader-spec-finish',
-    top.finished && top.finishTime !== null ? `${top.finishTime.toFixed(2)} s` : '—',
+    'leader-spec-time',
+    top.finishTime !== null ? `${top.finishTime.toFixed(2)} s` : '—',
   );
-  setLeaderText('leader-spec-speed', `${top.velocity.x.toFixed(2)} m/s`);
-  setLeaderText('leader-spec-wheels', String(top.wheels.length));
 
-  // Genome-derived specs only need to update when the leader changes
-  // (genome is constant for the lifetime of a car).  The SVG model
-  // likewise: chassis + wheel positions in local space don't change
-  // while the car is alive.
-  if (top.index === lastLeaderIdx) return;
-  lastLeaderIdx = top.index;
+  const g = top.genome;
+  setLeaderText('leader-spec-wheels', String(g.wheels.length));
+  setLeaderText('leader-spec-motor', g.motorSpeed.toFixed(1));
+  const meanPower =
+    g.wheels.length > 0 ? g.wheels.reduce((s, w) => s + w.power, 0) / g.wheels.length : 0;
+  setLeaderText('leader-spec-power', `${(meanPower * 100).toFixed(0)}%`);
+  setLeaderText('leader-spec-drive', driveBiasLabel(g.driveBias));
+  const meanGrip =
+    g.wheels.length > 0 ? g.wheels.reduce((s, w) => s + w.grip, 0) / g.wheels.length : 0;
+  setLeaderText('leader-spec-grip', `${(meanGrip * 100).toFixed(0)}%`);
+  setLeaderText('leader-spec-aero', g.aero.toFixed(2));
+  setLeaderText('leader-spec-stabilizer', g.stabilizer.toFixed(2));
 
-  const genome = world.getCarGenome(top.index);
-  if (genome) {
-    setLeaderText('leader-spec-motor', genome.motorSpeed.toFixed(1));
-    setLeaderText('leader-spec-density', genome.chassisDensity.toFixed(0));
-    setLeaderText('leader-spec-aero', genome.aero.toFixed(2));
-    setLeaderText('leader-spec-stabilizer', genome.stabilizer.toFixed(2));
+  renderLeaderModelFromGenome(g);
+}
+
+function driveBiasLabel(b: number): string {
+  if (b < 0.33) return t('leader.driveRear');
+  if (b > 0.66) return t('leader.driveFront');
+  return t('leader.driveFull');
+}
+
+/**
+ * Reset the leader card to its empty state.  Called from freshRun
+ * when the player clicks New Population — the previous champion is
+ * no longer relevant for a freshly seeded run.
+ */
+function clearLeaderCard(): void {
+  setLeaderText('leader-index', '—');
+  for (const id of [
+    'leader-spec-distance',
+    'leader-spec-time',
+    'leader-spec-wheels',
+    'leader-spec-motor',
+    'leader-spec-power',
+    'leader-spec-drive',
+    'leader-spec-grip',
+    'leader-spec-aero',
+    'leader-spec-stabilizer',
+  ]) {
+    setLeaderText(id, '—');
   }
-
-  renderLeaderModel(top);
+  const chassis = document.getElementById('leader-chassis');
+  const wheels = document.getElementById('leader-wheels');
+  if (chassis) chassis.setAttribute('points', '');
+  if (wheels) {
+    while (wheels.firstChild) wheels.removeChild(wheels.firstChild);
+  }
 }
 
 function setLeaderText(id: string, value: string): void {
@@ -1667,69 +1692,112 @@ function setLeaderText(id: string, value: string): void {
 }
 
 /**
- * Redraw the SVG car model from the local-space chassis vertices
- * and wheel positions on the CarSnapshot.  We don't apply the live
- * orientation — the model shows the design as-built, not the
- * rolling state, so the player can read the geometry.
+ * Build the chassis-local polygon vertices from the genome — same
+ * formula as world.ts:chassisVertices.  Each vertex sits at its
+ * uniform angular slot, nudged by the per-vertex offset gene within
+ * the jitter band that keeps the polygon convex.
  */
-function renderLeaderModel(car: CarSnapshot): void {
-  const chassis = document.getElementById('leader-chassis');
-  const wheels = document.getElementById('leader-wheels');
+function computeChassisVertices(g: Genome): { x: number; y: number }[] {
+  const verts: { x: number; y: number }[] = [];
+  const n = g.chassisVertexCount;
+  const gap = (Math.PI * 2) / n;
+  const maxJitter = gap * 0.5 * TUNING.chassis.angleJitterFraction;
+  for (let i = 0; i < n; i++) {
+    const baseAngle = ((i + 0.5) / n) * Math.PI * 2;
+    const offset01 = Math.max(0, Math.min(1, g.chassisAngleOffsets?.[i] ?? 0.5));
+    const angle = baseAngle + (offset01 - 0.5) * 2 * maxJitter;
+    const r = g.chassisRadii[i] ?? 0.5;
+    verts.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r });
+  }
+  return verts;
+}
+
+/**
+ * Redraw the SVG car model from the genome alone — no live
+ * snapshot needed.  Mirrors the canvas style from scene.ts:969+:
+ * outlined chassis polygon (no fill), wheels with rim + optional
+ * inner ring (bounce viz) + radial spoke, stroke width scaled by
+ * the wheel's `power` gene.  Y-axis flipped vs Rapier (sim y-up,
+ * SVG y-down) so the model reads with wheels below the body.
+ */
+function renderLeaderModelFromGenome(g: Genome): void {
   const svg = document.getElementById('leader-model');
-  if (!(svg instanceof SVGSVGElement) || !chassis || !wheels) return;
+  const chassis = document.getElementById('leader-chassis');
+  const wheelsEl = document.getElementById('leader-wheels');
+  if (!(svg instanceof SVGSVGElement) || !chassis || !wheelsEl) return;
 
-  // Convert each wheel from world space → chassis-local.  Snapshot
-  // gives wheels[i].position as the wheel rigid-body's world
-  // translation (see world.ts:2684), but vertices[] are already in
-  // chassis-local space.  scene.ts:1097-1099 does the same un-
-  // rotate to render wheels relative to the chassis container.
-  const cos = Math.cos(-car.angle);
-  const sin = Math.sin(-car.angle);
-  const localWheels = car.wheels.map((w) => {
-    const dx = w.position.x - car.position.x;
-    const dy = w.position.y - car.position.y;
-    return {
-      x: dx * cos - dy * sin,
-      y: dx * sin + dy * cos,
-      r: w.radius,
-    };
-  });
-
-  // Rapier/Pixi use y-up; SVG uses y-down.  Negate y on every coord
-  // so the model reads with the chassis upright and wheels below
-  // it (matching how the player sees the car on canvas).
-  const pts = car.vertices.map((v) => `${v.x.toFixed(3)},${(-v.y).toFixed(3)}`).join(' ');
+  const verts = computeChassisVertices(g);
+  const pts = verts.map((v) => `${v.x.toFixed(3)},${(-v.y).toFixed(3)}`).join(' ');
   chassis.setAttribute('points', pts);
 
-  while (wheels.firstChild) wheels.removeChild(wheels.firstChild);
-  for (const w of localWheels) {
-    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle.setAttribute('cx', w.x.toFixed(3));
-    circle.setAttribute('cy', (-w.y).toFixed(3));
-    circle.setAttribute('r', w.r.toFixed(3));
-    wheels.appendChild(circle);
+  while (wheelsEl.firstChild) wheelsEl.removeChild(wheelsEl.firstChild);
+  const maxOff = TUNING.wheel.maxOffset;
+  type Hub = { x: number; y: number; r: number };
+  const hubs: Hub[] = [];
+  for (const wg of g.wheels) {
+    const anchor = verts[wg.attachVertex] ?? { x: 0, y: 0 };
+    const hub: Hub = {
+      x: anchor.x + ((wg.offsetX ?? 0.5) - 0.5) * 2 * maxOff,
+      y: anchor.y + ((wg.offsetY ?? 0.5) - 0.5) * 2 * maxOff,
+      r: wg.radius,
+    };
+    hubs.push(hub);
+    const power = Math.max(0, Math.min(1, wg.power));
+    const stroke =
+      TUNING.wheel.minStroke + (TUNING.wheel.maxStroke - TUNING.wheel.minStroke) * power;
+
+    const group = document.createElementNS(SVG_NS, 'g');
+    group.setAttribute('transform', `translate(${hub.x.toFixed(3)} ${(-hub.y).toFixed(3)})`);
+
+    const rim = document.createElementNS(SVG_NS, 'circle');
+    rim.setAttribute('cx', '0');
+    rim.setAttribute('cy', '0');
+    rim.setAttribute('r', wg.radius.toFixed(3));
+    rim.setAttribute('class', 'leader-card__rim');
+    rim.setAttribute('stroke-width', stroke.toFixed(3));
+    group.appendChild(rim);
+
+    if (wg.bounce > 0.05) {
+      const bounce = Math.max(0, Math.min(1, wg.bounce));
+      const innerR = wg.radius * (0.92 + (0.45 - 0.92) * bounce);
+      const inner = document.createElementNS(SVG_NS, 'circle');
+      inner.setAttribute('cx', '0');
+      inner.setAttribute('cy', '0');
+      inner.setAttribute('r', innerR.toFixed(3));
+      inner.setAttribute('class', 'leader-card__inner');
+      inner.setAttribute('stroke-width', (stroke * 0.6).toFixed(3));
+      group.appendChild(inner);
+    }
+
+    const spoke = document.createElementNS(SVG_NS, 'line');
+    spoke.setAttribute('x1', '0');
+    spoke.setAttribute('y1', '0');
+    spoke.setAttribute('x2', wg.radius.toFixed(3));
+    spoke.setAttribute('y2', '0');
+    spoke.setAttribute('class', 'leader-card__spoke');
+    spoke.setAttribute('stroke-width', (stroke * 0.7).toFixed(3));
+    group.appendChild(spoke);
+
+    wheelsEl.appendChild(group);
   }
 
-  // Fit the SVG viewBox to the (y-flipped) model bounds with a
-  // small padding so a bicycle-sized car and a SUV-sized car both
-  // fill the model panel sensibly.
   let minX = Infinity;
   let maxX = -Infinity;
-  let minYFlipped = Infinity;
-  let maxYFlipped = -Infinity;
-  for (const v of car.vertices) {
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const v of verts) {
+    const yf = -v.y;
     if (v.x < minX) minX = v.x;
     if (v.x > maxX) maxX = v.x;
-    const yf = -v.y;
-    if (yf < minYFlipped) minYFlipped = yf;
-    if (yf > maxYFlipped) maxYFlipped = yf;
+    if (yf < minY) minY = yf;
+    if (yf > maxY) maxY = yf;
   }
-  for (const w of localWheels) {
-    if (w.x - w.r < minX) minX = w.x - w.r;
-    if (w.x + w.r > maxX) maxX = w.x + w.r;
-    const yf = -w.y;
-    if (yf - w.r < minYFlipped) minYFlipped = yf - w.r;
-    if (yf + w.r > maxYFlipped) maxYFlipped = yf + w.r;
+  for (const h of hubs) {
+    const yf = -h.y;
+    if (h.x - h.r < minX) minX = h.x - h.r;
+    if (h.x + h.r > maxX) maxX = h.x + h.r;
+    if (yf - h.r < minY) minY = yf - h.r;
+    if (yf + h.r > maxY) maxY = yf + h.r;
   }
   if (!Number.isFinite(minX)) {
     svg.setAttribute('viewBox', '-2 -1.5 4 3');
@@ -1737,8 +1805,8 @@ function renderLeaderModel(car: CarSnapshot): void {
   }
   const pad = 0.2;
   const width = maxX - minX + 2 * pad;
-  const height = maxYFlipped - minYFlipped + 2 * pad;
-  svg.setAttribute('viewBox', `${minX - pad} ${minYFlipped - pad} ${width} ${height}`);
+  const height = maxY - minY + 2 * pad;
+  svg.setAttribute('viewBox', `${minX - pad} ${minY - pad} ${width} ${height}`);
 }
 
 /**
@@ -2060,7 +2128,6 @@ async function startSession(opts: StartOptions): Promise<Session> {
         lastHudTextMs = now;
         updateHud(hud, snap);
         updateThroughputDisplay();
-        updateLeaderCard(snap, world);
       }
     }
 

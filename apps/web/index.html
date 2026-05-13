@@ -56,6 +56,69 @@
             <span class="shortcut-banner__text" data-i18n="panel.fastForward">Fast-forward</span>
             <span class="shortcut-banner__chev" aria-hidden="true">»»</span>
           </div>
+          <!-- Top-1 car card — sits in the top-right corner of the
+               canvas area.  Updated each HUD tick by updateLeaderCard:
+               picks the fastest finisher (when speed-mode is on and
+               someone finished) or the furthest-traveled car
+               otherwise.  Collapsible via the toggle in the header. -->
+          <aside class="leader-card" id="leader-card" aria-label="Top 1 car">
+            <button
+              class="leader-card__toggle"
+              id="leader-card-toggle"
+              type="button"
+              aria-expanded="true"
+              aria-controls="leader-card-body"
+            >
+              <span class="leader-card__title" data-i18n="leader.title">Top 1</span>
+              <span class="leader-card__index" id="leader-index">—</span>
+              <span class="leader-card__chevron" aria-hidden="true">▾</span>
+            </button>
+            <div class="leader-card__body" id="leader-card-body">
+              <svg
+                class="leader-card__model"
+                id="leader-model"
+                viewBox="-2 -1.5 4 3"
+                preserveAspectRatio="xMidYMid meet"
+              >
+                <polygon class="leader-card__chassis" id="leader-chassis" />
+                <g class="leader-card__wheels" id="leader-wheels"></g>
+              </svg>
+              <dl class="leader-card__specs" id="leader-specs">
+                <div class="leader-spec">
+                  <dt data-i18n="leader.distance">Distance</dt>
+                  <dd id="leader-spec-distance">—</dd>
+                </div>
+                <div class="leader-spec">
+                  <dt data-i18n="leader.finish">Finish</dt>
+                  <dd id="leader-spec-finish">—</dd>
+                </div>
+                <div class="leader-spec">
+                  <dt data-i18n="leader.speed">Speed</dt>
+                  <dd id="leader-spec-speed">—</dd>
+                </div>
+                <div class="leader-spec">
+                  <dt data-i18n="leader.wheels">Wheels</dt>
+                  <dd id="leader-spec-wheels">—</dd>
+                </div>
+                <div class="leader-spec">
+                  <dt data-i18n="leader.motor">Motor</dt>
+                  <dd id="leader-spec-motor">—</dd>
+                </div>
+                <div class="leader-spec">
+                  <dt data-i18n="leader.density">Density</dt>
+                  <dd id="leader-spec-density">—</dd>
+                </div>
+                <div class="leader-spec">
+                  <dt data-i18n="leader.aero">Aero</dt>
+                  <dd id="leader-spec-aero">—</dd>
+                </div>
+                <div class="leader-spec">
+                  <dt data-i18n="leader.stabilizer">Stabilizer</dt>
+                  <dd id="leader-spec-stabilizer">—</dd>
+                </div>
+              </dl>
+            </div>
+          </aside>
         </section>
         <aside class="sidebar" id="charts-panel" hidden></aside>
       </main>

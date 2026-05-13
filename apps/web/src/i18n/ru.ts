@@ -1,6 +1,15 @@
 import type { Dictionary } from './en';
 
 export const ru: Dictionary = {
+  'leader.title': 'Топ 1',
+  'leader.distance': 'Дистанция',
+  'leader.finish': 'Финиш',
+  'leader.speed': 'Скорость',
+  'leader.wheels': 'Колёса',
+  'leader.motor': 'Мотор',
+  'leader.density': 'Плотность',
+  'leader.aero': 'Аэро',
+  'leader.stabilizer': 'Стабилиз.',
   'panel.generation': 'Поколение',
   'panel.cars': 'Популяция',
   'panel.lead': 'Лидер',

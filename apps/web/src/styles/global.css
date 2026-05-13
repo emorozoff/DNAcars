@@ -217,8 +217,16 @@ button {
 
 .segmented--inline .segmented__item {
   font-size: var(--fs-xs);
-  padding: 0 var(--sp-2);
+  padding: 0 var(--sp-3);
   letter-spacing: 0.02em;
+  /* Inline segments must reserve enough width for their full label —
+     v1.61 the inline track preset had "Фиксированная" clipped on
+     desktop because the parent allowed shrinking below content. */
+  min-width: max-content;
+}
+
+.ribbon-stat--track-mode {
+  flex-shrink: 0;
 }
 
 .segmented__item {
@@ -263,18 +271,22 @@ button {
 /* Predictive load colouring for speed-tier buttons.  The host
    updates these classes each UI tick based on the EMA of frame
    work-time × predicted-multiplier ratio, so the player can see
-   at a glance which tiers are safe to push to.  The current
-   (active) tier ignores these — it has its own pill styling. */
+   at a glance which tiers are safe to push to.  v1.61.1 — switched
+   from full inset ring (which made each segment look like a
+   standalone boxed button) to a thin colored underline + tinted
+   text.  The active tier ignores these — it has its own pill
+   styling. */
 .segmented__item--load-ok {
-  box-shadow: inset 0 0 0 1px rgba(168, 255, 96, 0.55);
+  box-shadow: inset 0 -2px 0 0 rgba(168, 255, 96, 0.45);
 }
 
 .segmented__item--load-tight {
-  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.65);
+  box-shadow: inset 0 -2px 0 0 rgba(255, 209, 102, 0.55);
+  color: rgba(255, 209, 102, 0.9);
 }
 
 .segmented__item--load-saturated {
-  box-shadow: inset 0 0 0 1px rgba(208, 93, 93, 0.7);
+  box-shadow: inset 0 -2px 0 0 rgba(208, 93, 93, 0.6);
   color: rgba(208, 93, 93, 0.9);
 }
 
@@ -622,12 +634,6 @@ button {
 .dock__toggle[aria-expanded='true'] {
   background: var(--color-surface-2);
   border-color: var(--color-panel-accent);
-}
-
-.dock__toggle-num {
-  color: var(--color-panel-accent);
-  font-weight: 600;
-  letter-spacing: 0.06em;
 }
 
 .dock__toggle-chevron {
@@ -1530,7 +1536,14 @@ button {
 }
 
 .mode-headless .charts-panel {
+  /* Cap headless panel width so chart cards don't sprawl across 4K
+     monitors with hundreds of px of empty space inside each card
+     (charts have aspect-ratio + max-height that pin their visible
+     area; without a cap on the panel the card is much wider than
+     the chart inside it).  Center the capped panel inside the row. */
   width: 100%;
+  max-width: 80rem;
+  margin: 0 auto;
   border-left: none;
 }
 

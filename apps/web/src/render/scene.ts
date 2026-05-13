@@ -22,6 +22,39 @@ import { mountMinimap, type MinimapHandle } from './minimap';
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
 /**
+ * Convert a per-car `hue` gene (0..1) into a Pixi tint integer.  The
+ * chassis stroke is drawn as pure white at create time so the tint
+ * shows at full saturation; this helper picks an HSL colour with
+ * mid-high lightness + moderate saturation so every hue value lands
+ * as a readable pastel against the dark canvas.  Lineage tracking
+ * for the player: a child's chassis colour drifts from its parent's
+ * via the hue gene's mutation step.
+ */
+function hueToTint(hue: number): number {
+  // HSL → RGB.  Fixed saturation 0.55 + lightness 0.72 picked to
+  // keep every hue both vivid and bright enough to read against
+  // the 0x0e0e10 background.
+  const h = ((hue % 1) + 1) % 1;
+  const s = 0.55;
+  const l = 0.72;
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hue2rgb = (t: number): number => {
+    let v = t;
+    if (v < 0) v += 1;
+    if (v > 1) v -= 1;
+    if (v < 1 / 6) return p + (q - p) * 6 * v;
+    if (v < 1 / 2) return q;
+    if (v < 2 / 3) return p + (q - p) * (2 / 3 - v) * 6;
+    return p;
+  };
+  const r = Math.round(hue2rgb(h + 1 / 3) * 255);
+  const g = Math.round(hue2rgb(h) * 255);
+  const b = Math.round(hue2rgb(h - 1 / 3) * 255);
+  return (r << 16) | (g << 8) | b;
+}
+
+/**
  * Pixels per world-metre.  Used to be a const; now mutable so the
  * mouse-wheel zoom can adjust it.  35 is the comfortable default
  * (≈40 m of track visible on a 1400 px screen).  Clamped at every
@@ -979,25 +1012,26 @@ function updateCarView(view: CarView, car: CarSnapshot, tier: RenderTier, isLead
   }
 
   // Chassis tint policy:
-  //   tier !== 'full'   — neutral white body for everyone, no
-  //                       accents.  At ×8+ the strobing of leader
-  //                       tints is unreadable and burns GPU cycles.
-  //   finisher          — neutral white (the alpha 0.4 carries the
-  //                       "done" cue, no colour needed).
+  //   tier !== 'full'   — hue-based pastel per car.  Hue is static
+  //                       (genome-fixed) so unlike leader tints it
+  //                       doesn't strobe at high speed multipliers.
+  //   finisher          — hue-based pastel (alpha 0.4 carries the
+  //                       "done" cue, no overlay needed).
   //   leader-change ping — accent green flash on the new leader.
   //   leader & elite    — accent green steady.
   //   leader & !elite   — warm red-orange ("fresh blood in front").
-  //   default           — white body.
+  //   default           — hue-based pastel.
+  const hueTint = hueToTint(car.hue);
   if (tier !== 'full') {
-    view.body.tint = COLORS.body;
+    view.body.tint = hueTint;
   } else if (isFinisher) {
-    view.body.tint = COLORS.body;
+    view.body.tint = hueTint;
   } else if (celebrating) {
     view.body.tint = COLORS.finisher;
   } else if (isLeader) {
     view.body.tint = car.isElite ? COLORS.leaderElite : COLORS.leaderNewcomer;
   } else {
-    view.body.tint = COLORS.body;
+    view.body.tint = hueTint;
   }
 
   const cos = Math.cos(-car.angle);

@@ -1522,6 +1522,39 @@ function bindControls(): void {
     trackTuning.obstacles.stairs = v / 100;
     return `${v}%`;
   });
+  bindStepButtons();
+}
+
+/**
+ * Wire `−` / `+` buttons next to track-drawer sliders.  Each click
+ * nudges the linked input by one `step` (1% for percentage sliders,
+ * 50 m for the length slider), clamps to [min, max], and dispatches
+ * an `input` event so the existing bindSlider listener picks up the
+ * change and re-applies it to trackTuning + paints the fill.  Clicks
+ * inside an open drawer are already protected from the close-on-
+ * outside listener by the drawer's pointerdown stopPropagation.
+ */
+function bindStepButtons(): void {
+  const buttons = document.querySelectorAll<HTMLButtonElement>('.ctrl__step');
+  for (const btn of buttons) {
+    const targetId = btn.dataset.step;
+    const dir = Number(btn.dataset.dir);
+    if (!targetId || !Number.isFinite(dir)) continue;
+    const input = document.getElementById(targetId);
+    if (!(input instanceof HTMLInputElement)) continue;
+    btn.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const step = Number(input.step) || 1;
+      const min = Number(input.min);
+      const max = Number(input.max);
+      const current = Number(input.value);
+      const next = Math.min(max, Math.max(min, current + dir * step));
+      if (next === current) return;
+      input.value = String(next);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
 }
 
 /**

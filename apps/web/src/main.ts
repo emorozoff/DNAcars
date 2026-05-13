@@ -1678,20 +1678,35 @@ function renderLeaderModel(car: CarSnapshot): void {
   const svg = document.getElementById('leader-model');
   if (!(svg instanceof SVGSVGElement) || !chassis || !wheels) return;
 
+  // Convert each wheel from world space → chassis-local.  Snapshot
+  // gives wheels[i].position as the wheel rigid-body's world
+  // translation (see world.ts:2684), but vertices[] are already in
+  // chassis-local space.  scene.ts:1097-1099 does the same un-
+  // rotate to render wheels relative to the chassis container.
+  const cos = Math.cos(-car.angle);
+  const sin = Math.sin(-car.angle);
+  const localWheels = car.wheels.map((w) => {
+    const dx = w.position.x - car.position.x;
+    const dy = w.position.y - car.position.y;
+    return {
+      x: dx * cos - dy * sin,
+      y: dx * sin + dy * cos,
+      r: w.radius,
+    };
+  });
+
   // Rapier/Pixi use y-up; SVG uses y-down.  Negate y on every coord
   // so the model reads with the chassis upright and wheels below
-  // it (matching how the player sees the car on canvas).  Vertices
-  // on the snapshot are already in chassis-local space — no need
-  // to undo the live world rotation.
+  // it (matching how the player sees the car on canvas).
   const pts = car.vertices.map((v) => `${v.x.toFixed(3)},${(-v.y).toFixed(3)}`).join(' ');
   chassis.setAttribute('points', pts);
 
   while (wheels.firstChild) wheels.removeChild(wheels.firstChild);
-  for (const w of car.wheels) {
+  for (const w of localWheels) {
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle.setAttribute('cx', w.position.x.toFixed(3));
-    circle.setAttribute('cy', (-w.position.y).toFixed(3));
-    circle.setAttribute('r', w.radius.toFixed(3));
+    circle.setAttribute('cx', w.x.toFixed(3));
+    circle.setAttribute('cy', (-w.y).toFixed(3));
+    circle.setAttribute('r', w.r.toFixed(3));
     wheels.appendChild(circle);
   }
 
@@ -1709,12 +1724,12 @@ function renderLeaderModel(car: CarSnapshot): void {
     if (yf < minYFlipped) minYFlipped = yf;
     if (yf > maxYFlipped) maxYFlipped = yf;
   }
-  for (const w of car.wheels) {
-    if (w.position.x - w.radius < minX) minX = w.position.x - w.radius;
-    if (w.position.x + w.radius > maxX) maxX = w.position.x + w.radius;
-    const yf = -w.position.y;
-    if (yf - w.radius < minYFlipped) minYFlipped = yf - w.radius;
-    if (yf + w.radius > maxYFlipped) maxYFlipped = yf + w.radius;
+  for (const w of localWheels) {
+    if (w.x - w.r < minX) minX = w.x - w.r;
+    if (w.x + w.r > maxX) maxX = w.x + w.r;
+    const yf = -w.y;
+    if (yf - w.r < minYFlipped) minYFlipped = yf - w.r;
+    if (yf + w.r > maxYFlipped) maxYFlipped = yf + w.r;
   }
   if (!Number.isFinite(minX)) {
     svg.setAttribute('viewBox', '-2 -1.5 4 3');

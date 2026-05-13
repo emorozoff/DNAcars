@@ -15,12 +15,10 @@
  *   - Parents may have different wheel counts.  We pick one parent's
  *     count, then for each wheel slot pick from whichever parent has
  *     a wheel at that index.
- *   - A wheel's `attachVertex` (or the chassis' `ballastVertex`) may
- *     exceed the inherited vertex count; we clamp it so the
- *     attachment point is always real.
- *   - Older genomes may lack v1.50 fields (angleOffsets, ballast,
- *     grip, bounce); we substitute sensible defaults rather than
- *     fail.
+ *   - A wheel's `attachVertex` may exceed the inherited vertex
+ *     count; we clamp it so the attachment point is always real.
+ *   - Older genomes may lack v1.50 fields (angleOffsets, grip,
+ *     bounce); we substitute sensible defaults rather than fail.
  */
 
 import { pruneOverlappingWheels, type Genome, type Rng, type WheelGene } from '../sim/world';
@@ -80,9 +78,6 @@ export function crossoverGenomes(a: Genome, b: Genome, rng: Rng): Genome {
     chassisRadii: radii,
     chassisAngleOffsets: angleOffsets,
     chassisDensity: pick(a.chassisDensity, b.chassisDensity),
-    ballastVertex: clampVertex(pick(a.ballastVertex ?? 0, b.ballastVertex ?? 0), vertexCount),
-    ballastSize: pick(a.ballastSize ?? 0, b.ballastSize ?? 0),
-    ballastDensity: pick(a.ballastDensity ?? 0.5, b.ballastDensity ?? 0.5),
     wheels,
     motorSpeed: pick(a.motorSpeed, b.motorSpeed),
     aero: pick(a.aero ?? 0, b.aero ?? 0),

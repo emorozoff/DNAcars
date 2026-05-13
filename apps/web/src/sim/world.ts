@@ -136,23 +136,6 @@ export const TUNING = {
      */
     angleJitterFraction: 0.45,
     /**
-     * Optional heavy "ballast" block attached as a second collider
-     * to the chassis rigid body.  Rapier integrates it into the
-     * chassis' centre of mass and inertia automatically — no extra
-     * joint, no extra body to track.  Lets a car evolve a
-     * heterogeneous mass distribution (front-loaded, rear-loaded,
-     * or balanced).
-     */
-    ballast: {
-      /** Below this decoded radius (m) the ballast is omitted entirely. */
-      offThreshold: 0.18,
-      /** Bumped 0.7 → 1.0 in v1.53 to match the larger chassis range. */
-      maxRadius: 1.0,
-      minDensity: 600,
-      /** Bumped 2200 → 3000 in v1.53 — heaviest legal ballast is now ≈ 9.4 t at max radius. */
-      maxDensity: 3000,
-    },
-    /**
      * Aerodynamic-drag band — added to the chassis' base linear
      * damping.  Per-car gene (`aero` 0..1) maps into this range and
      * makes "obtuse vs streamlined" a real evolutionary axis.
@@ -1218,17 +1201,6 @@ export type Genome = {
    */
   chassisAngleOffsets: number[];
   chassisDensity: number;
-  /** Vertex the optional ballast block is attached to, 0..vertexCount-1. */
-  ballastVertex: number;
-  /**
-   * Ballast size (0..1).  Below TUNING.chassis.ballast.offThreshold the
-   * ballast is omitted entirely — gives evolution a clean way to turn
-   * the counterweight off when the body doesn't benefit from one.
-   */
-  ballastSize: number;
-  /** Ballast density (0..1) mapped to a heavy band.  Lets the chassis
-   * have heterogeneous mass distribution. */
-  ballastDensity: number;
   wheels: WheelGene[];
   motorSpeed: number;
   /**
@@ -1294,11 +1266,6 @@ export function randomGenome(rng: Rng): Genome {
     chassisRadii: radii,
     chassisAngleOffsets: angleOffsets,
     chassisDensity: lerp(TUNING.chassis.minDensity, TUNING.chassis.maxDensity, rng()),
-    ballastVertex: randInt(rng, 0, n - 1),
-    // Half of generation-zero is born without a ballast (the off
-    // threshold is at ~0.4 of the [0,1] gene → depends on maxRadius).
-    ballastSize: rng(),
-    ballastDensity: rng(),
     wheels,
     motorSpeed: lerp(TUNING.motor.minSpeed, TUNING.motor.maxSpeed, rng()),
     // Start aero / stabilizer near the bottom of their bands so the
@@ -2146,33 +2113,6 @@ function buildCar(
     .setCollisionGroups(packGroups(GROUP.CHASSIS, GROUP.TRACK));
   world.createCollider(hullDesc, chassis);
 
-  // Optional ballast — a heavy ball collider attached to the same
-  // rigid body as the chassis, anchored at one of the chassis
-  // vertices.  Adding a second collider to the same body lets Rapier
-  // integrate it into the chassis' centre of mass and inertia
-  // automatically — no extra body, no extra joint, no extra
-  // bookkeeping.  Disabled when the gene is below the off-threshold
-  // so evolution can choose to skip the counterweight entirely.
-  const ballastRadius = clamp(genome.ballastSize, 0, 1) * TUNING.chassis.ballast.maxRadius;
-  if (ballastRadius >= TUNING.chassis.ballast.offThreshold) {
-    const bIdx = clamp(Math.round(genome.ballastVertex), 0, verts.length - 1);
-    const bAnchor = verts[bIdx] ?? { x: 0, y: 0 };
-    const ballastDensity = lerp(
-      TUNING.chassis.ballast.minDensity,
-      TUNING.chassis.ballast.maxDensity,
-      clamp(genome.ballastDensity, 0, 1),
-    );
-    world.createCollider(
-      RAPIER.ColliderDesc.ball(ballastRadius)
-        .setTranslation(bAnchor.x, bAnchor.y)
-        .setDensity(ballastDensity)
-        .setFriction(TUNING.chassis.friction)
-        .setRestitution(TUNING.chassis.restitution)
-        .setCollisionGroups(packGroups(GROUP.CHASSIS, GROUP.TRACK)),
-      chassis,
-    );
-  }
-
   // Resolve each wheel's hub position in chassis-local coordinates,
   // then de-duplicate.  Hub = vertex anchor + wheel.offset, where the
   // offset gene is mapped from [0,1] to [-maxOffset, +maxOffset] m.
@@ -2469,12 +2409,10 @@ function applyMotor(car: CarRuntime): void {
 
   const targetOmega = -car.genome.motorSpeed; // negative ⇒ forward
   // Motor torque budget is computed from the chassis body's mass
-  // alone (= chassis polygon + ballast collider — both attached to
-  // the same rigid body).  Wheels do NOT add to the torque budget,
-  // so each extra wheel becomes a pure mass cost: more drag, no
-  // extra power.  Encourages the GA to converge on the smallest
-  // wheel set the car actually needs instead of bolting on spares
-  // "just in case".
+  // alone.  Wheels do NOT add to the torque budget, so each extra
+  // wheel becomes a pure mass cost: more drag, no extra power.
+  // Encourages the GA to converge on the smallest wheel set the
+  // car actually needs instead of bolting on spares "just in case".
   const torqueMass = car.chassis.mass();
   for (const w of car.wheels) {
     if (!w.onGround) continue;

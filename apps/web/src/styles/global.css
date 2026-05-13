@@ -46,16 +46,25 @@ select {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* v1.61 layout — five named rows of a CSS grid.  Every overlay (mini-
+   map, stats strip, dock, charts sidebar) claims its own row instead
+   of being absolute-positioned over the canvas.  The canvas row is
+   1 fr so it absorbs all remaining vertical space; auto rows shrink
+   to their content.  On mobile (<= 640 px) the grid is replaced by a
+   flex column and `order` puts the minimap below the canvas as the
+   player requested. */
 #app {
   position: fixed;
   inset: 0;
   display: grid;
-  /* `auto` lets the topbar grow by env(safe-area-inset-top) on devices
-     with a notch / Dynamic Island.  --topbar-h is still applied as
-     min-height on the topbar itself so layout calcs that reference it
-     (floating buttons, panel max-heights) stay accurate on flat
-     screens where safe-top is 0. */
-  grid-template-rows: auto 1fr;
+  grid-template-rows:
+    auto /* topbar  */
+    auto /* minimap */
+    minmax(0, 1fr) /* canvas + sidebar */
+    auto /* stats   */
+    auto; /* dock   */
+  grid-template-columns: 1fr;
+  min-height: 0;
 }
 
 button {
@@ -285,7 +294,11 @@ button {
 
 .btn--floating {
   position: absolute;
-  top: calc(var(--sp-4) + 3.75rem);
+  /* Inside .canvas-area, which is row 3 of the #app grid.  The
+     minimap lives in its own row above, so no clearance for it
+     is needed here — just a small sp-3 inset from the canvas top
+     so the button doesn't graze the canvas edge. */
+  top: var(--sp-3);
   left: 50%;
   transform: translateX(-50%);
   z-index: 2;
@@ -386,11 +399,37 @@ button {
   }
 }
 
-/* ─── Stage (full-canvas + floating overlays) ────────────────────────────── */
+/* ─── Minimap row ────────────────────────────────────────────────────────── */
 
-.stage {
-  position: relative;
+/* Row 2 in the #app grid — a thin band that wraps the SVG minimap.
+   Was an absolute overlay pinned to top: sp-3 in v1.60; now it's a
+   natural grid row so the canvas claims exactly the remaining height
+   instead of fighting for it. */
+.minimap-bar {
+  padding: var(--sp-2) calc(var(--sp-4) + var(--safe-right)) 0
+    calc(var(--sp-4) + var(--safe-left));
   background: var(--color-bg);
+}
+
+/* ─── Main row: canvas + charts sidebar ──────────────────────────────────── */
+
+/* Row 3 — a 2-column sub-grid.  Sidebar collapses to 0 width when
+   #charts-panel has [hidden] (which removes it from the flow), so the
+   canvas naturally fills the row.  `auto` for column 2 means the
+   sidebar's width is its own width: prop. */
+.main-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 0;
+  background: var(--color-bg);
+  position: relative;
+  overflow: hidden;
+}
+
+.canvas-area {
+  position: relative;
+  min-height: 0;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -416,34 +455,23 @@ button {
   height: 100%;
 }
 
-/* ─── Top ribbon: live stats + full-width minimap ───────────────────────── */
+/* ─── Stats strip (row 4) ────────────────────────────────────────────────── */
 
-/* Stats block — fixed-shape grid in the top-left.  Six stats laid
-   out 2 cols × 3 rows so the block stays roughly square (≈ 17 rem ×
-   8 rem) regardless of which value happens to render.  Crucially
-   it's a separate absolute element from the minimap, so a length
-   change in the throughput cell can't push the minimap sideways. */
-.ribbon-stats {
-  position: absolute;
-  /* Sit just above the dock on the left so the canvas claims the
-     full mid-screen area between minimap (top) and dock-row
-     (bottom).  v1.39 — moved from top-left by player request:
-     "только мини-карта сверху, остальной интерфейс снизу".
-     Dock is two rows ≈ 7.5 rem tall + sp-3 inset, so the stats
-     bottom-anchor accounts for both, plus safe-bottom for the
-     iPhone home-indicator. */
-  bottom: calc(max(var(--sp-3), var(--safe-bottom)) + 7.5rem + var(--sp-2));
-  left: calc(var(--sp-4) + var(--safe-left));
-  display: grid;
-  grid-template-columns: repeat(2, minmax(7rem, max-content));
-  grid-auto-rows: auto;
-  gap: var(--sp-2) var(--sp-4);
-  padding: var(--sp-3) var(--sp-4);
-  background: rgba(22, 22, 26, 0.78);
-  border: 1px solid var(--color-border);
-  border-radius: var(--r-md);
-  backdrop-filter: blur(8px);
-  z-index: 2;
+/* Horizontal row of stat chips just above the dock.  Was a fixed-
+   shape 2×3 grid in the bottom-left of the canvas in v1.60; now
+   it's a one-row flex strip that wraps onto a second line if the
+   viewport is too narrow.  Backdrop and border carried over so the
+   visual language stays unchanged. */
+.stats-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-5);
+  padding: var(--sp-2) calc(var(--sp-4) + var(--safe-right)) var(--sp-2)
+    calc(var(--sp-4) + var(--safe-left));
+  background: rgba(22, 22, 26, 0.92);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
 }
 
 /* Each stat is stacked: small uppercase label on top, mono value
@@ -516,24 +544,24 @@ button {
 
 /* ─── Bottom dock: transport + drawers + new-population ─────────────────── */
 
+/* v1.61 — row 5 of the #app grid.  Spans full width with a top
+   border that visually separates the controls from the stats strip
+   above.  Inner content is still a 2-row flex (params + actions)
+   centered with max-width so on big monitors the dock doesn't
+   smear edge-to-edge. */
 .dock {
-  position: absolute;
-  /* Lift the dock above the iPhone home-indicator bar.  On flat
-     screens --safe-bottom is 0 so the dock sits at its normal sp-3
-     offset from the canvas edge. */
-  bottom: max(var(--sp-3), var(--safe-bottom));
-  left: 50%;
-  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   gap: 0;
-  padding: 0;
-  background: rgba(22, 22, 26, 0.84);
-  border: 1px solid var(--color-border);
-  border-radius: var(--r-lg);
+  padding: 0 calc(var(--sp-4) + var(--safe-right))
+    max(var(--sp-3), var(--safe-bottom)) calc(var(--sp-4) + var(--safe-left));
+  background: rgba(22, 22, 26, 0.92);
+  border-top: 1px solid var(--color-border);
   backdrop-filter: blur(10px);
-  z-index: 2;
-  max-width: calc(100vw - 2 * var(--sp-4) - var(--safe-left) - var(--safe-right));
+  /* Cap inner width on very wide monitors so the controls stay in
+     a comfortable reading distance instead of spreading across 3+
+     feet of pixels. */
+  align-self: stretch;
 }
 
 .dock__row {
@@ -1444,30 +1472,20 @@ button {
 /* ─── Minimap ────────────────────────────────────────────────────────────── */
 
 .minimap {
-  /* Pinned to the very top of the stage, spanning the full width
-     between the side margins.  v1.19.2: split out from the old
-     ribbon flex row so a length change in the throughput readout
-     can no longer push the minimap sideways.  The stats block sits
-     UNDER the minimap (top-left), independently positioned.
+  /* v1.61 — natural block inside .minimap-bar (its own grid row).
+     Was an absolute overlay before; the explicit width override is
+     no longer needed because the bar gives the SVG its layout box.
 
-     Width MUST be explicit, not "auto" via left+right.  The SVG
-     has viewBox="0 0 1500 86" — a ~17:1 intrinsic ratio.  When
-     only height is fixed, browsers honour that ratio and shrink
-     the rendered width to ~17 × height (≈ 625 px) regardless of
-     `right`.  `calc(100% - 2 * sp-4)` overrides the ratio and
-     stretches the box to fill the stage between margins. */
-  position: absolute;
-  top: var(--sp-3);
-  left: calc(var(--sp-4) + var(--safe-left));
-  width: calc(100% - 2 * var(--sp-4) - var(--safe-left) - var(--safe-right));
+     The SVG has viewBox="0 0 1500 86" (~17:1).  We force
+     width: 100% so the bar's stretch wins over intrinsic ratio. */
+  display: block;
+  width: 100%;
   height: var(--minimap-h);
   background: rgba(22, 22, 26, 0.78);
   border: 1px solid var(--color-border);
   border-radius: var(--r-md);
   backdrop-filter: blur(8px);
-  display: block;
   pointer-events: auto;
-  z-index: 2;
   /* Click or drag anywhere on the minimap to move the camera.
      `grab` signals "you can grab this and drag it"; the JS side
      switches to `grabbing` while a drag is active via the
@@ -1495,26 +1513,25 @@ button {
      rendering is off. */
 .mode-headless {
   /* In headless mode the minimap grows tall so the player can scan
-     car positions.  All ".minimap-relative" elements (stats block
-     position, charts panel top) reference --minimap-h, so changing
-     this variable cascades automatically. */
+     car positions when the canvas itself is hidden for performance. */
   --minimap-h: 8rem;
 }
 
+/* When rendering is off, hide the canvas track and let the charts
+   panel fill the main-row.  The grid still has a column for the
+   canvas, but display: none on .canvas-area collapses it and the
+   sidebar's `1fr` (override below) takes the whole row. */
+.mode-headless .main-row {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+
+.mode-headless .canvas-area {
+  display: none;
+}
+
 .mode-headless .charts-panel {
-  /* Stretch to fill the canvas area: from directly below the
-     minimap (the stats panel now lives at the bottom, so no top
-     clearance is needed) down to just above the dock + ribbon-
-     stats, centred with a sensible max-width so it doesn't smear
-     edge-to-edge on ultrawide / 27" screens. */
-  top: calc(var(--sp-3) + var(--minimap-h) + var(--sp-2));
-  left: 50%;
-  right: auto;
-  bottom: calc(var(--sp-3) + 7.5rem + var(--sp-2) + 8rem);
-  width: calc(100vw - 2 * var(--sp-4));
-  max-width: 80rem;
-  max-height: none;
-  transform: translateX(-50%);
+  width: 100%;
+  border-left: none;
 }
 
 /* Strict-det fast-forward indicator — flashed centre-screen for
@@ -1631,31 +1648,22 @@ button {
 
 /* ─── Stats / charts panel ──────────────────────────────────────────────── */
 
+/* v1.61 — charts panel is now a true grid column inside .main-row
+   instead of an absolute overlay.  When the user toggles it off,
+   [hidden] removes it from layout and the `auto` column collapses
+   to 0, returning the full row to the canvas. */
 .charts-panel {
-  position: absolute;
-  right: calc(var(--sp-4) + var(--safe-right));
-  /* Clear the dock at the bottom — two rows now, ≈ 7 rem tall total
-     (params row + actions row + dividers).  Bump the offset so the
-     charts panel doesn't overlap the always-visible Evolution row.
-     Adds safe-bottom so on iPhone the panel doesn't tuck under the
-     home-indicator bar. */
-  bottom: calc(max(var(--sp-3), var(--safe-bottom)) + 7.5rem);
-  /* Fluid width: grows from a useful minimum (22 rem ≈ 350 px on
-     phones / small laptops) up to 58 rem on big monitors, tracking
-     ~32 vw in between.  Cap at viewport-minus-margins so it never
-     overflows.  v1.59 previously hard-capped at 40 rem which made
-     the panel look small on 4K and crowd the canvas on narrow
-     laptops — clamp() solves both ends. */
-  width: clamp(22rem, 32vw, 58rem);
-  max-width: calc(100vw - 2 * var(--sp-4) - var(--safe-left) - var(--safe-right));
-  max-height: calc(100dvh - var(--topbar-h) - 10rem - var(--safe-bottom));
+  width: clamp(20rem, 26vw, 40rem);
+  height: 100%;
   overflow-y: auto;
-  background: rgba(22, 22, 26, 0.86);
-  border: 1px solid var(--color-border);
-  border-radius: var(--r-md);
-  padding: var(--sp-4);
-  backdrop-filter: blur(10px);
-  z-index: 1;
+  background: rgba(22, 22, 26, 0.92);
+  border-left: 1px solid var(--color-border);
+  padding: var(--sp-4) calc(var(--sp-4) + var(--safe-right)) var(--sp-4)
+    var(--sp-4);
+}
+
+.charts-panel[hidden] {
+  display: none;
 }
 
 /* Header sits above the body grid: window selector pinned to the
@@ -2071,119 +2079,66 @@ button {
 
 /* ─── Tablet / small laptop ──────────────────────────────────────────────── */
 
-/* Between phone (≤640) and full desktop (≥1025).  On a 1024×768 iPad
-   or an 11" MacBook Air in a side-by-side window, the desktop charts
-   panel (clamp(22, 32vw, 58rem) ≈ 22–28 rem here) still claims a big
-   chunk of canvas width.  Tighten the panel to a strict 22-rem
-   sidebar in this range so the canvas keeps a usable area for the
-   simulation while every overlay stays visible. */
+/* Between phone (≤640) and full desktop (≥1025).  Sidebar drops to a
+   strict 18-rem column so the canvas keeps usable width on iPad and
+   11" MacBook Air in a side-by-side window. */
 @media (min-width: 40.0625rem) and (max-width: 64rem) {
   .charts-panel {
-    width: 22rem;
-    max-height: calc(100dvh - var(--topbar-h) - 9.5rem - var(--safe-bottom));
+    width: 18rem;
   }
 
-  /* Ribbon-stats compresses to one column to give the dock breathing
-     room — the dock here is wrapped onto two rows ≈ 8 rem tall. */
-  .ribbon-stats {
-    grid-template-columns: 1fr;
-    gap: var(--sp-1) var(--sp-3);
-    padding: var(--sp-2) var(--sp-3);
+  .stats-strip {
+    gap: var(--sp-2) var(--sp-4);
+    padding: var(--sp-2) calc(var(--sp-3) + var(--safe-right)) var(--sp-2)
+      calc(var(--sp-3) + var(--safe-left));
   }
 }
 
 /* ─── Big-screen / 4K tier ───────────────────────────────────────────────── */
 
-/* On a 27" 1440p or a 32" 4K monitor the charts panel hits its
-   58-rem cap and feels small relative to the canvas.  Bump the cap
-   so the panel actually uses the available width, and stretch the
-   headless-mode panel cap accordingly. */
+/* On 27" 1440p / 32" 4K let the sidebar grow so the panel feels
+   in-proportion to the canvas instead of an afterthought. */
 @media (min-width: 100rem) {
   .charts-panel {
-    width: clamp(40rem, 30vw, 72rem);
-  }
-
-  .mode-headless .charts-panel {
-    max-width: clamp(60rem, 70vw, 110rem);
+    width: clamp(28rem, 24vw, 48rem);
   }
 }
 
-/* ─── Mobile ─────────────────────────────────────────────────────────────── */
+/* ─── Mobile (phone portrait) ────────────────────────────────────────────── */
 
-@media (max-width: 720px) {
-  /* On narrow screens the stats block collapses to a single column
-     so it doesn't elbow out into the canvas. */
-  .ribbon-stats {
-    grid-template-columns: 1fr;
-  }
-
-  /* Track drawer's two-column grid collapses to one column so each
-     slider gets its full row width on narrow screens. */
-  .dock-drawer--wide {
-    width: calc(100vw - 2 * var(--sp-4));
-  }
-
-  .dock-drawer__grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Phone-portrait — switch the whole shell from a viewport-filling
-   absolute layout to a scrollable column.  The desktop dance of
-   "canvas fills the stage and chrome floats on top" doesn't fit a
-   narrow screen: with the dock + charts overlapping the canvas and
-   nothing scrollable, half the controls get clipped past the
-   viewport edge.  On mobile we instead stack:
-
-       topbar (sticky)
-       canvas (60 dvh — game stays visible while at scroll-top)
-       minimap
-       ribbon-stats
-       dock
-       charts-panel (when open)
-
-   Everything below the canvas is naturally scrollable, so the
-   player can flick down to reach every control + read every chart
-   without anything getting clipped.  Floating overlays (follow-
-   leader button, headless banner, shortcut banner) are hidden on
-   phone — they're nice-to-haves, the user already has direct
-   touch access to the same actions through the dock + idle-return
-   timer. */
+/* Switch the whole shell from a viewport-filling fixed grid to a
+   scrollable flex column.  DOM order is topbar → minimap → canvas →
+   stats → dock → sidebar; on mobile the player wants the minimap
+   AFTER the canvas (the track is the main feature, the minimap is
+   just an aid), so .minimap-bar gets order: 3 and .canvas-area gets
+   order: 2.  .main-row becomes display: contents so its children
+   (.canvas-area + .charts-panel) participate directly in the flex
+   column and can be ordered independently. */
 @media (max-width: 640px) {
   body {
-    /* Page scrolls.  The whole point of the stack is being able to
+    /* Page scrolls — the whole point of stacking is being able to
        flick past the canvas to reach controls. */
     overflow: auto;
     overscroll-behavior: contain;
   }
 
   #app {
-    /* Drop the desktop fixed-grid; let children flow vertically and
-       grow the page height to fit. */
     position: static;
     display: flex;
     flex-direction: column;
     min-height: 100dvh;
     grid-template-rows: none;
+    grid-template-columns: none;
   }
 
   .topbar {
     position: sticky;
     top: 0;
     z-index: 10;
-    /* Notch padding still applies inline + top.  min-height keeps the
-       bar from collapsing below 3.5 rem when safe-top is 0. */
+    order: 1;
     padding: var(--safe-top) calc(var(--sp-3) + var(--safe-right)) 0
       calc(var(--sp-3) + var(--safe-left));
     gap: var(--sp-2);
-  }
-
-  .stage {
-    /* Honour iPhone landscape safe-areas on the sides so cards don't
-       slide under the Dynamic Island when device is rotated. */
-    padding-left: calc(var(--sp-3) + var(--safe-left));
-    padding-right: calc(var(--sp-3) + var(--safe-right));
-    padding-bottom: calc(var(--sp-3) + var(--safe-bottom));
   }
 
   .brand__name {
@@ -2192,62 +2147,70 @@ button {
     display: none;
   }
 
-  /* Stage becomes a flex column that flows children naturally.
-     Children that were absolute-positioned overlays (canvas,
-     minimap, ribbon-stats, dock, charts-panel) all switch back to
-     static below so they pile up in document order. */
-  .stage {
-    overflow: visible;
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-3);
-    padding: var(--sp-3);
+  /* .main-row dissolves so its two children participate directly
+     in the column with their own `order`.  Without this they'd
+     stay locked as a sub-row at order: 2. */
+  .main-row {
+    display: contents;
+  }
+
+  .canvas-area {
+    order: 2;
+    height: 60dvh;
+    width: 100%;
+    flex-shrink: 0;
+    padding: 0 calc(var(--sp-3) + var(--safe-right)) 0
+      calc(var(--sp-3) + var(--safe-left));
   }
 
   .stage__canvas {
-    /* The visible game viewport — 60 dvh is a comfortable slice of
-       canvas that stays readable, with enough screen left below
-       for a peek at the minimap so the player knows there's more
-       to scroll to.  flex-shrink: 0 prevents the canvas from
-       collapsing if the page contents push above the viewport. */
-    position: relative;
-    inset: auto;
-    width: 100%;
-    height: 60dvh;
+    position: absolute;
+    inset: 0 calc(var(--sp-3) + var(--safe-right)) 0
+      calc(var(--sp-3) + var(--safe-left));
     border-radius: var(--r-md);
     overflow: hidden;
-    flex-shrink: 0;
   }
 
-  .minimap {
-    position: static;
-    top: auto;
-    left: auto;
-    width: 100%;
+  .minimap-bar {
+    /* Below the canvas, above the stats.  Player request: на iPhone
+       мини-карта ниже после самой трассы. */
+    order: 3;
+    padding: var(--sp-3) calc(var(--sp-3) + var(--safe-right)) 0
+      calc(var(--sp-3) + var(--safe-left));
   }
 
-  .ribbon-stats {
-    position: static;
-    top: auto;
-    left: auto;
-    width: 100%;
+  .stats-strip {
+    order: 4;
+    padding: var(--sp-2) calc(var(--sp-3) + var(--safe-right));
+    padding-left: calc(var(--sp-3) + var(--safe-left));
   }
 
   .dock {
-    position: static;
-    transform: none;
-    width: 100%;
-    max-width: none;
-    bottom: auto;
-    left: auto;
+    order: 5;
+    padding: 0 calc(var(--sp-3) + var(--safe-right))
+      calc(var(--sp-3) + var(--safe-bottom)) calc(var(--sp-3) + var(--safe-left));
   }
+
+  .charts-panel {
+    order: 6;
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid var(--color-border);
+    padding: var(--sp-4) calc(var(--sp-4) + var(--safe-right))
+      calc(var(--sp-4) + var(--safe-bottom)) calc(var(--sp-4) + var(--safe-left));
+  }
+
+  /* In headless mode on mobile the canvas already collapsed so the
+     sidebar order: 6 naturally takes its place — no special rules
+     needed beyond cancelling the desktop headless overrides which
+     set width: 100% redundantly. */
 
   /* Dock rows wrap so each slider gets its full width — easier to
      drag with a thumb than a 6-rem-wide stub. */
   .dock__row {
     flex-wrap: wrap;
     gap: var(--sp-2);
-    padding: var(--sp-2) var(--sp-3);
+    padding: var(--sp-2) 0;
   }
 
   .dock__row--params {
@@ -2267,20 +2230,15 @@ button {
     gap: var(--sp-2);
   }
 
-  /* Bigger touch targets — Apple HIG says 44 × 44 pt minimum.  Cars
-     are watched, not micro-managed; comfy beats compact. */
+  /* Bigger touch targets — Apple HIG says 44 × 44 pt minimum. */
   .segmented__item,
   .dock__toggle,
   .btn {
     min-height: 2.5rem;
   }
 
-  /* Drawers (Seed / Track) are positioned absolute relative to
-     their dock section.  On phone the dock is at the bottom of the
-     visible chunk; popping the drawer downward (instead of upward
-     into the canvas) keeps it within the scrollable area, and a
-     full-width drawer is easier to read than the desktop's fixed
-     17.5 rem / 37.5 rem widths. */
+  /* Drawers pop downward into the scroll flow on mobile instead of
+     upward into the canvas. */
   .dock-drawer--seed,
   .dock-drawer--wide {
     width: calc(100vw - 2 * var(--sp-3));
@@ -2289,54 +2247,22 @@ button {
     top: calc(100% + var(--sp-2));
   }
 
-  /* Charts panel flows like everything else.  No more fullscreen-
-     overlay trick from the v1.34.0 attempt — the page already
-     scrolls, the panel just sits in the column. */
-  .charts-panel {
-    position: static;
-    inset: auto;
-    width: 100%;
-    max-width: none;
-    max-height: none;
-    z-index: auto;
+  .dock-drawer--wide {
+    width: calc(100vw - 2 * var(--sp-3));
   }
 
-  /* In headless mode (×32+) the desktop rules stretch the charts
-     panel to fill the empty canvas area; on phone we already give
-     it full width via the rule above, so cancel the desktop
-     positioning. */
-  .mode-headless .charts-panel {
-    position: static;
-    transform: none;
-    inset: auto;
-    width: 100%;
-    max-width: none;
-    bottom: auto;
-    top: auto;
-    left: auto;
+  .dock-drawer__grid {
+    grid-template-columns: 1fr;
   }
 
-  /* The follow-leader floating button stays — it's the player's
-     only way to manually re-engage leader-follow after a pan +
-     the visible cue that the camera went manual.  Reposition to
-     sit at the top of the canvas section instead of clearing a
-     desktop minimap that no longer overlays the canvas, and let
-     it scroll with the canvas (when the player scrolls down to
-     reach controls, the button leaves view alongside its host
-     canvas — that's intended). */
-  .btn--floating {
-    top: var(--sp-3);
-  }
-
-  /* Headless + shortcut banners stay hidden on mobile — both
-     communicate transient state cues that the dock + auto-opened
-     stats panel already make obvious without floating overlays. */
+  /* Headless + shortcut banners stay hidden on mobile — the dock's
+     highlighted ×32 + auto-opened sidebar already communicate the
+     state without floating overlays. */
   .headless-banner,
   .shortcut-banner {
     display: none;
   }
 
-  /* Modal panels: keep the breathing-room rules from v1.34.0. */
   .modal-settings__panel,
   .modal-confirm__panel {
     width: calc(100vw - 2 * var(--sp-3));

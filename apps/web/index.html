@@ -15,6 +15,11 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   </head>
   <body>
+    <!-- v1.61 layout — a 5-row CSS grid (topbar / minimap / canvas+sidebar
+         / stats / dock) so every overlay claims its own row instead of
+         being absolute-positioned over the canvas.  On mobile the same
+         DOM reflows to a flex column with the minimap pushed below the
+         canvas via `order`. -->
     <div id="app">
       <header class="topbar">
         <div class="brand">
@@ -22,32 +27,15 @@
           <span class="brand__name">DNAcars</span>
           <span class="brand__version" id="app-version">v—</span>
         </div>
-        <button class="btn btn--ghost" id="btn-tutorial" data-i18n="panel.tutorialOpen">
-          Tutorial
-        </button>
-        <button class="btn btn--ghost" id="lang-toggle" aria-label="Toggle language">EN</button>
+        <div class="topbar__actions">
+          <button class="btn btn--ghost" id="btn-tutorial" data-i18n="panel.tutorialOpen">
+            Tutorial
+          </button>
+          <button class="btn btn--ghost" id="lang-toggle" aria-label="Toggle language">EN</button>
+        </div>
       </header>
 
-      <main class="stage">
-        <div id="pixi-root" class="stage__canvas">
-          <!-- Floating "back to leader" button lives INSIDE the canvas
-               wrapper so its `position: absolute` positions against the
-               canvas section regardless of mobile vs desktop layout —
-               on mobile the canvas wrapper is the only "above the
-               fold" reference, and the button needs to sit clearly
-               below the topbar.  Pixi's <canvas> appends after this
-               button at runtime; .btn--floating's z-index keeps it
-               on top. -->
-          <button class="btn btn--floating" id="btn-camera-leader" hidden>Follow leader</button>
-        </div>
-
-        <!-- Top of stage: minimap pinned to the very top across the full
-             width, then a compact stat block in the top-left underneath
-             it.  The stat block is a fixed-shape grid (3 rows × 2
-             columns) so its size doesn't shift with the throughput
-             readout — pre-v1.19.2 the inline "ТЕМП" cell would stretch
-             the row and visibly push the minimap when its label
-             changed length. -->
+      <div class="minimap-bar">
         <svg class="minimap" id="minimap" viewBox="0 0 1500 86" preserveAspectRatio="none">
           <polyline class="minimap__track" id="minimap-track" />
           <rect class="minimap__viewport" id="minimap-viewport" y="0" height="86" />
@@ -55,457 +43,445 @@
           <line class="minimap__leader" id="minimap-leader" vector-effect="non-scaling-stroke" />
           <g class="minimap__records" id="minimap-records"></g>
         </svg>
+      </div>
 
-        <div class="ribbon-stats">
-          <span class="ribbon-stat">
-            <span class="ribbon-stat__label" data-i18n="ribbon.gen">GENERATION</span>
-            <span class="ribbon-stat__value ribbon-stat__value--accent">
-              <span class="ribbon-stat__hash">#</span><span id="stat-generation">—</span>
-            </span>
-          </span>
-          <span class="ribbon-stat">
-            <span class="ribbon-stat__label" data-i18n="ribbon.lead">LEADER</span>
-            <span class="ribbon-stat__value">
-              <span id="stat-lead">—</span>
-              <span class="ribbon-stat__sub">/&nbsp;<span id="stat-track-length">—</span></span>
-            </span>
-          </span>
-          <span class="ribbon-stat">
-            <span class="ribbon-stat__label" data-i18n="ribbon.best">BEST</span>
-            <span class="ribbon-stat__value" id="stat-best">—</span>
-          </span>
-          <span class="ribbon-stat">
-            <span class="ribbon-stat__label" data-i18n="ribbon.alive">ALIVE</span>
-            <span class="ribbon-stat__value">
-              <span id="stat-alive">—</span>
-              <span class="ribbon-stat__sub">/&nbsp;<span id="stat-total">—</span></span>
-            </span>
-          </span>
-          <span class="ribbon-stat ribbon-stat--track-mode">
-            <span class="ribbon-stat__label" data-i18n="panel.trackLabel">Track preset</span>
-            <div class="segmented segmented--inline" id="seg-track" role="radiogroup">
-              <button class="segmented__item" data-track-mode="random" type="button">
-                <span data-i18n="panel.trackShortRandom">Random</span>
-              </button>
-              <button class="segmented__item" data-track-mode="fixed" type="button">
-                <span data-i18n="panel.trackShortFixed">Fixed</span>
-              </button>
-            </div>
-          </span>
-          <span class="ribbon-stat">
-            <span class="ribbon-stat__label" data-i18n="ribbon.throughput">SPEED</span>
-            <span class="ribbon-stat__value" id="stat-throughput">×—</span>
-          </span>
-        </div>
-        </div>
+      <main class="main-row">
+        <section class="canvas-area">
+          <div id="pixi-root" class="stage__canvas">
+            <button class="btn btn--floating" id="btn-camera-leader" hidden>Follow leader</button>
+          </div>
+          <div class="headless-banner" data-i18n="panel.headlessBanner">Render off · ×32 speed</div>
+          <div class="shortcut-banner" id="shortcut-banner" hidden>
+            <span class="shortcut-banner__chev" aria-hidden="true">»»</span>
+            <span class="shortcut-banner__text" data-i18n="panel.fastForward">Fast-forward</span>
+            <span class="shortcut-banner__chev" aria-hidden="true">»»</span>
+          </div>
+        </section>
+        <aside class="sidebar" id="charts-panel" hidden></aside>
+      </main>
 
-        <!-- Bottom dock: two rows.  Top row = always-visible Evolution
-             params (population, mutation, elite, strict-determinism)
-             so the player can adjust the GA without opening anything.
-             Bottom row = transport (pause + speed) + drawer toggles
-             for Seed and Track + new-population + charts toggle. -->
-        <div class="dock">
-          <div class="dock__row dock__row--params">
-            <label class="ctrl ctrl--inline">
-              <span class="ctrl__label" data-i18n="panel.population">population</span>
-              <input
-                class="ctrl__slider"
-                type="range"
-                id="ctrl-population"
-                min="8"
-                max="100"
-                step="1"
-                value="24"
-              />
-              <span class="ctrl__value" id="ctrl-population-val">24</span>
-            </label>
-            <label class="ctrl ctrl--inline">
-              <span class="ctrl__label" data-i18n="panel.mutation">mutation</span>
-              <input
-                class="ctrl__slider"
-                type="range"
-                id="ctrl-mutation"
-                min="0"
-                max="75"
-                step="1"
-                value="15"
-              />
-              <span class="ctrl__value" id="ctrl-mutation-val">15%</span>
-            </label>
-            <label class="ctrl ctrl--inline">
-              <span class="ctrl__label" data-i18n="panel.elite">elite</span>
-              <input
-                class="ctrl__slider"
-                type="range"
-                id="ctrl-elite"
-                min="0"
-                max="6"
-                step="1"
-                value="2"
-              />
-              <span class="ctrl__value" id="ctrl-elite-val">2</span>
-            </label>
-            <button
-              class="btn btn--ghost"
-              id="btn-advanced"
-              type="button"
-              data-i18n="panel.advancedOpen"
-            >
-              Advanced
+      <div class="stats-strip">
+        <span class="ribbon-stat">
+          <span class="ribbon-stat__label" data-i18n="ribbon.gen">GENERATION</span>
+          <span class="ribbon-stat__value ribbon-stat__value--accent">
+            <span class="ribbon-stat__hash">#</span><span id="stat-generation">—</span>
+          </span>
+        </span>
+        <span class="ribbon-stat">
+          <span class="ribbon-stat__label" data-i18n="ribbon.lead">LEADER</span>
+          <span class="ribbon-stat__value">
+            <span id="stat-lead">—</span>
+            <span class="ribbon-stat__sub">/&nbsp;<span id="stat-track-length">—</span></span>
+          </span>
+        </span>
+        <span class="ribbon-stat">
+          <span class="ribbon-stat__label" data-i18n="ribbon.best">BEST</span>
+          <span class="ribbon-stat__value" id="stat-best">—</span>
+        </span>
+        <span class="ribbon-stat">
+          <span class="ribbon-stat__label" data-i18n="ribbon.alive">ALIVE</span>
+          <span class="ribbon-stat__value">
+            <span id="stat-alive">—</span>
+            <span class="ribbon-stat__sub">/&nbsp;<span id="stat-total">—</span></span>
+          </span>
+        </span>
+        <span class="ribbon-stat ribbon-stat--track-mode">
+          <span class="ribbon-stat__label" data-i18n="panel.trackLabel">Track preset</span>
+          <div class="segmented segmented--inline" id="seg-track" role="radiogroup">
+            <button class="segmented__item" data-track-mode="random" type="button">
+              <span data-i18n="panel.trackShortRandom">Random</span>
+            </button>
+            <button class="segmented__item" data-track-mode="fixed" type="button">
+              <span data-i18n="panel.trackShortFixed">Fixed</span>
             </button>
           </div>
+        </span>
+        <span class="ribbon-stat">
+          <span class="ribbon-stat__label" data-i18n="ribbon.throughput">SPEED</span>
+          <span class="ribbon-stat__value" id="stat-throughput">×—</span>
+        </span>
+      </div>
 
-          <div class="dock__row dock__row--actions">
-            <div class="dock__section">
-              <button class="btn btn--primary" id="btn-pause">Pause</button>
-              <div class="segmented" id="seg-speed" role="radiogroup">
-                <button class="segmented__item" data-speed-idx="0" type="button">×1</button>
-                <button class="segmented__item" data-speed-idx="1" type="button">×8</button>
-                <button class="segmented__item" data-speed-idx="2" type="button">×32</button>
-                <button class="segmented__item" data-speed-idx="3" type="button">×64</button>
-                <button class="segmented__item" data-speed-idx="4" type="button">×128</button>
+      <div class="dock">
+        <div class="dock__row dock__row--params">
+          <label class="ctrl ctrl--inline">
+            <span class="ctrl__label" data-i18n="panel.population">population</span>
+            <input
+              class="ctrl__slider"
+              type="range"
+              id="ctrl-population"
+              min="8"
+              max="100"
+              step="1"
+              value="24"
+            />
+            <span class="ctrl__value" id="ctrl-population-val">24</span>
+          </label>
+          <label class="ctrl ctrl--inline">
+            <span class="ctrl__label" data-i18n="panel.mutation">mutation</span>
+            <input
+              class="ctrl__slider"
+              type="range"
+              id="ctrl-mutation"
+              min="0"
+              max="75"
+              step="1"
+              value="15"
+            />
+            <span class="ctrl__value" id="ctrl-mutation-val">15%</span>
+          </label>
+          <label class="ctrl ctrl--inline">
+            <span class="ctrl__label" data-i18n="panel.elite">elite</span>
+            <input
+              class="ctrl__slider"
+              type="range"
+              id="ctrl-elite"
+              min="0"
+              max="6"
+              step="1"
+              value="2"
+            />
+            <span class="ctrl__value" id="ctrl-elite-val">2</span>
+          </label>
+          <button
+            class="btn btn--ghost"
+            id="btn-advanced"
+            type="button"
+            data-i18n="panel.advancedOpen"
+          >
+            Advanced
+          </button>
+        </div>
+
+        <div class="dock__row dock__row--actions">
+          <div class="dock__section">
+            <button class="btn btn--primary" id="btn-pause">Pause</button>
+            <div class="segmented" id="seg-speed" role="radiogroup">
+              <button class="segmented__item" data-speed-idx="0" type="button">×1</button>
+              <button class="segmented__item" data-speed-idx="1" type="button">×8</button>
+              <button class="segmented__item" data-speed-idx="2" type="button">×32</button>
+              <button class="segmented__item" data-speed-idx="3" type="button">×64</button>
+              <button class="segmented__item" data-speed-idx="4" type="button">×128</button>
+            </div>
+          </div>
+
+          <div class="dock__sep"></div>
+
+          <div class="dock__section dock__section--has-drawer">
+            <button
+              class="dock__toggle"
+              id="dock-toggle-seed"
+              type="button"
+              aria-expanded="false"
+              aria-controls="dock-drawer-seed"
+            >
+              <span class="dock__toggle-num">01</span>
+              <span class="dock__toggle-label" data-i18n="ribbon.seed">SEED</span>
+              <span class="dock__toggle-chevron" aria-hidden="true">▾</span>
+            </button>
+            <div class="dock-drawer dock-drawer--seed" id="dock-drawer-seed" hidden>
+              <div class="seed-input-row">
+                <input
+                  class="seed-input"
+                  id="seed-input"
+                  type="text"
+                  maxlength="8"
+                  spellcheck="false"
+                  autocomplete="off"
+                  placeholder="hex"
+                />
+                <button
+                  class="btn btn--seed-apply"
+                  id="seed-apply"
+                  type="button"
+                  data-i18n="panel.seedApply"
+                >
+                  Apply
+                </button>
+              </div>
+              <div class="seed-history" id="seed-history"></div>
+            </div>
+          </div>
+
+          <div class="dock__section dock__section--has-drawer">
+            <button
+              class="dock__toggle"
+              id="dock-toggle-track"
+              type="button"
+              aria-expanded="false"
+              aria-controls="dock-drawer-track"
+            >
+              <span class="dock__toggle-num">02</span>
+              <span class="dock__toggle-label" data-i18n="panel.trackTuning">TRACK</span>
+              <span class="dock__toggle-chevron" aria-hidden="true">▾</span>
+            </button>
+            <div class="dock-drawer dock-drawer--wide" id="dock-drawer-track" hidden>
+              <div class="dock-drawer__grid">
+                <label class="ctrl">
+                  <span class="ctrl__label" data-i18n="panel.trackLength">length</span>
+                  <input
+                    class="ctrl__slider"
+                    type="range"
+                    id="ctrl-length"
+                    min="200"
+                    max="2000"
+                    step="50"
+                    value="200"
+                  />
+                  <span class="ctrl__value" id="ctrl-length-val">200m</span>
+                </label>
+                <label class="ctrl">
+                  <span class="ctrl__label" data-i18n="panel.difficulty">difficulty</span>
+                  <input
+                    class="ctrl__slider"
+                    type="range"
+                    id="ctrl-difficulty"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value="40"
+                  />
+                  <span class="ctrl__value" id="ctrl-difficulty-val">40%</span>
+                </label>
+                <label class="ctrl">
+                  <span class="ctrl__label" data-i18n="panel.walls">walls</span>
+                  <input
+                    class="ctrl__slider"
+                    type="range"
+                    id="ctrl-walls"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value="0"
+                  />
+                  <span class="ctrl__value" id="ctrl-walls-val">0%</span>
+                </label>
+                <label class="ctrl">
+                  <span class="ctrl__label" data-i18n="panel.ceilings">ceilings</span>
+                  <input
+                    class="ctrl__slider"
+                    type="range"
+                    id="ctrl-ceilings"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value="0"
+                  />
+                  <span class="ctrl__value" id="ctrl-ceilings-val">0%</span>
+                </label>
+                <label class="ctrl">
+                  <span class="ctrl__label" data-i18n="panel.cliffs">cliffs</span>
+                  <input
+                    class="ctrl__slider"
+                    type="range"
+                    id="ctrl-cliffs"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value="0"
+                  />
+                  <span class="ctrl__value" id="ctrl-cliffs-val">0%</span>
+                </label>
+                <label class="ctrl">
+                  <span class="ctrl__label" data-i18n="panel.slick">slick</span>
+                  <input
+                    class="ctrl__slider"
+                    type="range"
+                    id="ctrl-slick"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value="0"
+                  />
+                  <span class="ctrl__value" id="ctrl-slick-val">0%</span>
+                </label>
+                <label class="ctrl">
+                  <span class="ctrl__label" data-i18n="panel.stairs">stairs</span>
+                  <input
+                    class="ctrl__slider"
+                    type="range"
+                    id="ctrl-stairs"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value="0"
+                  />
+                  <span class="ctrl__value" id="ctrl-stairs-val">0%</span>
+                </label>
               </div>
             </div>
+          </div>
 
-            <div class="dock__sep"></div>
+          <div class="dock__sep"></div>
 
-            <div class="dock__section dock__section--has-drawer">
-              <button
-                class="dock__toggle"
-                id="dock-toggle-seed"
-                type="button"
-                aria-expanded="false"
-                aria-controls="dock-drawer-seed"
-              >
-                <span class="dock__toggle-num">01</span>
-                <span class="dock__toggle-label" data-i18n="ribbon.seed">SEED</span>
-                <span class="dock__toggle-chevron" aria-hidden="true">▾</span>
+          <div class="dock__section">
+            <div class="confirm-anchor">
+              <button class="btn btn--primary" id="btn-restart" data-i18n="panel.restart">
+                New population
               </button>
-              <div class="dock-drawer dock-drawer--seed" id="dock-drawer-seed" hidden>
-                <div class="seed-input-row">
-                  <input
-                    class="seed-input"
-                    id="seed-input"
-                    type="text"
-                    maxlength="8"
-                    spellcheck="false"
-                    autocomplete="off"
-                    placeholder="hex"
-                  />
+              <div class="confirm-popover" id="restart-confirm" hidden>
+                <p class="confirm-popover__text" data-i18n="panel.restartConfirm">
+                  Start a new population?
+                </p>
+                <div class="confirm-popover__actions">
                   <button
-                    class="btn btn--seed-apply"
-                    id="seed-apply"
-                    type="button"
-                    data-i18n="panel.seedApply"
+                    class="btn btn--confirm-yes"
+                    id="restart-confirm-yes"
+                    data-i18n="panel.confirmYes"
                   >
-                    Apply
+                    Confirm
+                  </button>
+                  <button
+                    class="btn btn--confirm-no"
+                    id="restart-confirm-no"
+                    data-i18n="panel.confirmNo"
+                  >
+                    Cancel
                   </button>
                 </div>
-                <div class="seed-history" id="seed-history"></div>
               </div>
             </div>
+            <button class="btn btn--primary" id="btn-charts" data-i18n="panel.chartsToggle">
+              Stats
+            </button>
+          </div>
+        </div>
+      </div>
 
-            <div class="dock__section dock__section--has-drawer">
+      <div class="modal-settings" id="settings-modal" hidden>
+        <div class="modal-settings__panel">
+          <h3 class="modal-settings__heading" data-i18n="panel.advancedSettings">
+            Advanced settings
+          </h3>
+          <div class="modal-settings__list">
+            <div class="modal-settings__item">
+              <input class="ctrl__checkbox" type="checkbox" id="ctrl-fast-forward" />
+              <label
+                class="modal-settings__item-label"
+                for="ctrl-fast-forward"
+                data-i18n="panel.fastForward"
+                >Fast-forward</label
+              >
               <button
-                class="dock__toggle"
-                id="dock-toggle-track"
+                class="modal-settings__item-info"
                 type="button"
                 aria-expanded="false"
-                aria-controls="dock-drawer-track"
-              >
-                <span class="dock__toggle-num">02</span>
-                <span class="dock__toggle-label" data-i18n="panel.trackTuning">TRACK</span>
-                <span class="dock__toggle-chevron" aria-hidden="true">▾</span>
-              </button>
-              <div class="dock-drawer dock-drawer--wide" id="dock-drawer-track" hidden>
-                <div class="dock-drawer__grid">
-                  <label class="ctrl">
-                    <span class="ctrl__label" data-i18n="panel.trackLength">length</span>
-                    <input
-                      class="ctrl__slider"
-                      type="range"
-                      id="ctrl-length"
-                      min="200"
-                      max="2000"
-                      step="50"
-                      value="200"
-                    />
-                    <span class="ctrl__value" id="ctrl-length-val">200m</span>
-                  </label>
-                  <label class="ctrl">
-                    <span class="ctrl__label" data-i18n="panel.difficulty">difficulty</span>
-                    <input
-                      class="ctrl__slider"
-                      type="range"
-                      id="ctrl-difficulty"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value="40"
-                    />
-                    <span class="ctrl__value" id="ctrl-difficulty-val">40%</span>
-                  </label>
-                  <label class="ctrl">
-                    <span class="ctrl__label" data-i18n="panel.walls">walls</span>
-                    <input
-                      class="ctrl__slider"
-                      type="range"
-                      id="ctrl-walls"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value="0"
-                    />
-                    <span class="ctrl__value" id="ctrl-walls-val">0%</span>
-                  </label>
-                  <label class="ctrl">
-                    <span class="ctrl__label" data-i18n="panel.ceilings">ceilings</span>
-                    <input
-                      class="ctrl__slider"
-                      type="range"
-                      id="ctrl-ceilings"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value="0"
-                    />
-                    <span class="ctrl__value" id="ctrl-ceilings-val">0%</span>
-                  </label>
-                  <label class="ctrl">
-                    <span class="ctrl__label" data-i18n="panel.cliffs">cliffs</span>
-                    <input
-                      class="ctrl__slider"
-                      type="range"
-                      id="ctrl-cliffs"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value="0"
-                    />
-                    <span class="ctrl__value" id="ctrl-cliffs-val">0%</span>
-                  </label>
-                  <label class="ctrl">
-                    <span class="ctrl__label" data-i18n="panel.slick">slick</span>
-                    <input
-                      class="ctrl__slider"
-                      type="range"
-                      id="ctrl-slick"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value="0"
-                    />
-                    <span class="ctrl__value" id="ctrl-slick-val">0%</span>
-                  </label>
-                  <label class="ctrl">
-                    <span class="ctrl__label" data-i18n="panel.stairs">stairs</span>
-                    <input
-                      class="ctrl__slider"
-                      type="range"
-                      id="ctrl-stairs"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value="0"
-                    />
-                    <span class="ctrl__value" id="ctrl-stairs-val">0%</span>
-                  </label>
-                </div>
-              </div>
+                aria-controls="desc-fast-forward"
+                data-i18n-title="panel.advancedExpand"
+              ></button>
+              <div
+                class="modal-settings__item-desc"
+                id="desc-fast-forward"
+                data-i18n="panel.fastForwardHint"
+              ></div>
             </div>
-
-            <div class="dock__sep"></div>
-
-            <div class="dock__section">
-              <div class="confirm-anchor">
-                <button class="btn btn--primary" id="btn-restart" data-i18n="panel.restart">
-                  New population
-                </button>
-                <div class="confirm-popover" id="restart-confirm" hidden>
-                  <p class="confirm-popover__text" data-i18n="panel.restartConfirm">
-                    Start a new population?
-                  </p>
-                  <div class="confirm-popover__actions">
-                    <button
-                      class="btn btn--confirm-yes"
-                      id="restart-confirm-yes"
-                      data-i18n="panel.confirmYes"
-                    >
-                      Confirm
-                    </button>
-                    <button
-                      class="btn btn--confirm-no"
-                      id="restart-confirm-no"
-                      data-i18n="panel.confirmNo"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <button class="btn btn--primary" id="btn-charts" data-i18n="panel.chartsToggle">
-                Stats
-              </button>
+            <div class="modal-settings__item">
+              <input class="ctrl__checkbox" type="checkbox" id="ctrl-show-only-leader" />
+              <label
+                class="modal-settings__item-label"
+                for="ctrl-show-only-leader"
+                data-i18n="panel.showOnlyLeader"
+                >Show only leader</label
+              >
+              <button
+                class="modal-settings__item-info"
+                type="button"
+                aria-expanded="false"
+                aria-controls="desc-show-only-leader"
+                data-i18n-title="panel.advancedExpand"
+              ></button>
+              <div
+                class="modal-settings__item-desc"
+                id="desc-show-only-leader"
+                data-i18n="panel.showOnlyLeaderHint"
+              ></div>
+            </div>
+            <div class="modal-settings__item">
+              <input class="ctrl__checkbox" type="checkbox" id="ctrl-speed-mode" />
+              <label
+                class="modal-settings__item-label"
+                for="ctrl-speed-mode"
+                data-i18n="panel.speedMode"
+                >Speed mode</label
+              >
+              <button
+                class="modal-settings__item-info"
+                type="button"
+                aria-expanded="false"
+                aria-controls="desc-speed-mode"
+                data-i18n-title="panel.advancedExpand"
+              ></button>
+              <div
+                class="modal-settings__item-desc"
+                id="desc-speed-mode"
+                data-i18n="panel.speedModeHint"
+              ></div>
+            </div>
+            <div class="modal-settings__item">
+              <input class="ctrl__checkbox" type="checkbox" id="ctrl-strict-determinism" />
+              <label
+                class="modal-settings__item-label"
+                for="ctrl-strict-determinism"
+                data-i18n="panel.strictDeterminism"
+                >Strict determinism</label
+              >
+              <button
+                class="modal-settings__item-info"
+                type="button"
+                aria-expanded="false"
+                aria-controls="desc-strict-determinism"
+                data-i18n-title="panel.advancedExpand"
+              ></button>
+              <div
+                class="modal-settings__item-desc"
+                id="desc-strict-determinism"
+                data-i18n="panel.strictDeterminismHint"
+              ></div>
             </div>
           </div>
-        </div>
-
-        <!-- Advanced settings — centred modal grouping the four
-             behaviour-changing toggles (fast-forward, speed mode,
-             pure mutation, strict determinism).  Each toggle pairs
-             a label with a one-line description so the modal is
-             self-documenting without relying on hover tooltips. -->
-        <div class="modal-settings" id="settings-modal" hidden>
-          <div class="modal-settings__panel">
-            <h3 class="modal-settings__heading" data-i18n="panel.advancedSettings">
-              Advanced settings
-            </h3>
-            <div class="modal-settings__list">
-              <div class="modal-settings__item">
-                <input class="ctrl__checkbox" type="checkbox" id="ctrl-fast-forward" />
-                <label
-                  class="modal-settings__item-label"
-                  for="ctrl-fast-forward"
-                  data-i18n="panel.fastForward"
-                  >Fast-forward</label
-                >
-                <button
-                  class="modal-settings__item-info"
-                  type="button"
-                  aria-expanded="false"
-                  aria-controls="desc-fast-forward"
-                  data-i18n-title="panel.advancedExpand"
-                ></button>
-                <div
-                  class="modal-settings__item-desc"
-                  id="desc-fast-forward"
-                  data-i18n="panel.fastForwardHint"
-                ></div>
-              </div>
-              <div class="modal-settings__item">
-                <input class="ctrl__checkbox" type="checkbox" id="ctrl-show-only-leader" />
-                <label
-                  class="modal-settings__item-label"
-                  for="ctrl-show-only-leader"
-                  data-i18n="panel.showOnlyLeader"
-                  >Show only leader</label
-                >
-                <button
-                  class="modal-settings__item-info"
-                  type="button"
-                  aria-expanded="false"
-                  aria-controls="desc-show-only-leader"
-                  data-i18n-title="panel.advancedExpand"
-                ></button>
-                <div
-                  class="modal-settings__item-desc"
-                  id="desc-show-only-leader"
-                  data-i18n="panel.showOnlyLeaderHint"
-                ></div>
-              </div>
-              <div class="modal-settings__item">
-                <input class="ctrl__checkbox" type="checkbox" id="ctrl-speed-mode" />
-                <label
-                  class="modal-settings__item-label"
-                  for="ctrl-speed-mode"
-                  data-i18n="panel.speedMode"
-                  >Speed mode</label
-                >
-                <button
-                  class="modal-settings__item-info"
-                  type="button"
-                  aria-expanded="false"
-                  aria-controls="desc-speed-mode"
-                  data-i18n-title="panel.advancedExpand"
-                ></button>
-                <div
-                  class="modal-settings__item-desc"
-                  id="desc-speed-mode"
-                  data-i18n="panel.speedModeHint"
-                ></div>
-              </div>
-              <div class="modal-settings__item">
-                <input class="ctrl__checkbox" type="checkbox" id="ctrl-strict-determinism" />
-                <label
-                  class="modal-settings__item-label"
-                  for="ctrl-strict-determinism"
-                  data-i18n="panel.strictDeterminism"
-                  >Strict determinism</label
-                >
-                <button
-                  class="modal-settings__item-info"
-                  type="button"
-                  aria-expanded="false"
-                  aria-controls="desc-strict-determinism"
-                  data-i18n-title="panel.advancedExpand"
-                ></button>
-                <div
-                  class="modal-settings__item-desc"
-                  id="desc-strict-determinism"
-                  data-i18n="panel.strictDeterminismHint"
-                ></div>
-              </div>
-            </div>
-            <div class="modal-settings__actions">
-              <button
-                class="btn btn--primary"
-                id="settings-modal-close"
-                type="button"
-                data-i18n="tutorial.close"
-              >
-                Close
-              </button>
-            </div>
+          <div class="modal-settings__actions">
+            <button
+              class="btn btn--primary"
+              id="settings-modal-close"
+              type="button"
+              data-i18n="tutorial.close"
+            >
+              Close
+            </button>
           </div>
         </div>
+      </div>
 
-        <!-- Strict-determinism warning — body-level centred modal so it
-             reads as a real "do you want to do this" prompt regardless
-             of where the toggle lives in the dock. -->
-        <div class="modal-confirm" id="strict-determinism-confirm" hidden>
-          <div class="modal-confirm__panel">
-            <h3 class="modal-confirm__heading" data-i18n="panel.strictDeterminism">
-              Strict determinism
-            </h3>
-            <p
-              class="modal-confirm__text"
-              id="strict-determinism-confirm-text"
-              data-i18n="panel.strictDeterminismWarning"
-            ></p>
-            <div class="modal-confirm__actions">
-              <button
-                class="btn btn--confirm-no"
-                id="strict-determinism-confirm-no"
-                type="button"
-                data-i18n="panel.confirmNo"
-              >
-                Cancel
-              </button>
-              <button
-                class="btn btn--confirm-yes"
-                id="strict-determinism-confirm-yes"
-                type="button"
-                data-i18n="panel.confirmYes"
-              >
-                Confirm
-              </button>
-            </div>
+      <div class="modal-confirm" id="strict-determinism-confirm" hidden>
+        <div class="modal-confirm__panel">
+          <h3 class="modal-confirm__heading" data-i18n="panel.strictDeterminism">
+            Strict determinism
+          </h3>
+          <p
+            class="modal-confirm__text"
+            id="strict-determinism-confirm-text"
+            data-i18n="panel.strictDeterminismWarning"
+          ></p>
+          <div class="modal-confirm__actions">
+            <button
+              class="btn btn--confirm-no"
+              id="strict-determinism-confirm-no"
+              type="button"
+              data-i18n="panel.confirmNo"
+            >
+              Cancel
+            </button>
+            <button
+              class="btn btn--confirm-yes"
+              id="strict-determinism-confirm-yes"
+              type="button"
+              data-i18n="panel.confirmYes"
+            >
+              Confirm
+            </button>
           </div>
         </div>
-
-        <div class="headless-banner" data-i18n="panel.headlessBanner">Render off · ×32 speed</div>
-
-        <!-- Brief flash when the strict-det elite-cache shortcut fires
-             and ends the generation early.  Shown for ~700 ms by
-             flashShortcutBanner() in main.ts. -->
-        <div class="shortcut-banner" id="shortcut-banner" hidden>
-          <span class="shortcut-banner__chev" aria-hidden="true">»»</span>
-          <span class="shortcut-banner__text" data-i18n="panel.fastForward">Fast-forward</span>
-          <span class="shortcut-banner__chev" aria-hidden="true">»»</span>
-        </div>
-
-        <aside class="charts-panel" id="charts-panel" hidden></aside>
-      </main>
+      </div>
     </div>
     <div class="tutorial" id="tutorial" hidden></div>
     <script type="module" src="/src/main.ts"></script>

@@ -97,6 +97,14 @@
      correctly in both modes. */
   --minimap-h: 2.25rem;
 
+  /* iOS safe-area insets.  Topbar respects --safe-top, dock respects
+     --safe-bottom, and side overlays respect --safe-left / --safe-right.
+     Fall back to 0 on browsers without env() support. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
   /* Shadow */
   --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
   --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.35);

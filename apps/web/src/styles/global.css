@@ -50,7 +50,12 @@ select {
   position: fixed;
   inset: 0;
   display: grid;
-  grid-template-rows: var(--topbar-h) 1fr;
+  /* `auto` lets the topbar grow by env(safe-area-inset-top) on devices
+     with a notch / Dynamic Island.  --topbar-h is still applied as
+     min-height on the topbar itself so layout calcs that reference it
+     (floating buttons, panel max-heights) stay accurate on flat
+     screens where safe-top is 0. */
+  grid-template-rows: auto 1fr;
 }
 
 button {
@@ -64,7 +69,14 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-4);
-  padding: 0 var(--sp-5);
+  /* Respect iPhone notch / Dynamic Island: pad inline edges with
+     env() insets so brand & lang toggle never disappear under the
+     hardware cutout, and pad the top by safe-top so the bar's
+     baseline sits below the status bar.  min-height keeps the bar
+     at its design height on flat screens. */
+  padding: var(--safe-top) calc(var(--sp-5) + var(--safe-right)) 0
+    calc(var(--sp-5) + var(--safe-left));
+  min-height: calc(var(--topbar-h) + var(--safe-top));
   border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
   z-index: 2;
@@ -418,9 +430,10 @@ button {
      (bottom).  v1.39 — moved from top-left by player request:
      "только мини-карта сверху, остальной интерфейс снизу".
      Dock is two rows ≈ 7.5 rem tall + sp-3 inset, so the stats
-     bottom-anchor accounts for both. */
-  bottom: calc(var(--sp-3) + 7.5rem + var(--sp-2));
-  left: var(--sp-4);
+     bottom-anchor accounts for both, plus safe-bottom for the
+     iPhone home-indicator. */
+  bottom: calc(max(var(--sp-3), var(--safe-bottom)) + 7.5rem + var(--sp-2));
+  left: calc(var(--sp-4) + var(--safe-left));
   display: grid;
   grid-template-columns: repeat(2, minmax(7rem, max-content));
   grid-auto-rows: auto;
@@ -505,7 +518,10 @@ button {
 
 .dock {
   position: absolute;
-  bottom: var(--sp-3);
+  /* Lift the dock above the iPhone home-indicator bar.  On flat
+     screens --safe-bottom is 0 so the dock sits at its normal sp-3
+     offset from the canvas edge. */
+  bottom: max(var(--sp-3), var(--safe-bottom));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -517,7 +533,7 @@ button {
   border-radius: var(--r-lg);
   backdrop-filter: blur(10px);
   z-index: 2;
-  max-width: calc(100vw - 2 * var(--sp-4));
+  max-width: calc(100vw - 2 * var(--sp-4) - var(--safe-left) - var(--safe-right));
 }
 
 .dock__row {
@@ -718,7 +734,7 @@ button {
   border: 1px solid var(--color-border);
   border-radius: var(--r-md);
   width: min(60rem, 100%);
-  max-height: 90vh;
+  max-height: 90dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1267,7 +1283,7 @@ button {
      header + close button stay put, the toggle list scrolls when
      necessary (rare with all descriptions collapsed; always works
      when several are expanded). */
-  max-height: calc(100vh - 4rem);
+  max-height: calc(100dvh - 4rem);
   background: rgba(22, 22, 26, 0.98);
   border: 1px solid var(--color-panel-accent);
   border-radius: var(--r-md);
@@ -1442,8 +1458,8 @@ button {
      stretches the box to fill the stage between margins. */
   position: absolute;
   top: var(--sp-3);
-  left: var(--sp-4);
-  width: calc(100% - 2 * var(--sp-4));
+  left: calc(var(--sp-4) + var(--safe-left));
+  width: calc(100% - 2 * var(--sp-4) - var(--safe-left) - var(--safe-right));
   height: var(--minimap-h);
   background: rgba(22, 22, 26, 0.78);
   border: 1px solid var(--color-border);
@@ -1617,13 +1633,22 @@ button {
 
 .charts-panel {
   position: absolute;
-  right: var(--sp-4);
+  right: calc(var(--sp-4) + var(--safe-right));
   /* Clear the dock at the bottom — two rows now, ≈ 7 rem tall total
      (params row + actions row + dividers).  Bump the offset so the
-     charts panel doesn't overlap the always-visible Evolution row. */
-  bottom: calc(var(--sp-3) + 7.5rem);
-  width: min(40rem, calc(100vw - 2 * var(--sp-4)));
-  max-height: calc(100vh - var(--topbar-h) - 10rem);
+     charts panel doesn't overlap the always-visible Evolution row.
+     Adds safe-bottom so on iPhone the panel doesn't tuck under the
+     home-indicator bar. */
+  bottom: calc(max(var(--sp-3), var(--safe-bottom)) + 7.5rem);
+  /* Fluid width: grows from a useful minimum (22 rem ≈ 350 px on
+     phones / small laptops) up to 58 rem on big monitors, tracking
+     ~32 vw in between.  Cap at viewport-minus-margins so it never
+     overflows.  v1.59 previously hard-capped at 40 rem which made
+     the panel look small on 4K and crowd the canvas on narrow
+     laptops — clamp() solves both ends. */
+  width: clamp(22rem, 32vw, 58rem);
+  max-width: calc(100vw - 2 * var(--sp-4) - var(--safe-left) - var(--safe-right));
+  max-height: calc(100dvh - var(--topbar-h) - 10rem - var(--safe-bottom));
   overflow-y: auto;
   background: rgba(22, 22, 26, 0.86);
   border: 1px solid var(--color-border);
@@ -2044,6 +2069,45 @@ button {
   display: block;
 }
 
+/* ─── Tablet / small laptop ──────────────────────────────────────────────── */
+
+/* Between phone (≤640) and full desktop (≥1025).  On a 1024×768 iPad
+   or an 11" MacBook Air in a side-by-side window, the desktop charts
+   panel (clamp(22, 32vw, 58rem) ≈ 22–28 rem here) still claims a big
+   chunk of canvas width.  Tighten the panel to a strict 22-rem
+   sidebar in this range so the canvas keeps a usable area for the
+   simulation while every overlay stays visible. */
+@media (min-width: 40.0625rem) and (max-width: 64rem) {
+  .charts-panel {
+    width: 22rem;
+    max-height: calc(100dvh - var(--topbar-h) - 9.5rem - var(--safe-bottom));
+  }
+
+  /* Ribbon-stats compresses to one column to give the dock breathing
+     room — the dock here is wrapped onto two rows ≈ 8 rem tall. */
+  .ribbon-stats {
+    grid-template-columns: 1fr;
+    gap: var(--sp-1) var(--sp-3);
+    padding: var(--sp-2) var(--sp-3);
+  }
+}
+
+/* ─── Big-screen / 4K tier ───────────────────────────────────────────────── */
+
+/* On a 27" 1440p or a 32" 4K monitor the charts panel hits its
+   58-rem cap and feels small relative to the canvas.  Bump the cap
+   so the panel actually uses the available width, and stretch the
+   headless-mode panel cap accordingly. */
+@media (min-width: 100rem) {
+  .charts-panel {
+    width: clamp(40rem, 30vw, 72rem);
+  }
+
+  .mode-headless .charts-panel {
+    max-width: clamp(60rem, 70vw, 110rem);
+  }
+}
+
 /* ─── Mobile ─────────────────────────────────────────────────────────────── */
 
 @media (max-width: 720px) {
@@ -2107,8 +2171,19 @@ button {
     position: sticky;
     top: 0;
     z-index: 10;
-    padding: 0 var(--sp-3);
+    /* Notch padding still applies inline + top.  min-height keeps the
+       bar from collapsing below 3.5 rem when safe-top is 0. */
+    padding: var(--safe-top) calc(var(--sp-3) + var(--safe-right)) 0
+      calc(var(--sp-3) + var(--safe-left));
     gap: var(--sp-2);
+  }
+
+  .stage {
+    /* Honour iPhone landscape safe-areas on the sides so cards don't
+       slide under the Dynamic Island when device is rotated. */
+    padding-left: calc(var(--sp-3) + var(--safe-left));
+    padding-right: calc(var(--sp-3) + var(--safe-right));
+    padding-bottom: calc(var(--sp-3) + var(--safe-bottom));
   }
 
   .brand__name {

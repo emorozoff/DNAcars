@@ -225,16 +225,9 @@
               <button class="segmented__item" data-speed-idx="3" type="button">×64</button>
             </div>
 
-            <label class="switch">
-              <span class="switch__label" data-i18n="panel.randomTrack">Random track</span>
-              <input type="checkbox" id="toggle-random-track" class="switch__input" />
-              <span class="switch__track" aria-hidden="true">
-                <span class="switch__thumb"></span>
-              </span>
-            </label>
-
-            <div class="controls-row">
-              <div class="dock__section dock__section--has-drawer">
+            <div class="control-track">
+              <div class="drawer-pair">
+                <div class="dock__section dock__section--has-drawer">
             <button
               class="dock__toggle"
               id="dock-toggle-seed"
@@ -512,9 +505,17 @@
               </div>
             </div>
               </div>
+              </div>
+              <label class="switch">
+                <span class="switch__label" data-i18n="panel.randomTrack">Random track</span>
+                <input type="checkbox" id="toggle-random-track" class="switch__input" />
+                <span class="switch__track" aria-hidden="true">
+                  <span class="switch__thumb"></span>
+                </span>
+              </label>
             </div>
 
-            <div class="controls-row">
+            <div class="control-actions">
               <div class="confirm-anchor">
                 <button class="btn btn--primary" id="btn-restart" data-i18n="panel.restart">
                   New population

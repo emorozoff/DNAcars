@@ -38,6 +38,7 @@ const enRaw = {
   'panel.cliffs': 'Cliffs',
   'panel.slick': 'Slick',
   'panel.stairs': 'Stairs',
+  'panel.gravity': 'Gravity',
   'panel.tunnel': 'Tunnel',
   'panel.mud': 'Mud',
   'panel.zigzag': 'Zigzag',

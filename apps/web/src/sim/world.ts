@@ -1380,7 +1380,7 @@ type WheelRuntime = {
    * The wheel's ball collider.  Cached so we can ask Rapier directly
    * "is this collider in contact with anything right now" instead of
    * approximating with a vertical-distance-to-track formula (which
-   * fails on slopes — see wheelOnGround docs for the geometry).
+   * fails on slopes — see colliderTouchingTrack docs for the geometry).
    */
   collider: RAPIER.Collider;
   joint: RAPIER.ImpulseJoint;
@@ -1450,6 +1450,10 @@ type CarRuntime = {
   genome: Genome;
   vertices: { x: number; y: number }[];
   chassis: RAPIER.RigidBody;
+  /** The chassis hull collider.  Its collision filter is TRACK-only,
+   *  so any contact it reports is a chassis-vs-track touch — used by
+   *  updateLifecycle to kill a car whose body scrapes the ground. */
+  chassisCollider: RAPIER.Collider;
   wheels: WheelRuntime[];
   spawnX: number;
   /** True for cars that came in as a deep-cloned elite from the
@@ -1695,6 +1699,14 @@ export type CreateWorldOptions = {
    * carryover from anywhere).
    */
   eliteCount?: number;
+  /**
+   * World gravity multiplier in G (1 G = 9.81 m/s²).  Default 1.
+   * Scales only the world's downward gravity vector — the motor-
+   * torque reference (the GRAVITY constant) is left untouched so
+   * motor strength stays consistent across gravity settings; only
+   * the weight cars fight against changes.
+   */
+  gravity?: number;
 };
 
 export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle> {
@@ -1710,8 +1722,9 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
   const worlds: RAPIER.World[] = [];
   const carWorld: RAPIER.World[] = [];
 
+  const gravityG = opts.gravity ?? 1;
   const makeWorld = (): RAPIER.World => {
-    const w = new RAPIER.World({ x: 0, y: -GRAVITY });
+    const w = new RAPIER.World({ x: 0, y: -GRAVITY * gravityG });
     // Each physics call advances by SIM_DT / SUBSTEPS so the per-game-
     // tick total is still SIM_DT, just split across multiple solver
     // passes for smoother contact resolution.
@@ -1798,7 +1811,8 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
       }
       time += SIM_DT;
       const trackLength = opts.track.options.length;
-      for (const car of cars) {
+      for (let i = 0; i < cars.length; i++) {
+        const car = cars[i]!;
         if (car.finished) continue;
         car.ageSec += SIM_DT;
         const x = car.chassis.translation().x;
@@ -1844,7 +1858,7 @@ export async function createWorld(opts: CreateWorldOptions): Promise<WorldHandle
         car.lastTickLeadingX = leadingX;
         clampInsaneVelocity(car, opts.track, time);
         const wasFinished = car.finished;
-        updateLifecycle(car);
+        updateLifecycle(car, carWorld[i]!);
         // Record a periodic sample for this car.  If updateLifecycle
         // just promoted us to "finished", always record a finish
         // event so the timeline ends with a clear "this is when it
@@ -2117,7 +2131,7 @@ function buildCar(
     .setFriction(TUNING.chassis.friction)
     .setRestitution(TUNING.chassis.restitution)
     .setCollisionGroups(packGroups(GROUP.CHASSIS, GROUP.TRACK));
-  world.createCollider(hullDesc, chassis);
+  const chassisCollider = world.createCollider(hullDesc, chassis);
 
   // Resolve each wheel's hub position in chassis-local coordinates,
   // then de-duplicate.  Hub = vertex anchor + wheel.offset, where the
@@ -2230,6 +2244,7 @@ function buildCar(
     genome,
     vertices: verts,
     chassis,
+    chassisCollider,
     wheels,
     spawnX,
     isElite,
@@ -2270,7 +2285,7 @@ function buildCar(
 
 function updateWheelContacts(car: CarRuntime, world: RAPIER.World): void {
   for (const w of car.wheels) {
-    const raw = wheelOnGround(world, w.collider);
+    const raw = colliderTouchingTrack(world, w.collider);
     if (raw) {
       w.groundedHysteresis = GROUND_HYSTERESIS_SUBSTEPS;
     } else if (w.groundedHysteresis > 0) {
@@ -2461,7 +2476,7 @@ function applyMotor(car: CarRuntime): void {
  * information Rapier itself uses to apply collision impulses, so by
  * construction it agrees with the physics.
  */
-function wheelOnGround(world: RAPIER.World, collider: RAPIER.Collider): boolean {
+function colliderTouchingTrack(world: RAPIER.World, collider: RAPIER.Collider): boolean {
   let touching = false;
   world.contactPairsWith(collider, (other) => {
     if (touching) return;
@@ -2490,8 +2505,19 @@ function wheelOnGround(world: RAPIER.World, collider: RAPIER.Collider): boolean 
  * A short grace period at the very start lets a freshly-spawned
  * car settle under gravity before either test arms.
  */
-function updateLifecycle(car: CarRuntime): void {
+function updateLifecycle(car: CarRuntime, world: RAPIER.World): void {
   if (car.ageSec < TUNING.lifecycle.graceSeconds) return;
+  // Chassis-touches-track death (v1.64): the body's collision filter
+  // is TRACK-only, so any contact it reports is the chassis scraping
+  // the ground / an obstacle.  Cars must run on their wheels — the
+  // moment the hull touches down, the run is over.  The contact data
+  // is the same Rapier already computed this step (the hull collider
+  // exists and resolves contacts regardless), so this costs one
+  // broad-phase pair walk per car — same as the per-wheel check.
+  if (colliderTouchingTrack(world, car.chassisCollider)) {
+    car.finished = true;
+    return;
+  }
   const x = car.chassis.translation().x;
   if (car.maxX - x >= TUNING.lifecycle.rollbackThreshold) {
     car.finished = true;

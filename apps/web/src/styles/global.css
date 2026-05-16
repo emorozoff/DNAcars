@@ -666,22 +666,47 @@ button {
   gap: var(--sp-3);
 }
 
-/* A horizontal cluster of controls inside the Controls panel
-   (drawer toggles, action buttons).  Wraps on narrow panels. */
-.controls-row {
+/* ─── Controls panel internals (v1.63.2 rebuild) ─────────────────────────── */
+
+/* Speed segmented fills the panel width — a real segmented control
+   reads best edge-to-edge. */
+.panel--controls #seg-speed {
+  width: 100%;
+}
+
+/* Track row: SEED + TRACK drawer pair pinned left, the Random-track
+   switch pinned right.  space-between gives the switch room without
+   the drawers drifting. */
+.control-track {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
   flex-wrap: wrap;
+}
+
+.drawer-pair {
+  display: flex;
   align-items: center;
   gap: var(--sp-2);
 }
 
-/* A horizontal cluster of controls inside the Controls panel
-   (drawer toggles, action buttons).  Wraps on narrow panels. */
-.controls-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+/* Action buttons — two equal columns so New-population and Charts
+   are the same width and fill the row instead of sitting at ragged
+   natural sizes. */
+.control-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: var(--sp-2);
+}
+
+.control-actions .confirm-anchor {
+  display: flex;
+}
+
+.control-actions .confirm-anchor > .btn,
+.control-actions > .btn {
+  width: 100%;
 }
 
 /* Each stat is stacked: small uppercase label on top, mono value
@@ -779,11 +804,16 @@ button {
 
 /* ─── Toggle switch (Random track) ───────────────────────────────────────── */
 
+/* Compact inline switch — label sits directly beside the toggle
+   (v1.63.2: dropped space-between which flung the toggle to the
+   far edge of the panel, away from its label). */
 .switch {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-3);
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--r-sm);
   cursor: pointer;
   user-select: none;
 }

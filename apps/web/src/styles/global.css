@@ -644,18 +644,35 @@ button {
   color: var(--color-fg-muted);
 }
 
+/* `flex: 1` lets the body soak up the panel height; space-between
+   distributes the rows so they fill the card top-to-bottom instead
+   of clumping at the top with empty space below (v1.63.1 fix). */
 .panel__body {
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
   gap: var(--sp-2);
+  flex: 1;
   min-width: 0;
 }
 
-/* Statistics panel — stat chips wrap in a flex grid. */
-.stats-grid {
+/* Statistics panel — one stat per row, label left / value right,
+   so the five stats fill the panel height as a tidy list (was a
+   horizontal wrap that left most of the card empty). */
+.stats-grid .ribbon-stat {
   flex-direction: row;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+/* A horizontal cluster of controls inside the Controls panel
+   (drawer toggles, action buttons).  Wraps on narrow panels. */
+.controls-row {
+  display: flex;
   flex-wrap: wrap;
-  gap: var(--sp-2) var(--sp-5);
+  align-items: center;
+  gap: var(--sp-2);
 }
 
 /* A horizontal cluster of controls inside the Controls panel

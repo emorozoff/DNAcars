@@ -502,6 +502,39 @@
                   </button>
                   <span class="ctrl__value" id="ctrl-stairs-val">0%</span>
                 </div>
+                <div class="ctrl ctrl--stepped">
+                  <label class="ctrl__label" for="ctrl-gravity" data-i18n="panel.gravity"
+                    >gravity</label
+                  >
+                  <button
+                    class="ctrl__step"
+                    type="button"
+                    data-step="ctrl-gravity"
+                    data-dir="-1"
+                    aria-label="Decrease"
+                  >
+                    −
+                  </button>
+                  <input
+                    class="ctrl__slider"
+                    type="range"
+                    id="ctrl-gravity"
+                    min="1"
+                    max="30"
+                    step="1"
+                    value="10"
+                  />
+                  <button
+                    class="ctrl__step"
+                    type="button"
+                    data-step="ctrl-gravity"
+                    data-dir="1"
+                    aria-label="Increase"
+                  >
+                    +
+                  </button>
+                  <span class="ctrl__value" id="ctrl-gravity-val">1.0 G</span>
+                </div>
               </div>
             </div>
               </div>

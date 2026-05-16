@@ -93,6 +93,10 @@ const trackTuning: {
   length: number;
   difficulty: number;
   obstacles: ObstacleConfig;
+  /** World gravity in G (1 G = 9.81 m/s²).  Slider range 0.1..3.0,
+   *  default 1.0.  Threaded into createWorld; does not affect track
+   *  shape, so it lives outside TrackOptions. */
+  gravity: number;
 } = {
   length: 200,
   difficulty: 40,
@@ -103,6 +107,7 @@ const trackTuning: {
     slick: 0,
     stairs: 0,
   },
+  gravity: 1,
 };
 
 /**
@@ -783,7 +788,7 @@ async function bootstrap(): Promise<void> {
     // speedMode included so toggling it flips the hash and invalidates
     // the elite-cache (cached fitness values were computed under the
     // previous mode's scoring and would lie under the new one).
-    return JSON.stringify({ trackSeed, ...trackOpts, speedMode });
+    return JSON.stringify({ trackSeed, ...trackOpts, speedMode, gravity: trackTuning.gravity });
   }
 
   /**
@@ -1371,6 +1376,7 @@ async function bootstrap(): Promise<void> {
     session = await startSession({
       trackSeed,
       trackOpts: trackParams.opts,
+      gravity: trackTuning.gravity,
       generation,
       genomes,
       eliteCount: sessionEliteCount,
@@ -1504,6 +1510,12 @@ function bindControls(): void {
   bindSlider('ctrl-stairs', 'ctrl-stairs-val', (v) => {
     trackTuning.obstacles.stairs = v / 100;
     return `${v}%`;
+  });
+  // Gravity slider is in deci-G (raw 1..30 → 0.1..3.0 G) so the
+  // step buttons nudge by 0.1 G.  trackTuning.gravity stores G.
+  bindSlider('ctrl-gravity', 'ctrl-gravity-val', (v) => {
+    trackTuning.gravity = v / 10;
+    return `${(v / 10).toFixed(1)} G`;
   });
   bindStepButtons();
 }
@@ -1903,6 +1915,9 @@ type StartOptions = {
    * obstacle-slider settings.  Empty object = pure defaults.
    */
   trackOpts?: Partial<TrackOptions>;
+  /** World gravity in G (1 G = 9.81 m/s²).  Threaded to createWorld;
+   *  not part of TrackOptions since it doesn't affect track shape. */
+  gravity?: number;
   generation: number;
   genomes: Genome[];
   /** How many of the leading genomes are deep-cloned elite carryover
@@ -1960,6 +1975,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
     spawnX: SPAWN_X,
     isolated: strictDeterminism,
     eliteCount: opts.eliteCount,
+    gravity: opts.gravity,
   });
 
   hud.total.textContent = String(genomes.length);

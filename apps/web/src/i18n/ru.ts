@@ -40,6 +40,7 @@ export const ru: Dictionary = {
   'panel.cliffs': 'Обрывы',
   'panel.slick': 'Скользко',
   'panel.stairs': 'Ступени',
+  'panel.gravity': 'Притяжение',
   'panel.tunnel': 'Тоннель',
   'panel.mud': 'Грязь',
   'panel.zigzag': 'Зигзаг',

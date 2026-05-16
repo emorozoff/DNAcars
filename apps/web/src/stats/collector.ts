@@ -45,6 +45,17 @@ export type GenerationStats = {
   /** Average of each genome's mean chassis radius (the "size" of the body). */
   avgChassisRadius: number;
   /**
+   * Average wheel radius (m) across *every* wheel of *every* car this
+   * generation — i.e. total of all wheel radii / total wheel count.
+   * A car with one big + one small wheel contributes both to the
+   * pool, so the metric reads "how big is a typical wheel this gen"
+   * rather than "how big is a typical car's wheel set".  Matches the
+   * avgWheelPower aggregation (also per-wheel, not per-car).
+   */
+  avgWheelRadius: number;
+  /** Share of cars that crossed the finish line this gen, 0..100 %. */
+  finishRate: number;
+  /**
    * Fastest finish-time in this generation, in seconds.  null if no
    * car crossed the finish line this gen.  Used by the speed-mode
    * chart to show progress over generations regardless of whether
@@ -95,6 +106,7 @@ export function collectStats(
   let totalVerts = 0;
   let totalWheelCount = 0;
   let totalWheelPower = 0;
+  let totalWheelRadius = 0;
   let totalMotorSpeed = 0;
   let totalChassisDensity = 0;
   let totalChassisRadius = 0;
@@ -103,7 +115,10 @@ export function collectStats(
     const g = r.genome;
     totalVerts += g.chassisVertexCount;
     totalWheelCount += g.wheels.length;
-    for (const w of g.wheels) totalWheelPower += w.power;
+    for (const w of g.wheels) {
+      totalWheelPower += w.power;
+      totalWheelRadius += w.radius;
+    }
     totalMotorSpeed += g.motorSpeed;
     totalChassisDensity += g.chassisDensity;
     const radii = g.chassisRadii;
@@ -141,6 +156,8 @@ export function collectStats(
     avgMotorSpeed: totalMotorSpeed / total,
     avgChassisDensity: totalChassisDensity / total,
     avgChassisRadius: totalChassisRadius / total,
+    avgWheelRadius: totalWheelRadius / allWheels,
+    finishRate: (finishTimes.length / total) * 100,
     bestFinishTime,
     finishedCount: finishTimes.length,
     trackLength,
@@ -170,6 +187,8 @@ function zeroStats(
     avgMotorSpeed: 0,
     avgChassisDensity: 0,
     avgChassisRadius: 0,
+    avgWheelRadius: 0,
+    finishRate: 0,
     bestFinishTime: null,
     finishedCount: 0,
     trackLength,

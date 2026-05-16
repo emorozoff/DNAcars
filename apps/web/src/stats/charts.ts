@@ -61,6 +61,11 @@ const GENOME_DEFS: GenomeDef[] = [
     i18nKey: 'chart.avgChassisSize',
     format: (v) => v.toFixed(2),
   },
+  {
+    key: 'avgWheelRadius',
+    i18nKey: 'chart.avgWheelRadius',
+    format: (v) => `${v.toFixed(2)} m`,
+  },
 ];
 
 /* ─── Layout constants ─────────────────────────────────────────────── */
@@ -808,14 +813,18 @@ function buildInsights(): Insights {
 
   const cumCell = makeInsightCell('chart.cumRecords');
   const ageCell = makeInsightCell('chart.eliteAge');
+  const finishCell = makeInsightCell('chart.finishRate');
   grid.appendChild(cumCell.el);
   grid.appendChild(ageCell.el);
+  grid.appendChild(finishCell.el);
 
   function clear(): void {
     cumCell.value.textContent = '—';
     cumCell.polyline.setAttribute('points', '');
     ageCell.value.textContent = '—';
     ageCell.polyline.setAttribute('points', '');
+    finishCell.value.textContent = '—';
+    finishCell.polyline.setAttribute('points', '');
   }
 
   function update(history: GenerationStats[]): void {
@@ -828,6 +837,11 @@ function buildInsights(): Insights {
     renderSparkline(cumCell.polyline, cumRecords);
     ageCell.value.textContent = String(eliteAge[eliteAge.length - 1] ?? 0);
     renderSparkline(ageCell.polyline, eliteAge);
+    // Finish-rate is a direct per-generation stat — no derivation,
+    // just plot h.finishRate straight from history.
+    const finishSeries = history.map((h) => h.finishRate);
+    finishCell.value.textContent = `${(finishSeries[finishSeries.length - 1] ?? 0).toFixed(0)}%`;
+    renderSparkline(finishCell.polyline, finishSeries);
   }
 
   return { el: card, update, clear };

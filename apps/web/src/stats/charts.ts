@@ -1,34 +1,37 @@
 /**
- * Stats panel — three-section dashboard mounted as a floating card.
+ * Stats panel — a floating, scrollable charts window.
  *
- *   1. Progress hero — combined "best vs mean" line chart over the
- *      windowed history, with big current-value readouts.  The single
- *      most useful view for "is the GA actually getting better?".
- *   2. Genome trends — compact sparkline grid for the average genome
- *      stats (chassis verts, wheel count, wheel power, motor speed,
- *      chassis density, chassis size).
+ * The window is a fixed-position overlay (so it can never be clipped
+ * by the dock / grid rows) with its own internal scroll.  It holds a
+ * stack of chart cards:
  *
- * The window selector in the header (50 / 100 / 200 / All) clamps how
- * many recent generations the progress hero + genome sparklines look
- * at.
+ *   - Progress hero — combined "best vs mean" line chart.
+ *   - Best finish time — fastest finisher per generation.
+ *   - Insights — records-broken / champion-age / finish-rate sparklines.
+ *   - Car traits — average-genome sparkline grid.
  *
- * Adding a new genome-trend chart is one line in `GENOME_DEFS`.
+ * Every card can be collapsed (click its header) and reordered (drag
+ * the grip handle).  Both bits of state persist to localStorage.
+ * Every chart reacts to the mouse: a hairline + readout follows the
+ * cursor and reports the exact value at the hovered generation.
+ *
+ * The same window is used at every sim speed and in every mode — there
+ * is no speed-mode-specific layout.
  *
  * Layout note: axis labels live in HTML (positioned absolutely over
- * the SVG) rather than inside the SVG.  Reason: the SVGs use
+ * the SVG) rather than inside the SVG.  The SVGs use
  * `preserveAspectRatio="none"` so polylines stretch to fill card
- * width, but that scaling would distort `<text>` elements (visible
- * as the "horizontally stretched" labels in v1.15.x).  HTML text
- * stays at its CSS-controlled font-size regardless of the SVG's
- * non-uniform stretch.
+ * width; that scaling would distort `<text>` elements, so HTML text
+ * (at a fixed CSS font-size) is used instead.
  */
 
 import { t, type TranslationKey } from '../i18n';
 import type { GenerationStats } from './collector';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+const LAYOUT_KEY = 'dnacars.charts.layout';
 
-/* ─── Header controls ──────────────────────────────────────────────── */
+/* ─── Header window selector ───────────────────────────────────────── */
 
 type WindowSize = 50 | 100 | 200 | null;
 const WINDOW_OPTIONS: WindowSize[] = [50, 100, 200, null];
@@ -70,10 +73,6 @@ const GENOME_DEFS: GenomeDef[] = [
 
 /* ─── Layout constants ─────────────────────────────────────────────── */
 
-// Internal viewBox sizes — actual on-screen width/height comes from
-// the CSS (`max-width` + aspect-ratio).  Keep these proportional to
-// the rendered aspect so the polyline/bar geometry doesn't get
-// stretched too far in either direction even before CSS clamps width.
 const HERO_W = 600;
 const HERO_H = 200;
 const SPARK_W = 160;
@@ -86,23 +85,61 @@ export type ChartsHandle = {
   update(history: GenerationStats[]): void;
   setVisible(v: boolean): void;
   isVisible(): boolean;
-  /** Show / hide the speed-mode "Best finish time" chart. */
-  setSpeedMode(on: boolean): void;
 };
+
+/** One chart card's renderable content + its update hooks.  The card
+ *  shell (header, collapse, drag) is added by mountCharts. */
+type ChartCard = {
+  content: HTMLElement;
+  update(history: GenerationStats[]): void;
+  clear(): void;
+};
+
+type CardDef = { id: string; titleKey: TranslationKey; card: ChartCard };
+
+type Layout = { order: string[]; collapsed: string[] };
+
+function loadLayout(): Layout {
+  try {
+    const raw = localStorage.getItem(LAYOUT_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<Layout>;
+      return {
+        order: Array.isArray(parsed.order) ? parsed.order.map(String) : [],
+        collapsed: Array.isArray(parsed.collapsed) ? parsed.collapsed.map(String) : [],
+      };
+    }
+  } catch {
+    /* corrupt / unavailable storage — fall through to defaults */
+  }
+  return { order: [], collapsed: [] };
+}
+
+function saveLayout(layout: Layout): void {
+  try {
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
+  } catch {
+    /* storage full / disabled — layout just won't persist */
+  }
+}
 
 export function mountCharts(host: HTMLElement): ChartsHandle {
   let lastHistory: GenerationStats[] = [];
   let windowSize: WindowSize = DEFAULT_WINDOW;
   let visible = !host.hasAttribute('hidden');
 
-  /* ── Header (window selector) ─────────────────────────────────── */
+  host.classList.add('charts-panel');
+
+  /* ── Header: title · window selector · close ──────────────────── */
 
   const header = document.createElement('div');
   header.className = 'charts-panel__header';
-  const label = document.createElement('span');
-  label.className = 'charts-panel__label';
-  label.setAttribute('data-i18n', 'panel.chartWindow');
-  label.textContent = t('panel.chartWindow');
+
+  const titleEl = document.createElement('h3');
+  titleEl.className = 'charts-panel__title';
+  titleEl.setAttribute('data-i18n', 'charts.title');
+  titleEl.textContent = t('charts.title');
+
   const seg = document.createElement('div');
   seg.className = 'segmented charts-panel__window';
   seg.setAttribute('role', 'radiogroup');
@@ -135,35 +172,150 @@ export function mountCharts(host: HTMLElement): ChartsHandle {
     seg.appendChild(btn);
     segItems.push(btn);
   }
-  header.appendChild(label);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'charts-panel__close';
+  closeBtn.setAttribute('aria-label', t('charts.close'));
+  closeBtn.setAttribute('data-i18n-title', 'charts.close');
+  closeBtn.setAttribute('title', t('charts.close'));
+  closeBtn.textContent = '✕';
+  closeBtn.addEventListener('click', () => setVisible(false));
+
+  header.appendChild(titleEl);
   header.appendChild(seg);
+  header.appendChild(closeBtn);
   host.appendChild(header);
 
-  /* ── Body grid (hero on top, then secondary metrics, then genome) ─ */
+  /* ── Scrollable body holding the card stack ───────────────────── */
 
   const body = document.createElement('div');
-  body.className = 'stats-panel__body';
+  body.className = 'charts-panel__body';
   host.appendChild(body);
 
-  const hero = buildHero();
-  body.appendChild(hero.el);
+  const defs: CardDef[] = [
+    { id: 'hero', titleKey: 'stats.progress', card: buildHero() },
+    { id: 'speed', titleKey: 'stats.speed', card: buildSpeedChart() },
+    { id: 'insights', titleKey: 'stats.insights', card: buildInsights() },
+    { id: 'genome', titleKey: 'stats.genome', card: buildGenomeGrid() },
+  ];
 
-  const speed = buildSpeedChart();
-  body.appendChild(speed.el);
-  speed.el.hidden = true;
+  const layout = loadLayout();
 
-  const finishDist = buildFinishDistribution();
-  body.appendChild(finishDist.el);
-  finishDist.el.hidden = true;
+  /* ── Drag-to-reorder (pointer-based, from the grip handle) ─────── */
 
-  const insights = buildInsights();
-  body.appendChild(insights.el);
+  let dragEl: HTMLElement | null = null;
 
-  const stallMap = buildStallHeatmap();
-  body.appendChild(stallMap.el);
+  function persist(): void {
+    const cards = [...body.querySelectorAll<HTMLElement>('.chart-card')];
+    saveLayout({
+      order: cards.map((c) => c.dataset['card'] ?? ''),
+      collapsed: cards
+        .filter((c) => c.classList.contains('chart-card--collapsed'))
+        .map((c) => c.dataset['card'] ?? ''),
+    });
+  }
 
-  const genome = buildGenomeGrid();
-  body.appendChild(genome.el);
+  function attachDrag(grip: HTMLElement, section: HTMLElement): void {
+    grip.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      dragEl = section;
+      section.classList.add('chart-card--dragging');
+      grip.setPointerCapture(e.pointerId);
+    });
+    grip.addEventListener('pointermove', (e) => {
+      if (!dragEl) return;
+      // Find the sibling the cursor is currently over and slot the
+      // dragged card before / after it depending on which half.
+      for (const c of body.querySelectorAll<HTMLElement>('.chart-card')) {
+        if (c === dragEl) continue;
+        const r = c.getBoundingClientRect();
+        if (e.clientY >= r.top && e.clientY <= r.bottom) {
+          const before = e.clientY < r.top + r.height / 2;
+          body.insertBefore(dragEl, before ? c : c.nextSibling);
+          break;
+        }
+      }
+    });
+    const end = (e: PointerEvent): void => {
+      if (!dragEl) return;
+      dragEl.classList.remove('chart-card--dragging');
+      if (grip.hasPointerCapture(e.pointerId)) grip.releasePointerCapture(e.pointerId);
+      dragEl = null;
+      persist();
+    };
+    grip.addEventListener('pointerup', end);
+    grip.addEventListener('pointercancel', end);
+  }
+
+  /* ── Wrap each card in a collapsible / draggable shell ─────────── */
+
+  type Mounted = { id: string; el: HTMLElement; card: ChartCard };
+  const mounted: Mounted[] = defs.map((def) => {
+    const section = document.createElement('section');
+    section.className = 'chart-card';
+    section.dataset['card'] = def.id;
+
+    const head = document.createElement('header');
+    head.className = 'chart-card__head';
+
+    const grip = document.createElement('span');
+    grip.className = 'chart-card__grip';
+    grip.setAttribute('aria-hidden', 'true');
+
+    const cardTitle = document.createElement('h4');
+    cardTitle.className = 'chart-card__title';
+    cardTitle.setAttribute('data-i18n', def.titleKey);
+    cardTitle.textContent = t(def.titleKey);
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'chart-card__toggle';
+    toggle.setAttribute('aria-label', t('charts.collapse'));
+    toggle.setAttribute('data-i18n-title', 'charts.collapse');
+    toggle.setAttribute('title', t('charts.collapse'));
+    toggle.textContent = '▾';
+
+    head.appendChild(grip);
+    head.appendChild(cardTitle);
+    head.appendChild(toggle);
+
+    const cardBody = document.createElement('div');
+    cardBody.className = 'chart-card__body';
+    cardBody.appendChild(def.card.content);
+
+    section.appendChild(head);
+    section.appendChild(cardBody);
+
+    // Click anywhere on the header (except the grip — that's the drag
+    // handle) toggles the card collapsed.  A click that lands on the
+    // grip after a drag is dispatched to the grip itself (pointer
+    // capture), so the guard reliably ignores drag-end clicks.
+    head.addEventListener('click', (e) => {
+      if (e.target === grip) return;
+      section.classList.toggle('chart-card--collapsed');
+      persist();
+    });
+
+    if (layout.collapsed.includes(def.id)) {
+      section.classList.add('chart-card--collapsed');
+    }
+
+    attachDrag(grip, section);
+
+    return { id: def.id, el: section, card: def.card };
+  });
+
+  // Apply the saved order: known ids first in their stored order, then
+  // any cards the saved layout didn't mention (e.g. a newly added
+  // chart) appended at the end.
+  const ordered: Mounted[] = [
+    ...layout.order
+      .map((id) => mounted.find((m) => m.id === id))
+      .filter((m): m is Mounted => m !== undefined),
+    ...mounted.filter((m) => !layout.order.includes(m.id)),
+  ];
+  for (const m of ordered) body.appendChild(m.el);
 
   /* ── Render dispatch ──────────────────────────────────────────── */
 
@@ -174,21 +326,17 @@ export function mountCharts(host: HTMLElement): ChartsHandle {
 
   function drawAll(): void {
     if (lastHistory.length === 0) {
-      hero.clear();
-      speed.clear();
-      finishDist.clear();
-      insights.clear();
-      stallMap.clear();
-      genome.clear();
+      for (const m of mounted) m.card.clear();
       return;
     }
     const slice = applyWindow(lastHistory);
-    hero.update(slice);
-    speed.update(slice);
-    finishDist.update(slice);
-    insights.update(slice);
-    stallMap.update(slice);
-    genome.update(slice);
+    for (const m of mounted) m.card.update(slice);
+  }
+
+  function setVisible(v: boolean): void {
+    visible = v;
+    if (v) host.removeAttribute('hidden');
+    else host.setAttribute('hidden', '');
   }
 
   updateSegmentedActive();
@@ -199,46 +347,27 @@ export function mountCharts(host: HTMLElement): ChartsHandle {
       lastHistory = history;
       drawAll();
     },
-    setVisible(v): void {
-      visible = v;
-      if (v) host.removeAttribute('hidden');
-      else host.setAttribute('hidden', '');
-    },
+    setVisible,
     isVisible(): boolean {
       return visible;
-    },
-    setSpeedMode(on: boolean): void {
-      speed.el.hidden = !on;
-      // The finish-time distribution (per-gen min/median/max for
-      // finishers) is only meaningful when speed mode is on — outside
-      // it, finish-times still get recorded but the chart focus stays
-      // on travel distance.  Hide alongside the hero speed card.
-      finishDist.el.hidden = !on;
-      // Toggle a class on the panel root so the body grid can
-      // re-area the layout (speed card sits next to hero when shown,
-      // collapses out of the layout when hidden).
-      host.classList.toggle('charts-panel--speed-mode', on);
     },
   };
 }
 
-/* ─── Section 1: Progress hero ─────────────────────────────────────── */
+/* ─── Hover overlay shared by the big line charts ──────────────────── */
 
-type Hero = {
-  el: HTMLElement;
-  update(history: GenerationStats[]): void;
-  clear(): void;
-};
+function tooltipRow(className: string, text: string): HTMLElement {
+  const div = document.createElement('div');
+  div.className = className;
+  div.textContent = text;
+  return div;
+}
 
-function buildHero(): Hero {
-  const card = document.createElement('div');
-  card.className = 'stats-card stats-card--hero';
+/* ─── Card 1: Progress hero ────────────────────────────────────────── */
 
-  const title = document.createElement('h4');
-  title.className = 'stats-card__title';
-  title.setAttribute('data-i18n', 'stats.progress');
-  title.textContent = t('stats.progress');
-  card.appendChild(title);
+function buildHero(): ChartCard {
+  const content = document.createElement('div');
+  content.className = 'stats-hero';
 
   const valueRow = document.createElement('div');
   valueRow.className = 'stats-hero__values';
@@ -246,12 +375,8 @@ function buildHero(): Hero {
   const meanVal = makeBigStat('stats.progressMean');
   valueRow.appendChild(bestVal.el);
   valueRow.appendChild(meanVal.el);
-  card.appendChild(valueRow);
+  content.appendChild(valueRow);
 
-  // Chart wrap: SVG + DOM-positioned axis labels.  The SVG stretches
-  // freely (`preserveAspectRatio="none"`) so the polyline always fits
-  // the card width; the labels are CSS-positioned HTML so their text
-  // stays crisp regardless of the stretch.
   const wrap = document.createElement('div');
   wrap.className = 'stats-hero__wrap';
 
@@ -260,7 +385,6 @@ function buildHero(): Hero {
   svg.setAttribute('viewBox', `0 0 ${HERO_W} ${HERO_H}`);
   svg.setAttribute('preserveAspectRatio', 'none');
 
-  // Y-axis grid lines (horizontal hairlines at 25/50/75% of range)
   for (let i = 0; i < 3; i++) {
     const line = document.createElementNS(SVG_NS, 'line');
     line.setAttribute('class', 'stats-hero__grid');
@@ -272,31 +396,12 @@ function buildHero(): Hero {
     svg.appendChild(line);
   }
 
-  const meanLine = document.createElementNS(SVG_NS, 'polyline');
-  meanLine.setAttribute('class', 'stats-hero__line stats-hero__line--mean');
-  meanLine.setAttribute('fill', 'none');
-  meanLine.setAttribute('stroke', 'var(--color-fg-muted)');
-  meanLine.setAttribute('stroke-width', '1.4');
-  meanLine.setAttribute('vector-effect', 'non-scaling-stroke');
-  meanLine.setAttribute('stroke-linecap', 'round');
-  meanLine.setAttribute('stroke-linejoin', 'round');
+  const meanLine = makePolyline('stats-hero__line stats-hero__line--mean', 'var(--color-fg-muted)', 1.4);
   svg.appendChild(meanLine);
-
-  const bestLine = document.createElementNS(SVG_NS, 'polyline');
-  bestLine.setAttribute('class', 'stats-hero__line stats-hero__line--best');
-  bestLine.setAttribute('fill', 'none');
-  bestLine.setAttribute('stroke', '#a8ff60');
-  bestLine.setAttribute('stroke-width', '2');
-  bestLine.setAttribute('vector-effect', 'non-scaling-stroke');
-  bestLine.setAttribute('stroke-linecap', 'round');
-  bestLine.setAttribute('stroke-linejoin', 'round');
+  const bestLine = makePolyline('stats-hero__line stats-hero__line--best', '#a8ff60', 2);
   svg.appendChild(bestLine);
-
   wrap.appendChild(svg);
 
-  // HTML axis labels — positioned absolute over the SVG, so they
-  // never inherit the SVG's stretch.  yMax sits top-left, yMin
-  // bottom-left, gen-range bottom-right.
   const yMaxLabel = makeAxisLabel('stats-hero__axis stats-hero__axis--y-top');
   const yMinLabel = makeAxisLabel('stats-hero__axis stats-hero__axis--y-bot');
   const genLabel = makeAxisLabel('stats-hero__axis stats-hero__axis--x-end');
@@ -304,10 +409,6 @@ function buildHero(): Hero {
   wrap.appendChild(yMinLabel);
   wrap.appendChild(genLabel);
 
-  // Hover overlay: vertical hairline + tooltip that follows the
-  // cursor across the chart and reads back exact best/mean values
-  // for whichever generation it's pointing at.  Hidden until first
-  // mousemove, hidden again on mouseleave.
   const hairline = document.createElement('div');
   hairline.className = 'stats-hero__hairline';
   hairline.hidden = true;
@@ -337,26 +438,16 @@ function buildHero(): Hero {
         'stats-hero__tooltip-row stats-hero__tooltip-row--best',
         `${t('stats.progressBest')} · ${gen.best.toFixed(1)} м`,
       ),
-      tooltipRow(
-        'stats-hero__tooltip-row',
-        `${t('stats.progressMean')} · ${gen.mean.toFixed(1)} м`,
-      ),
+      tooltipRow('stats-hero__tooltip-row', `${t('stats.progressMean')} · ${gen.mean.toFixed(1)} м`),
     );
-    // Position the tooltip near the cursor, clamped to the wrap so
-    // it never escapes the card's right or left edge.
-    const cursorX = e.clientX - rect.left;
-    const tooltipW = tooltip.offsetWidth || 160;
-    let leftPx = cursorX + 14;
-    if (leftPx + tooltipW > rect.width - 4) leftPx = cursorX - 14 - tooltipW;
-    if (leftPx < 4) leftPx = 4;
-    tooltip.style.left = `${leftPx}px`;
+    positionTooltip(tooltip, e.clientX - rect.left, rect.width);
   });
   wrap.addEventListener('mouseleave', () => {
     hairline.hidden = true;
     tooltip.hidden = true;
   });
 
-  card.appendChild(wrap);
+  content.appendChild(wrap);
 
   function clear(): void {
     bestVal.value.textContent = '—';
@@ -380,13 +471,8 @@ function buildHero(): Hero {
     bestVal.value.textContent = `${latest.best.toFixed(1)} м`;
     meanVal.value.textContent = `${latest.mean.toFixed(1)} м`;
 
-    // Shared Y-range across both series so they're visually
-    // comparable.  Always anchor min at 0 so "improvement" reads as
-    // "line goes up" without the floor sliding around.
     let max = 0;
-    for (const h of history) {
-      if (h.best > max) max = h.best;
-    }
+    for (const h of history) if (h.best > max) max = h.best;
     if (max < 1) max = 1;
 
     const denom = Math.max(1, history.length - 1);
@@ -394,56 +480,32 @@ function buildHero(): Hero {
     let meanPts = '';
     for (let i = 0; i < history.length; i++) {
       const x = (i / denom) * HERO_W;
-      const yBest = HERO_H - (history[i]!.best / max) * HERO_H;
-      const yMean = HERO_H - (history[i]!.mean / max) * HERO_H;
-      bestPts += `${x.toFixed(1)},${yBest.toFixed(1)} `;
-      meanPts += `${x.toFixed(1)},${yMean.toFixed(1)} `;
+      bestPts += `${x.toFixed(1)},${(HERO_H - (history[i]!.best / max) * HERO_H).toFixed(1)} `;
+      meanPts += `${x.toFixed(1)},${(HERO_H - (history[i]!.mean / max) * HERO_H).toFixed(1)} `;
     }
     bestLine.setAttribute('points', bestPts.trim());
     meanLine.setAttribute('points', meanPts.trim());
 
     yMaxLabel.textContent = `${max.toFixed(0)}м`;
     yMinLabel.textContent = '0';
-    const firstGen = history[0]!.generation;
-    const lastGen = latest.generation;
-    genLabel.textContent =
-      firstGen === lastGen ? `пок. ${lastGen}` : `пок. ${firstGen}–${lastGen}`;
+    genLabel.textContent = genRangeLabel(history);
     currentSlice = history;
   }
 
-  return { el: card, update, clear };
+  return { content, update, clear };
 }
 
-function tooltipRow(className: string, text: string): HTMLElement {
-  const div = document.createElement('div');
-  div.className = className;
-  div.textContent = text;
-  return div;
-}
+/* ─── Card 2: Best finish time per generation ──────────────────────── */
 
-/* ─── Section 1b: Speed-mode chart (best finish time per gen) ─────── */
-
-type Speed = {
-  el: HTMLElement;
-  update(history: GenerationStats[]): void;
-  clear(): void;
-};
-
-function buildSpeedChart(): Speed {
-  const card = document.createElement('div');
-  card.className = 'stats-card stats-card--speed';
-
-  const title = document.createElement('h4');
-  title.className = 'stats-card__title';
-  title.setAttribute('data-i18n', 'stats.speed');
-  title.textContent = t('stats.speed');
-  card.appendChild(title);
+function buildSpeedChart(): ChartCard {
+  const content = document.createElement('div');
+  content.className = 'stats-hero';
 
   const valueRow = document.createElement('div');
   valueRow.className = 'stats-hero__values';
   const bestVal = makeBigStat('stats.speedBest', '#a8ff60');
   valueRow.appendChild(bestVal.el);
-  card.appendChild(valueRow);
+  content.appendChild(valueRow);
 
   const wrap = document.createElement('div');
   wrap.className = 'stats-hero__wrap';
@@ -464,29 +526,19 @@ function buildSpeedChart(): Speed {
     svg.appendChild(line);
   }
 
-  // One polyline per contiguous run of finished gens.  Gens with no
-  // finishers (bestFinishTime=null) split the line so the chart
-  // shows gaps where the GA hadn't cracked the track yet.  In
-  // practice the line is usually one segment after the first finish.
+  // One polyline per contiguous run of finished gens; gens with no
+  // finisher split the line so the chart shows gaps.
   const linesGroup = document.createElementNS(SVG_NS, 'g');
   svg.appendChild(linesGroup);
-
   wrap.appendChild(svg);
 
-  const yMaxLabel = document.createElement('span');
-  yMaxLabel.className = 'stats-hero__axis stats-hero__axis--y-top';
-  const yMinLabel = document.createElement('span');
-  yMinLabel.className = 'stats-hero__axis stats-hero__axis--y-bot';
-  const genLabel = document.createElement('span');
-  genLabel.className = 'stats-hero__axis stats-hero__axis--x-end';
+  const yMaxLabel = makeAxisLabel('stats-hero__axis stats-hero__axis--y-top');
+  const yMinLabel = makeAxisLabel('stats-hero__axis stats-hero__axis--y-bot');
+  const genLabel = makeAxisLabel('stats-hero__axis stats-hero__axis--x-end');
   wrap.appendChild(yMaxLabel);
   wrap.appendChild(yMinLabel);
   wrap.appendChild(genLabel);
 
-  // Hover overlay (same pattern as the hero chart): hairline +
-  // tooltip showing exact finish time at the hovered generation.
-  // Tooltip skips gens with no finisher (bestFinishTime === null)
-  // and shows "no finishers" instead.
   const hairline = document.createElement('div');
   hairline.className = 'stats-hero__hairline';
   hairline.hidden = true;
@@ -510,7 +562,7 @@ function buildSpeedChart(): Speed {
     hairline.style.left = `${xPct}%`;
     hairline.hidden = false;
     tooltip.hidden = false;
-    const valueRow =
+    const valueRowEl =
       gen.bestFinishTime !== null
         ? tooltipRow(
             'stats-hero__tooltip-row stats-hero__tooltip-row--best',
@@ -519,21 +571,16 @@ function buildSpeedChart(): Speed {
         : tooltipRow('stats-hero__tooltip-row', '—');
     tooltip.replaceChildren(
       tooltipRow('stats-hero__tooltip-gen', `пок. #${gen.generation}`),
-      valueRow,
+      valueRowEl,
     );
-    const cursorX = e.clientX - rect.left;
-    const tooltipW = tooltip.offsetWidth || 160;
-    let leftPx = cursorX + 14;
-    if (leftPx + tooltipW > rect.width - 4) leftPx = cursorX - 14 - tooltipW;
-    if (leftPx < 4) leftPx = 4;
-    tooltip.style.left = `${leftPx}px`;
+    positionTooltip(tooltip, e.clientX - rect.left, rect.width);
   });
   wrap.addEventListener('mouseleave', () => {
     hairline.hidden = true;
     tooltip.hidden = true;
   });
 
-  card.appendChild(wrap);
+  content.appendChild(wrap);
 
   function clearPolylines(): void {
     while (linesGroup.firstChild) linesGroup.removeChild(linesGroup.firstChild);
@@ -557,8 +604,6 @@ function buildSpeedChart(): Speed {
       return;
     }
 
-    // Latest readout: the most recent gen that had a finish, or
-    // "—" if no gen on the chart had any finisher.
     let latestWithFinish: GenerationStats | null = null;
     for (let i = history.length - 1; i >= 0; i--) {
       if (history[i]!.bestFinishTime !== null) {
@@ -569,8 +614,6 @@ function buildSpeedChart(): Speed {
     bestVal.value.textContent =
       latestWithFinish !== null ? `${latestWithFinish.bestFinishTime!.toFixed(2)} s` : '—';
 
-    // Y range: anchor at 0 (instant finish), top = max finish time
-    // we've seen.  Lower line = better (faster).
     let maxT = 0;
     for (const h of history) {
       if (h.bestFinishTime !== null && h.bestFinishTime > maxT) maxT = h.bestFinishTime;
@@ -578,21 +621,11 @@ function buildSpeedChart(): Speed {
     if (maxT < 1) maxT = 1;
 
     const denom = Math.max(1, history.length - 1);
-    // Walk the history in order, accumulating points into segments.
-    // A null bestFinishTime breaks the line: flush the current
-    // segment as a polyline, start a new one on the next finish.
     let pts = '';
     let pointsInSegment = 0;
     const flush = (): void => {
       if (pointsInSegment > 0) {
-        const line = document.createElementNS(SVG_NS, 'polyline');
-        line.setAttribute('class', 'stats-hero__line stats-hero__line--best');
-        line.setAttribute('fill', 'none');
-        line.setAttribute('stroke', '#a8ff60');
-        line.setAttribute('stroke-width', '2');
-        line.setAttribute('vector-effect', 'non-scaling-stroke');
-        line.setAttribute('stroke-linecap', 'round');
-        line.setAttribute('stroke-linejoin', 'round');
+        const line = makePolyline('stats-hero__line stats-hero__line--best', '#a8ff60', 2);
         line.setAttribute('points', pts.trim());
         linesGroup.appendChild(line);
       }
@@ -614,14 +647,230 @@ function buildSpeedChart(): Speed {
 
     yMaxLabel.textContent = `${maxT.toFixed(2)} s`;
     yMinLabel.textContent = '0';
-    const firstGen = history[0]!.generation;
-    const lastGen = history[history.length - 1]!.generation;
-    genLabel.textContent =
-      firstGen === lastGen ? `пок. ${lastGen}` : `пок. ${firstGen}–${lastGen}`;
+    genLabel.textContent = genRangeLabel(history);
     currentSlice = history;
   }
 
-  return { el: card, update, clear };
+  return { content, update, clear };
+}
+
+/* ─── Card 3: Insights — records / champion age / finish rate ──────── */
+
+/** Walk history and produce per-gen "cumulative record-breaks" +
+ *  "consecutive gens without a record-break" series. */
+function deriveInsightSeries(history: GenerationStats[]): {
+  cumRecords: number[];
+  eliteAge: number[];
+} {
+  const cumRecords: number[] = [];
+  const eliteAge: number[] = [];
+  let runningMax = -Infinity;
+  let breaks = 0;
+  let age = 0;
+  const EPS = 0.5;
+  for (const h of history) {
+    if (h.best > runningMax + EPS) {
+      runningMax = h.best;
+      breaks += 1;
+      age = 1;
+    } else {
+      age += 1;
+    }
+    cumRecords.push(breaks);
+    eliteAge.push(age);
+  }
+  return { cumRecords, eliteAge };
+}
+
+function buildInsights(): ChartCard {
+  const content = document.createElement('div');
+  content.className = 'stats-insights__grid';
+
+  const cumCell = makeSparkCell('chart.cumRecords', (v) => String(Math.round(v)));
+  const ageCell = makeSparkCell('chart.eliteAge', (v) => String(Math.round(v)));
+  const finishCell = makeSparkCell('chart.finishRate', (v) => `${v.toFixed(0)}%`);
+  content.appendChild(cumCell.el);
+  content.appendChild(ageCell.el);
+  content.appendChild(finishCell.el);
+
+  function clear(): void {
+    cumCell.clear();
+    ageCell.clear();
+    finishCell.clear();
+  }
+
+  function update(history: GenerationStats[]): void {
+    if (history.length === 0) {
+      clear();
+      return;
+    }
+    const gens = history.map((h) => h.generation);
+    const { cumRecords, eliteAge } = deriveInsightSeries(history);
+    cumCell.render(cumRecords, gens);
+    ageCell.render(eliteAge, gens);
+    finishCell.render(
+      history.map((h) => h.finishRate),
+      gens,
+    );
+  }
+
+  return { content, update, clear };
+}
+
+/* ─── Card 4: Car-traits sparkline grid ────────────────────────────── */
+
+function buildGenomeGrid(): ChartCard {
+  const content = document.createElement('div');
+  content.className = 'stats-genome__grid';
+
+  const cells = GENOME_DEFS.map((def) => {
+    const cell = makeSparkCell(def.i18nKey, def.format);
+    content.appendChild(cell.el);
+    return { cell, def };
+  });
+
+  function clear(): void {
+    for (const c of cells) c.cell.clear();
+  }
+
+  function update(history: GenerationStats[]): void {
+    if (history.length === 0) {
+      clear();
+      return;
+    }
+    const gens = history.map((h) => h.generation);
+    for (const { cell, def } of cells) {
+      cell.render(
+        history.map((h) => h[def.key] as number),
+        gens,
+      );
+    }
+  }
+
+  return { content, update, clear };
+}
+
+/* ─── Sparkline cell with built-in hover readout ───────────────────── */
+
+type SparkCell = {
+  el: HTMLElement;
+  /** Plot `values`; `gens[i]` is the generation number for point i. */
+  render(values: number[], gens: number[]): void;
+  clear(): void;
+};
+
+function makeSparkCell(i18nKey: TranslationKey, format: (v: number) => string): SparkCell {
+  const cell = document.createElement('div');
+  cell.className = 'stats-genome__cell';
+
+  const head = document.createElement('div');
+  head.className = 'stats-genome__head';
+  const titleEl = document.createElement('span');
+  titleEl.className = 'stats-genome__title';
+  titleEl.setAttribute('data-i18n', i18nKey);
+  titleEl.textContent = t(i18nKey);
+  const val = document.createElement('span');
+  val.className = 'stats-genome__value';
+  val.textContent = '—';
+  head.appendChild(titleEl);
+  head.appendChild(val);
+  cell.appendChild(head);
+
+  const sparkwrap = document.createElement('div');
+  sparkwrap.className = 'stats-genome__sparkwrap';
+
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', 'stats-genome__spark');
+  svg.setAttribute('viewBox', `0 0 ${SPARK_W} ${SPARK_H}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  const polyline = makePolyline('', 'var(--color-fg-muted)', 1.4);
+  svg.appendChild(polyline);
+  sparkwrap.appendChild(svg);
+
+  const hairline = document.createElement('div');
+  hairline.className = 'stats-genome__hairline';
+  hairline.hidden = true;
+  sparkwrap.appendChild(hairline);
+
+  cell.appendChild(sparkwrap);
+
+  let series: number[] = [];
+  let gens: number[] = [];
+  let latestText = '—';
+
+  sparkwrap.addEventListener('mousemove', (e) => {
+    if (series.length === 0) return;
+    const rect = sparkwrap.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const idx = Math.round(ratio * (series.length - 1));
+    const xPct = series.length > 1 ? (idx / (series.length - 1)) * 100 : 50;
+    hairline.style.left = `${xPct}%`;
+    hairline.hidden = false;
+    val.classList.add('stats-genome__value--hover');
+    val.textContent = `#${gens[idx] ?? idx} · ${format(series[idx] ?? 0)}`;
+  });
+  sparkwrap.addEventListener('mouseleave', () => {
+    hairline.hidden = true;
+    val.classList.remove('stats-genome__value--hover');
+    val.textContent = latestText;
+  });
+
+  function clear(): void {
+    series = [];
+    gens = [];
+    latestText = '—';
+    val.textContent = '—';
+    val.classList.remove('stats-genome__value--hover');
+    polyline.setAttribute('points', '');
+    hairline.hidden = true;
+  }
+
+  function render(values: number[], genNumbers: number[]): void {
+    series = values;
+    gens = genNumbers;
+    renderSparkline(polyline, values);
+    latestText = values.length > 0 ? format(values[values.length - 1]!) : '—';
+    if (hairline.hidden) val.textContent = latestText;
+  }
+
+  return { el: cell, render, clear };
+}
+
+function renderSparkline(polyline: SVGPolylineElement, values: number[]): void {
+  if (values.length < 2) {
+    polyline.setAttribute('points', '');
+    return;
+  }
+  let min = Infinity;
+  let max = -Infinity;
+  for (const v of values) {
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  const range = max - min || 1;
+  const denom = values.length - 1 || 1;
+  let pts = '';
+  for (let i = 0; i < values.length; i++) {
+    const x = (i / denom) * SPARK_W;
+    const y = SPARK_H - ((values[i]! - min) / range) * SPARK_H;
+    pts += `${x.toFixed(1)},${y.toFixed(1)} `;
+  }
+  polyline.setAttribute('points', pts.trim());
+}
+
+/* ─── Small DOM helpers ────────────────────────────────────────────── */
+
+function makePolyline(className: string, stroke: string, width: number): SVGPolylineElement {
+  const line = document.createElementNS(SVG_NS, 'polyline');
+  if (className) line.setAttribute('class', className);
+  line.setAttribute('fill', 'none');
+  line.setAttribute('stroke', stroke);
+  line.setAttribute('stroke-width', String(width));
+  line.setAttribute('vector-effect', 'non-scaling-stroke');
+  line.setAttribute('stroke-linecap', 'round');
+  line.setAttribute('stroke-linejoin', 'round');
+  return line;
 }
 
 function makeBigStat(
@@ -650,474 +899,18 @@ function makeAxisLabel(className: string): HTMLSpanElement {
   return span;
 }
 
-/* ─── Section 2: Genome trend sparklines ───────────────────────────── */
-
-type GenomeGrid = {
-  el: HTMLElement;
-  update(history: GenerationStats[]): void;
-  clear(): void;
-};
-
-type SparkCell = {
-  value: HTMLSpanElement;
-  polyline: SVGPolylineElement;
-  def: GenomeDef;
-};
-
-function buildGenomeGrid(): GenomeGrid {
-  const card = document.createElement('div');
-  card.className = 'stats-card stats-card--genome';
-
-  const title = document.createElement('h4');
-  title.className = 'stats-card__title';
-  title.setAttribute('data-i18n', 'stats.genome');
-  title.textContent = t('stats.genome');
-  card.appendChild(title);
-
-  const grid = document.createElement('div');
-  grid.className = 'stats-genome__grid';
-  card.appendChild(grid);
-
-  const cells: SparkCell[] = GENOME_DEFS.map((def) => {
-    const cell = document.createElement('div');
-    cell.className = 'stats-genome__cell';
-    const head = document.createElement('div');
-    head.className = 'stats-genome__head';
-    const cellTitle = document.createElement('span');
-    cellTitle.className = 'stats-genome__title';
-    cellTitle.setAttribute('data-i18n', def.i18nKey);
-    cellTitle.textContent = t(def.i18nKey);
-    const cellVal = document.createElement('span');
-    cellVal.className = 'stats-genome__value';
-    cellVal.textContent = '—';
-    head.appendChild(cellTitle);
-    head.appendChild(cellVal);
-    cell.appendChild(head);
-
-    const svg = document.createElementNS(SVG_NS, 'svg');
-    svg.setAttribute('class', 'stats-genome__spark');
-    svg.setAttribute('viewBox', `0 0 ${SPARK_W} ${SPARK_H}`);
-    svg.setAttribute('preserveAspectRatio', 'none');
-    const polyline = document.createElementNS(SVG_NS, 'polyline');
-    polyline.setAttribute('fill', 'none');
-    polyline.setAttribute('stroke', 'var(--color-fg-muted)');
-    polyline.setAttribute('stroke-width', '1.4');
-    polyline.setAttribute('vector-effect', 'non-scaling-stroke');
-    polyline.setAttribute('stroke-linecap', 'round');
-    polyline.setAttribute('stroke-linejoin', 'round');
-    svg.appendChild(polyline);
-    cell.appendChild(svg);
-
-    grid.appendChild(cell);
-    return { value: cellVal, polyline, def };
-  });
-
-  function clear(): void {
-    for (const c of cells) {
-      c.value.textContent = '—';
-      c.polyline.setAttribute('points', '');
-    }
-  }
-
-  function update(history: GenerationStats[]): void {
-    if (history.length === 0) {
-      clear();
-      return;
-    }
-    const latest = history[history.length - 1]!;
-    for (const cell of cells) {
-      const cur = latest[cell.def.key] as number;
-      cell.value.textContent = cell.def.format(cur);
-      const series = history.map((h) => h[cell.def.key] as number);
-      renderSparkline(cell.polyline, series);
-    }
-  }
-
-  return { el: card, update, clear };
+function genRangeLabel(history: GenerationStats[]): string {
+  const firstGen = history[0]!.generation;
+  const lastGen = history[history.length - 1]!.generation;
+  return firstGen === lastGen ? `пок. ${lastGen}` : `пок. ${firstGen}–${lastGen}`;
 }
 
-function renderSparkline(polyline: SVGPolylineElement, values: number[]): void {
-  if (values.length < 2) {
-    polyline.setAttribute('points', '');
-    return;
-  }
-  let min = Infinity;
-  let max = -Infinity;
-  for (const v of values) {
-    if (v < min) min = v;
-    if (v > max) max = v;
-  }
-  const range = max - min || 1;
-  const denom = values.length - 1 || 1;
-  let pts = '';
-  for (let i = 0; i < values.length; i++) {
-    const x = (i / denom) * SPARK_W;
-    const y = SPARK_H - ((values[i]! - min) / range) * SPARK_H;
-    pts += `${x.toFixed(1)},${y.toFixed(1)} `;
-  }
-  polyline.setAttribute('points', pts.trim());
-}
-
-/* ─── Section 3: Insights — cumulative records + elite age ─────────── */
-
-type Insights = {
-  el: HTMLElement;
-  update(history: GenerationStats[]): void;
-  clear(): void;
-};
-
-/** Walk history and produce per-gen "cumulative record-breaks" +
- *  "consecutive gens without a record-break" series.  Both series are
- *  derived from `best`: a record breaks when `best > runningMax`. */
-function deriveInsightSeries(history: GenerationStats[]): {
-  cumRecords: number[];
-  eliteAge: number[];
-} {
-  const cumRecords: number[] = [];
-  const eliteAge: number[] = [];
-  let runningMax = -Infinity;
-  let breaks = 0;
-  let age = 0;
-  // 0.5 m epsilon: in strict-det the elite carries `best` exactly,
-  // but in non-strict-det the multi-body world has FP noise that
-  // jitters `best` by a few centimetres run-to-run.  Half a metre is
-  // far above the noise floor and well below any real overtake.
-  const EPS = 0.5;
-  for (const h of history) {
-    if (h.best > runningMax + EPS) {
-      runningMax = h.best;
-      breaks += 1;
-      age = 1;
-    } else {
-      age += 1;
-    }
-    cumRecords.push(breaks);
-    eliteAge.push(age);
-  }
-  return { cumRecords, eliteAge };
-}
-
-function buildInsights(): Insights {
-  const card = document.createElement('div');
-  card.className = 'stats-card stats-card--insights';
-
-  const title = document.createElement('h4');
-  title.className = 'stats-card__title';
-  title.setAttribute('data-i18n', 'stats.insights');
-  title.textContent = t('stats.insights');
-  card.appendChild(title);
-
-  const grid = document.createElement('div');
-  grid.className = 'stats-insights__grid';
-  card.appendChild(grid);
-
-  const cumCell = makeInsightCell('chart.cumRecords');
-  const ageCell = makeInsightCell('chart.eliteAge');
-  const finishCell = makeInsightCell('chart.finishRate');
-  grid.appendChild(cumCell.el);
-  grid.appendChild(ageCell.el);
-  grid.appendChild(finishCell.el);
-
-  function clear(): void {
-    cumCell.value.textContent = '—';
-    cumCell.polyline.setAttribute('points', '');
-    ageCell.value.textContent = '—';
-    ageCell.polyline.setAttribute('points', '');
-    finishCell.value.textContent = '—';
-    finishCell.polyline.setAttribute('points', '');
-  }
-
-  function update(history: GenerationStats[]): void {
-    if (history.length === 0) {
-      clear();
-      return;
-    }
-    const { cumRecords, eliteAge } = deriveInsightSeries(history);
-    cumCell.value.textContent = String(cumRecords[cumRecords.length - 1] ?? 0);
-    renderSparkline(cumCell.polyline, cumRecords);
-    ageCell.value.textContent = String(eliteAge[eliteAge.length - 1] ?? 0);
-    renderSparkline(ageCell.polyline, eliteAge);
-    // Finish-rate is a direct per-generation stat — no derivation,
-    // just plot h.finishRate straight from history.
-    const finishSeries = history.map((h) => h.finishRate);
-    finishCell.value.textContent = `${(finishSeries[finishSeries.length - 1] ?? 0).toFixed(0)}%`;
-    renderSparkline(finishCell.polyline, finishSeries);
-  }
-
-  return { el: card, update, clear };
-}
-
-function makeInsightCell(i18nKey: TranslationKey): {
-  el: HTMLElement;
-  value: HTMLSpanElement;
-  polyline: SVGPolylineElement;
-} {
-  const cell = document.createElement('div');
-  cell.className = 'stats-genome__cell';
-  const head = document.createElement('div');
-  head.className = 'stats-genome__head';
-  const titleEl = document.createElement('span');
-  titleEl.className = 'stats-genome__title';
-  titleEl.setAttribute('data-i18n', i18nKey);
-  titleEl.textContent = t(i18nKey);
-  const val = document.createElement('span');
-  val.className = 'stats-genome__value';
-  val.textContent = '—';
-  head.appendChild(titleEl);
-  head.appendChild(val);
-  cell.appendChild(head);
-
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('class', 'stats-genome__spark');
-  svg.setAttribute('viewBox', `0 0 ${SPARK_W} ${SPARK_H}`);
-  svg.setAttribute('preserveAspectRatio', 'none');
-  const polyline = document.createElementNS(SVG_NS, 'polyline');
-  polyline.setAttribute('fill', 'none');
-  polyline.setAttribute('stroke', 'var(--color-fg-muted)');
-  polyline.setAttribute('stroke-width', '1.4');
-  polyline.setAttribute('vector-effect', 'non-scaling-stroke');
-  polyline.setAttribute('stroke-linecap', 'round');
-  polyline.setAttribute('stroke-linejoin', 'round');
-  svg.appendChild(polyline);
-  cell.appendChild(svg);
-
-  return { el: cell, value: val, polyline };
-}
-
-/* ─── Section 4: Stall heatmap — where on the track cars stop ──────── */
-
-type StallMap = {
-  el: HTMLElement;
-  update(history: GenerationStats[]): void;
-  clear(): void;
-};
-
-const STALL_BINS = 32;
-
-function buildStallHeatmap(): StallMap {
-  const card = document.createElement('div');
-  card.className = 'stats-card stats-card--stall';
-
-  const title = document.createElement('h4');
-  title.className = 'stats-card__title';
-  title.setAttribute('data-i18n', 'stats.stallMap');
-  title.textContent = t('stats.stallMap');
-  card.appendChild(title);
-
-  const wrap = document.createElement('div');
-  wrap.className = 'stats-stall__wrap';
-
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('class', 'stats-stall');
-  svg.setAttribute('viewBox', `0 0 ${HERO_W} 80`);
-  svg.setAttribute('preserveAspectRatio', 'none');
-
-  const bars: SVGRectElement[] = [];
-  const slot = HERO_W / STALL_BINS;
-  const gap = slot * 0.12;
-  for (let i = 0; i < STALL_BINS; i++) {
-    const r = document.createElementNS(SVG_NS, 'rect');
-    r.setAttribute('class', 'stats-stall__bar');
-    r.setAttribute('x', String(i * slot + gap / 2));
-    r.setAttribute('width', String(slot - gap));
-    r.setAttribute('y', '80');
-    r.setAttribute('height', '0');
-    svg.appendChild(r);
-    bars.push(r);
-  }
-
-  const baseline = document.createElementNS(SVG_NS, 'line');
-  baseline.setAttribute('class', 'stats-stall__baseline');
-  baseline.setAttribute('x1', '0');
-  baseline.setAttribute('x2', String(HERO_W));
-  baseline.setAttribute('y1', '79');
-  baseline.setAttribute('y2', '79');
-  baseline.setAttribute('vector-effect', 'non-scaling-stroke');
-  svg.appendChild(baseline);
-
-  wrap.appendChild(svg);
-
-  const xStart = makeAxisLabel('stats-stall__axis stats-stall__axis--start');
-  xStart.textContent = '0';
-  const xEnd = makeAxisLabel('stats-stall__axis stats-stall__axis--end');
-  wrap.appendChild(xStart);
-  wrap.appendChild(xEnd);
-
-  card.appendChild(wrap);
-
-  function clear(): void {
-    for (const b of bars) {
-      b.setAttribute('height', '0');
-      b.setAttribute('y', '80');
-    }
-    xEnd.textContent = '';
-  }
-
-  function update(history: GenerationStats[]): void {
-    if (history.length === 0) {
-      clear();
-      return;
-    }
-    // Aggregate stall positions across the entire windowed history
-    // — single-gen samples are bimodal (elites at far end, the rest
-    // bunched near spawn) and don't reveal track-section difficulty
-    // very well.  Summing across 50-200 gens smooths the noise into
-    // a clean "trouble-spot" silhouette.
-    const trackLength = history[history.length - 1]?.trackLength ?? 0;
-    if (trackLength <= 0) {
-      clear();
-      return;
-    }
-    const counts = new Array<number>(STALL_BINS).fill(0);
-    for (const h of history) {
-      if (h.trackLength <= 0) continue;
-      for (const tr of h.travels) {
-        const frac = Math.max(0, Math.min(0.999, tr / h.trackLength));
-        const bin = Math.min(STALL_BINS - 1, Math.floor(frac * STALL_BINS));
-        counts[bin] = (counts[bin] ?? 0) + 1;
-      }
-    }
-    let peak = 1;
-    for (const c of counts) if (c > peak) peak = c;
-    for (let i = 0; i < STALL_BINS; i++) {
-      const count = counts[i] ?? 0;
-      const h = (count / peak) * (80 - 2);
-      bars[i]!.setAttribute('y', String(80 - h));
-      bars[i]!.setAttribute('height', String(h));
-    }
-    xEnd.textContent = `${trackLength.toFixed(0)}м`;
-  }
-
-  return { el: card, update, clear };
-}
-
-/* ─── Section 5: Finish-time distribution (speed-mode only) ────────── */
-
-type FinishDist = {
-  el: HTMLElement;
-  update(history: GenerationStats[]): void;
-  clear(): void;
-};
-
-const FINISH_DIST_W = 600;
-const FINISH_DIST_H = 160;
-
-function buildFinishDistribution(): FinishDist {
-  const card = document.createElement('div');
-  card.className = 'stats-card stats-card--finish-dist';
-
-  const title = document.createElement('h4');
-  title.className = 'stats-card__title';
-  title.setAttribute('data-i18n', 'stats.finishDist');
-  title.textContent = t('stats.finishDist');
-  card.appendChild(title);
-
-  const wrap = document.createElement('div');
-  wrap.className = 'stats-finish-dist__wrap';
-
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('class', 'stats-finish-dist');
-  svg.setAttribute('viewBox', `0 0 ${FINISH_DIST_W} ${FINISH_DIST_H}`);
-  svg.setAttribute('preserveAspectRatio', 'none');
-
-  // Three polylines: min (fastest), median, max (slowest finisher).
-  // Filled band between min and max behind them for at-a-glance
-  // "spread" reading.
-  const band = document.createElementNS(SVG_NS, 'polygon');
-  band.setAttribute('class', 'stats-finish-dist__band');
-  svg.appendChild(band);
-  const minLine = document.createElementNS(SVG_NS, 'polyline');
-  minLine.setAttribute('class', 'stats-finish-dist__line stats-finish-dist__line--min');
-  minLine.setAttribute('fill', 'none');
-  minLine.setAttribute('vector-effect', 'non-scaling-stroke');
-  svg.appendChild(minLine);
-  const medLine = document.createElementNS(SVG_NS, 'polyline');
-  medLine.setAttribute('class', 'stats-finish-dist__line stats-finish-dist__line--med');
-  medLine.setAttribute('fill', 'none');
-  medLine.setAttribute('vector-effect', 'non-scaling-stroke');
-  svg.appendChild(medLine);
-  const maxLine = document.createElementNS(SVG_NS, 'polyline');
-  maxLine.setAttribute('class', 'stats-finish-dist__line stats-finish-dist__line--max');
-  maxLine.setAttribute('fill', 'none');
-  maxLine.setAttribute('vector-effect', 'non-scaling-stroke');
-  svg.appendChild(maxLine);
-
-  wrap.appendChild(svg);
-
-  const yTop = makeAxisLabel('stats-hero__axis stats-hero__axis--y-top');
-  const yBot = makeAxisLabel('stats-hero__axis stats-hero__axis--y-bot');
-  wrap.appendChild(yTop);
-  wrap.appendChild(yBot);
-
-  card.appendChild(wrap);
-
-  function clear(): void {
-    band.setAttribute('points', '');
-    minLine.setAttribute('points', '');
-    medLine.setAttribute('points', '');
-    maxLine.setAttribute('points', '');
-    yTop.textContent = '';
-    yBot.textContent = '';
-  }
-
-  function update(history: GenerationStats[]): void {
-    if (history.length === 0) {
-      clear();
-      return;
-    }
-    // For each gen, compute (min, median, max) of the finishers.
-    // Generations with zero finishers contribute null and are
-    // skipped from the polylines (lines have a gap).
-    type Triple = { gen: number; lo: number; med: number; hi: number };
-    const points: Triple[] = [];
-    for (let i = 0; i < history.length; i++) {
-      const h = history[i]!;
-      if (h.finishTimes.length === 0) continue;
-      const sorted = [...h.finishTimes].sort((a, b) => a - b);
-      const lo = sorted[0]!;
-      const hi = sorted[sorted.length - 1]!;
-      const med = sorted[Math.floor(sorted.length / 2)]!;
-      points.push({ gen: i, lo, med, hi });
-    }
-    if (points.length === 0) {
-      clear();
-      return;
-    }
-    let yMin = Infinity;
-    let yMax = -Infinity;
-    for (const p of points) {
-      if (p.lo < yMin) yMin = p.lo;
-      if (p.hi > yMax) yMax = p.hi;
-    }
-    const yRange = yMax - yMin || 1;
-    const xDenom = history.length - 1 || 1;
-    const project = (gen: number, t: number): [number, number] => [
-      (gen / xDenom) * FINISH_DIST_W,
-      FINISH_DIST_H - ((t - yMin) / yRange) * FINISH_DIST_H,
-    ];
-
-    let minPts = '';
-    let medPts = '';
-    let maxPts = '';
-    let upper = '';
-    let lower = '';
-    for (const p of points) {
-      const [x, ylo] = project(p.gen, p.lo);
-      const [, ymed] = project(p.gen, p.med);
-      const [, yhi] = project(p.gen, p.hi);
-      minPts += `${x.toFixed(1)},${ylo.toFixed(1)} `;
-      medPts += `${x.toFixed(1)},${ymed.toFixed(1)} `;
-      maxPts += `${x.toFixed(1)},${yhi.toFixed(1)} `;
-      upper += `${x.toFixed(1)},${ylo.toFixed(1)} `;
-      lower = `${x.toFixed(1)},${yhi.toFixed(1)} ` + lower;
-    }
-    minLine.setAttribute('points', minPts.trim());
-    medLine.setAttribute('points', medPts.trim());
-    maxLine.setAttribute('points', maxPts.trim());
-    band.setAttribute('points', `${upper.trim()} ${lower.trim()}`);
-    yTop.textContent = `${yMin.toFixed(1)}с`;
-    yBot.textContent = `${yMax.toFixed(1)}с`;
-  }
-
-  return { el: card, update, clear };
+/** Place a tooltip near the cursor, clamped so it can't escape the
+ *  chart wrap's left / right edge. */
+function positionTooltip(tooltip: HTMLElement, cursorX: number, wrapWidth: number): void {
+  const tooltipW = tooltip.offsetWidth || 160;
+  let leftPx = cursorX + 14;
+  if (leftPx + tooltipW > wrapWidth - 4) leftPx = cursorX - 14 - tooltipW;
+  if (leftPx < 4) leftPx = 4;
+  tooltip.style.left = `${leftPx}px`;
 }

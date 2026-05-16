@@ -55,7 +55,6 @@ const enRaw = {
   'panel.trackShortRandom': 'Random',
   'panel.trackShortFixed': 'Fixed',
   'panel.chartsToggle': 'Charts',
-  'panel.chartWindow': 'Last',
   'panel.chartWindowAll': 'All',
   'panel.headlessBanner': 'Render off · ×32 speed',
   'panel.tutorialOpen': 'Tutorial',
@@ -157,9 +156,10 @@ const enRaw = {
   'stats.progressMean': 'Mean',
   'stats.genome': 'Car traits',
   'stats.insights': 'Run insights',
-  'stats.stallMap': 'Where cars stall along the track',
-  'stats.finishDist': 'Finish-time spread (min · median · max)',
   'stats.empty': 'Run a generation to see stats',
+  'charts.title': 'Charts',
+  'charts.close': 'Close charts',
+  'charts.collapse': 'Collapse / expand',
 } as const;
 
 export type TranslationKey = keyof typeof enRaw;

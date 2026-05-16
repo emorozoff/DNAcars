@@ -73,6 +73,7 @@ const gaParams: GAParams = {
   populationSize: 24,
   eliteCount: 2,
   mutationRate: 0.15,
+  selectionPressure: 1,
 };
 
 /**
@@ -1477,6 +1478,10 @@ function bindControls(): void {
   bindSlider('ctrl-elite', 'ctrl-elite-val', (v) => {
     gaParams.eliteCount = v;
     return String(v);
+  });
+  bindSlider('ctrl-pressure', 'ctrl-pressure-val', (v) => {
+    gaParams.selectionPressure = v;
+    return v.toFixed(1);
   });
   // Track-tuning sliders.  Difficulty drives the procedural
   // amplitude in nextTrackParams; the rest are 0..1 obstacle

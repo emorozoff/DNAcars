@@ -127,50 +127,44 @@
         <aside class="sidebar" id="charts-panel" hidden></aside>
       </main>
 
-      <div class="stats-strip">
-        <span class="ribbon-stat">
-          <span class="ribbon-stat__label" data-i18n="ribbon.gen">GENERATION</span>
-          <span class="ribbon-stat__value ribbon-stat__value--accent">
-            <span class="ribbon-stat__hash">#</span><span id="stat-generation">—</span>
-          </span>
-        </span>
-        <span class="ribbon-stat">
-          <span class="ribbon-stat__label" data-i18n="ribbon.lead">LEADER</span>
-          <span class="ribbon-stat__value">
-            <span id="stat-lead">—</span>
-            <span class="ribbon-stat__sub">/&nbsp;<span id="stat-track-length">—</span></span>
-          </span>
-        </span>
-        <span class="ribbon-stat">
-          <span class="ribbon-stat__label" data-i18n="ribbon.best">BEST</span>
-          <span class="ribbon-stat__value" id="stat-best">—</span>
-        </span>
-        <span class="ribbon-stat">
-          <span class="ribbon-stat__label" data-i18n="ribbon.alive">ALIVE</span>
-          <span class="ribbon-stat__value">
-            <span id="stat-alive">—</span>
-            <span class="ribbon-stat__sub">/&nbsp;<span id="stat-total">—</span></span>
-          </span>
-        </span>
-        <span class="ribbon-stat ribbon-stat--track-mode">
-          <span class="ribbon-stat__label" data-i18n="panel.trackLabel">Track preset</span>
-          <div class="segmented segmented--inline" id="seg-track" role="radiogroup">
-            <button class="segmented__item" data-track-mode="random" type="button">
-              <span data-i18n="panel.trackShortRandom">Random</span>
-            </button>
-            <button class="segmented__item" data-track-mode="fixed" type="button">
-              <span data-i18n="panel.trackShortFixed">Fixed</span>
-            </button>
+      <div class="panels">
+        <section class="panel panel--stats">
+          <h2 class="panel__title" data-i18n="panel.windowStats">Statistics</h2>
+          <div class="panel__body stats-grid">
+            <span class="ribbon-stat">
+              <span class="ribbon-stat__label" data-i18n="ribbon.gen">GENERATION</span>
+              <span class="ribbon-stat__value ribbon-stat__value--accent">
+                <span class="ribbon-stat__hash">#</span><span id="stat-generation">—</span>
+              </span>
+            </span>
+            <span class="ribbon-stat">
+              <span class="ribbon-stat__label" data-i18n="ribbon.lead">LEADER</span>
+              <span class="ribbon-stat__value">
+                <span id="stat-lead">—</span>
+                <span class="ribbon-stat__sub">/&nbsp;<span id="stat-track-length">—</span></span>
+              </span>
+            </span>
+            <span class="ribbon-stat">
+              <span class="ribbon-stat__label" data-i18n="ribbon.best">BEST</span>
+              <span class="ribbon-stat__value" id="stat-best">—</span>
+            </span>
+            <span class="ribbon-stat">
+              <span class="ribbon-stat__label" data-i18n="ribbon.alive">ALIVE</span>
+              <span class="ribbon-stat__value">
+                <span id="stat-alive">—</span>
+                <span class="ribbon-stat__sub">/&nbsp;<span id="stat-total">—</span></span>
+              </span>
+            </span>
+            <span class="ribbon-stat">
+              <span class="ribbon-stat__label" data-i18n="ribbon.throughput">SPEED</span>
+              <span class="ribbon-stat__value" id="stat-throughput">×—</span>
+            </span>
           </div>
-        </span>
-        <span class="ribbon-stat">
-          <span class="ribbon-stat__label" data-i18n="ribbon.throughput">SPEED</span>
-          <span class="ribbon-stat__value" id="stat-throughput">×—</span>
-        </span>
-      </div>
+        </section>
 
-      <div class="dock">
-        <div class="dock__row dock__row--params">
+        <section class="panel panel--evolution">
+          <h2 class="panel__title" data-i18n="panel.evolution">Evolution</h2>
+          <div class="panel__body">
           <label class="ctrl ctrl--inline">
             <span class="ctrl__label" data-i18n="panel.population">population</span>
             <input
@@ -218,23 +212,29 @@
           >
             Advanced
           </button>
-        </div>
+          </div>
+        </section>
 
-        <div class="dock__row dock__row--actions">
-          <div class="dock__section">
-            <button class="btn btn--primary" id="btn-pause">Pause</button>
+        <section class="panel panel--controls">
+          <h2 class="panel__title" data-i18n="panel.windowControls">Controls</h2>
+          <div class="panel__body">
             <div class="segmented" id="seg-speed" role="radiogroup">
               <button class="segmented__item" data-speed-idx="0" type="button">×1</button>
               <button class="segmented__item" data-speed-idx="1" type="button">×8</button>
               <button class="segmented__item" data-speed-idx="2" type="button">×32</button>
               <button class="segmented__item" data-speed-idx="3" type="button">×64</button>
-              <button class="segmented__item" data-speed-idx="4" type="button">×128</button>
             </div>
-          </div>
 
-          <div class="dock__sep"></div>
+            <label class="switch">
+              <span class="switch__label" data-i18n="panel.randomTrack">Random track</span>
+              <input type="checkbox" id="toggle-random-track" class="switch__input" />
+              <span class="switch__track" aria-hidden="true">
+                <span class="switch__thumb"></span>
+              </span>
+            </label>
 
-          <div class="dock__section dock__section--has-drawer">
+            <div class="controls-row">
+              <div class="dock__section dock__section--has-drawer">
             <button
               class="dock__toggle"
               id="dock-toggle-seed"
@@ -511,42 +511,42 @@
                 </div>
               </div>
             </div>
-          </div>
-
-          <div class="dock__sep"></div>
-
-          <div class="dock__section">
-            <div class="confirm-anchor">
-              <button class="btn btn--primary" id="btn-restart" data-i18n="panel.restart">
-                New population
-              </button>
-              <div class="confirm-popover" id="restart-confirm" hidden>
-                <p class="confirm-popover__text" data-i18n="panel.restartConfirm">
-                  Start a new population?
-                </p>
-                <div class="confirm-popover__actions">
-                  <button
-                    class="btn btn--confirm-yes"
-                    id="restart-confirm-yes"
-                    data-i18n="panel.confirmYes"
-                  >
-                    Confirm
-                  </button>
-                  <button
-                    class="btn btn--confirm-no"
-                    id="restart-confirm-no"
-                    data-i18n="panel.confirmNo"
-                  >
-                    Cancel
-                  </button>
-                </div>
               </div>
             </div>
-            <button class="btn btn--primary" id="btn-charts" data-i18n="panel.chartsToggle">
-              Stats
-            </button>
+
+            <div class="controls-row">
+              <div class="confirm-anchor">
+                <button class="btn btn--primary" id="btn-restart" data-i18n="panel.restart">
+                  New population
+                </button>
+                <div class="confirm-popover" id="restart-confirm" hidden>
+                  <p class="confirm-popover__text" data-i18n="panel.restartConfirm">
+                    Start a new population?
+                  </p>
+                  <div class="confirm-popover__actions">
+                    <button
+                      class="btn btn--confirm-yes"
+                      id="restart-confirm-yes"
+                      data-i18n="panel.confirmYes"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      class="btn btn--confirm-no"
+                      id="restart-confirm-no"
+                      data-i18n="panel.confirmNo"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <button class="btn btn--primary" id="btn-charts" data-i18n="panel.chartsToggle">
+                Charts
+              </button>
+            </div>
           </div>
-        </div>
+        </section>
       </div>
 
       <div class="modal-settings" id="settings-modal" hidden>

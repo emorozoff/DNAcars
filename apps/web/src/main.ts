@@ -359,7 +359,6 @@ const SPEED_STATES: SpeedState[] = [
   { multiplier: 8, headless: false, substeps: 2, solverIterations: 8, uiThrottleMs: 33 },
   { multiplier: 32, headless: true, substeps: 2, solverIterations: 8, uiThrottleMs: 100 },
   { multiplier: 64, headless: true, substeps: 1, solverIterations: 4, uiThrottleMs: 150 },
-  { multiplier: 128, headless: true, substeps: 1, solverIterations: 4, uiThrottleMs: 200 },
 ];
 let speedIdx = 0;
 
@@ -825,26 +824,21 @@ async function bootstrap(): Promise<void> {
     if (charts) charts.update(history);
   }
 
-  // Track-preset segmented control: direct selection by clicking
-  // any of the four segments.  No more cycle-on-click — every
-  // option is visible at once, the active one is highlighted.
-  const trackSegItems = document.querySelectorAll<HTMLButtonElement>(
-    '#seg-track [data-track-mode]',
-  );
-  function updateTrackSegmented(): void {
-    const current = TRACK_MODES[trackModeIdx] ?? 'random';
-    trackSegItems.forEach((el) => {
-      const mode = el.dataset['trackMode'] as TrackMode | undefined;
-      el.classList.toggle('segmented__item--active', mode === current);
-    });
+  // Track toggle — a single on/off switch (v1.63, was a Random /
+  // Fixed segmented control).  ON = a fresh random track every
+  // generation; OFF = one fixed seed reused every generation.
+  // TRACK_MODES[0] is 'random', TRACK_MODES[1] is 'fixed', so
+  // trackModeIdx mirrors the inverse of `checked`.
+  const randomTrackToggle = document.getElementById('toggle-random-track');
+  function syncTrackToggle(): void {
+    if (!(randomTrackToggle instanceof HTMLInputElement)) return;
+    randomTrackToggle.checked = (TRACK_MODES[trackModeIdx] ?? 'random') === 'random';
   }
-  trackSegItems.forEach((el) => {
-    el.addEventListener('click', () => {
-      const mode = el.dataset['trackMode'] as TrackMode | undefined;
-      if (!mode) return;
-      const idx = TRACK_MODES.indexOf(mode);
-      if (idx < 0) return;
-      trackModeIdx = idx;
+  if (randomTrackToggle instanceof HTMLInputElement) {
+    randomTrackToggle.addEventListener('change', () => {
+      trackModeIdx = randomTrackToggle.checked
+        ? TRACK_MODES.indexOf('random')
+        : TRACK_MODES.indexOf('fixed');
       // Switching modes invalidates any cached fixed seed so the
       // next generation picks up the new mode's seed strategy
       // cleanly.  The "record on this track" marker only makes
@@ -854,12 +848,10 @@ async function bootstrap(): Promise<void> {
       trackRecordX = null;
       trackRecordHistory.length = 0;
       scene.setRecordHistory([]);
-      updateTrackSegmented();
       renderSeedHistoryUI();
-      el.blur();
     });
-  });
-  updateTrackSegmented();
+  }
+  syncTrackToggle();
 
   /* ─── Seed card: copy current, paste/apply, recent-history chips ─── */
 
@@ -909,7 +901,7 @@ async function bootstrap(): Promise<void> {
     // the just-applied fixed seed wired up so the next
     // generation runs on the requested track.
     freshRun(seed);
-    updateTrackSegmented();
+    syncTrackToggle();
     renderSeedHistoryUI();
     void restart();
   }
@@ -964,26 +956,11 @@ async function bootstrap(): Promise<void> {
   // on locale change to keep both in sync.
   $locale.subscribe(() => renderSeedHistoryUI());
 
-  const pauseBtn = document.getElementById('btn-pause');
-  function updatePauseButtonText(): void {
-    if (!(pauseBtn instanceof HTMLButtonElement)) return;
-    pauseBtn.textContent = t(paused ? 'panel.resume' : 'panel.pause');
-  }
+  // v1.63 — the visible Pause button was removed; pause stays
+  // available via the Space / P keyboard shortcuts (see the keydown
+  // handler below).
   function togglePause(): void {
     paused = !paused;
-    updatePauseButtonText();
-  }
-  if (pauseBtn instanceof HTMLButtonElement) {
-    pauseBtn.addEventListener('click', () => {
-      togglePause();
-      pauseBtn.blur();
-    });
-    updatePauseButtonText();
-    // The pause button's text depends on *both* the paused flag and
-    // the current locale, so re-apply on every locale flip.  The
-    // data-i18n flow can't handle this since the key changes with
-    // state.
-    $locale.subscribe(() => updatePauseButtonText());
   }
 
   // Floating "back to leader" button — shown only when the camera

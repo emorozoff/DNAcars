@@ -146,8 +146,10 @@ const enRaw = {
   'chart.avgMotorSpeed': 'Motor speed',
   'chart.avgChassisDensity': 'Chassis density',
   'chart.avgChassisSize': 'Chassis size',
+  'chart.avgWheelRadius': 'Wheel size',
   'chart.cumRecords': 'Records broken',
   'chart.eliteAge': 'Champion age',
+  'chart.finishRate': 'Reached finish',
   // Stats panel sections (v1.15 redesign)
   'stats.progress': 'Evolution progress',
   'stats.progressBest': 'Best',

@@ -148,8 +148,10 @@ export const ru: Dictionary = {
   'chart.avgMotorSpeed': 'Скорость мотора',
   'chart.avgChassisDensity': 'Плотность корпуса',
   'chart.avgChassisSize': 'Размер корпуса',
+  'chart.avgWheelRadius': 'Размер колёс',
   'chart.cumRecords': 'Рекордов побито',
   'chart.eliteAge': 'Возраст чемпиона',
+  'chart.finishRate': 'Доехало до финиша',
   // Секции панели статистики (редизайн v1.15)
   'stats.progress': 'Прогресс эволюции',
   'stats.progressBest': 'Лучший',

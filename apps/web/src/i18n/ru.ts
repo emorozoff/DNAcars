@@ -57,7 +57,6 @@ export const ru: Dictionary = {
   'panel.trackShortRandom': 'Случайная',
   'panel.trackShortFixed': 'Фиксированная',
   'panel.chartsToggle': 'Графики',
-  'panel.chartWindow': 'Последние',
   'panel.chartWindowAll': 'Все',
   'panel.headlessBanner': 'Без рендера · скорость ×32',
   'panel.tutorialOpen': 'Учебник',
@@ -159,7 +158,8 @@ export const ru: Dictionary = {
   'stats.progressMean': 'Средний',
   'stats.genome': 'Параметры машин',
   'stats.insights': 'Сводка по эволюции',
-  'stats.stallMap': 'Где машины умирают на трассе',
-  'stats.finishDist': 'Разброс времён финиша (мин · медиана · макс)',
   'stats.empty': 'Запусти поколение чтобы увидеть статистику',
+  'charts.title': 'Графики',
+  'charts.close': 'Закрыть графики',
+  'charts.collapse': 'Свернуть / развернуть',
 };

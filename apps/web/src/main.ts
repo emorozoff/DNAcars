@@ -709,7 +709,6 @@ async function bootstrap(): Promise<void> {
   let chartsAutoOpened = false;
   if (chartsHost instanceof HTMLElement) {
     charts = mountCharts(chartsHost);
-    charts.setSpeedMode(speedMode);
     const chartsBtn = document.getElementById('btn-charts');
     if (chartsBtn instanceof HTMLButtonElement) {
       chartsBtn.addEventListener('click', () => {
@@ -1114,10 +1113,7 @@ async function bootstrap(): Promise<void> {
     speedModeInput.addEventListener('change', () => {
       speedMode = speedModeInput.checked;
       saveSpeedMode(speedMode);
-      if (charts) {
-        charts.setSpeedMode(speedMode);
-        charts.update(history);
-      }
+      if (charts) charts.update(history);
     });
   }
 

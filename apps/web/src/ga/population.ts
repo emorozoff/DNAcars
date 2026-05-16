@@ -46,6 +46,15 @@ export type GAParams = {
   eliteCount: number;
   /** Per-gene probability of mutation, [0..1]. */
   mutationRate: number;
+  /**
+   * Selection-pressure exponent, ≥ 1.  Each fitness is raised to this
+   * power before roulette selection, which sharpens the gap between
+   * cars: k=1 is plain fitness-proportional selection; higher k lets
+   * a big-margin leader claim a disproportionate share of parent
+   * slots (a 3× lead becomes a 3^k× selection advantage), while a
+   * near-tie stays near-even because (1.05)^k is still ≈ 1.
+   */
+  selectionPressure: number;
 };
 
 export function nextGeneration(prev: Scored[], params: GAParams, rng: Rng): Genome[] {
@@ -55,10 +64,17 @@ export function nextGeneration(prev: Scored[], params: GAParams, rng: Rng): Geno
   const eliteIdx = topNIndices(fitnesses, params.eliteCount);
   const next: Genome[] = eliteIdx.map((i) => deepClone(prev[i]!.genome));
 
+  // Roulette weights = fitness^k.  Elite picking above stays on raw
+  // fitness — pressure only reshapes the random parent draw, not the
+  // ranking (x^k is monotonic, so the top-N set is unchanged anyway).
+  const k = params.selectionPressure;
+  const weights =
+    k === 1 ? fitnesses : fitnesses.map((f) => (f > 0 ? Math.pow(f, k) : 0));
+
   const pool = prev.map((p) => p.genome);
   while (next.length < params.populationSize) {
-    const a = rouletteSelect(pool, fitnesses, rng);
-    const b = rouletteSelect(pool, fitnesses, rng);
+    const a = rouletteSelect(pool, weights, rng);
+    const b = rouletteSelect(pool, weights, rng);
     const child = crossoverGenomes(a, b, rng);
     next.push(mutateGenome(child, params.mutationRate, rng));
   }

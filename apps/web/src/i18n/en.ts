@@ -30,6 +30,7 @@ const enRaw = {
   'panel.population': 'Size',
   'panel.mutation': 'Mutation',
   'panel.elite': 'Elite',
+  'panel.selectionPressure': 'Selection pressure',
   'panel.trackTuning': 'Track',
   'panel.trackLength': 'Length',
   'panel.difficulty': 'Difficulty',

@@ -32,6 +32,7 @@ export const ru: Dictionary = {
   'panel.population': 'Размер',
   'panel.mutation': 'Мутация',
   'panel.elite': 'Элита',
+  'panel.selectionPressure': 'Давление отбора',
   'panel.trackTuning': 'Трасса',
   'panel.trackLength': 'Длина',
   'panel.difficulty': 'Сложность',

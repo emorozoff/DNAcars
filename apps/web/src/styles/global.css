@@ -503,9 +503,11 @@ button {
 /* ─── "New population" armed state — inline two-step confirm ────────────── */
 
 /* First click arms the button: it turns red and relabels to a
-   warning.  A second click (after the lockout) wipes the run. */
-.btn--armed,
-.btn--armed:hover {
+   warning.  A second click (after the lockout) wipes the run.
+   Scoped by the button id so the (1,1,0) specificity beats `.btn`,
+   `.btn--primary` and the `.btn:hover` background — otherwise the
+   armed red only showed while the cursor hovered the button. */
+#btn-restart.btn--armed {
   background: var(--color-bad);
   border-color: var(--color-bad);
   color: rgba(0, 0, 0, 0.85);

@@ -3,7 +3,7 @@
 Living document — updated on every release. Tracks **what works now**,
 **what's next**, and the long-term direction.
 
-Current version: **1.67.1**. Live at <https://emorozoff.github.io/DNAcars/>.
+Current version: **1.68.0**. Live at <https://emorozoff.github.io/DNAcars/>.
 
 ## Legend
 
@@ -19,9 +19,9 @@ inspired by **Genetic Cars 2** and **BoxCar2D** — but with believable
 physics, a calmer feel, and a daily challenge to share.
 
 Stack: TypeScript + Vite + PixiJS + Rapier2D. Cloudflare Pages for the
-front, Cloudflare Workers + KV for the leaderboard later. (Sim + GA
-currently run on the main thread; moving them into a Web Worker is a
-planned optimisation — see Phase 2.)
+front, Cloudflare Workers + KV for the leaderboard later. The physics
+sim runs in a Web Worker; the GA + track generation stay on the main
+thread (they run once per generation, not per frame).
 
 ---
 
@@ -66,7 +66,7 @@ Each release closed a specific "this looks fake" complaint.
 - ⏳ **Visual indicator that a wheel is in contact** (tint/glow on touching wheels) — makes the physics legible
 - ⏳ **Track difficulty curves**: longer (800-1000 m), bigger amplitude after warmup, occasional jumps
 - ⏳ **Air time and roll counters in the inspector** — for diagnosis
-- ⏳ **Move sim + GA into a Web Worker** — physics currently runs on the main thread; offloading it would stop fast-forward (×32/×64) from janking the UI
+- ✅ **Sim moved into a Web Worker** (v1.68) — physics runs off the main thread, so fast-forward (×32/×64) no longer janks the UI; Rapier also dropped out of the main bundle (≈2 MB → ≈330 KB)
 - 💡 **Better contact model**: replace the height-sample with a real Rapier `castShape` on a slim downward arc, once compat-WASM proves stable
 
 ## Phase 3 — Evolution UX (⏳ next)

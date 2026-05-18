@@ -208,13 +208,6 @@ export type SceneHandle = {
   zoomBy(factor: number): void;
   /** Subscribe to camera-mode changes (so the host can update UI). */
   onCameraChange(handler: CameraChangeHandler | null): void;
-  /**
-   * Subscribe to "user clicked on a car".  Handler receives the
-   * clicked car's snapshot index — host typically builds a debug
-   * bundle (genome + timeline + seed + gen) and copies it to the
-   * clipboard.  Pass `null` to clear.
-   */
-  onCarPick(handler: ((carIdx: number) => void) | null): void;
   destroy(): void;
 };
 
@@ -320,13 +313,6 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   function markManualInput(): void {
     lastManualInputAt = performance.now();
   }
-
-  // Cached most-recent world snapshot — populated by setSnapshot and
-  // read by the canvas-click hit-test below.  Lets a click on the
-  // main canvas pick out which car the user tapped without the host
-  // having to plumb a snapshot back through.
-  let lastSnap: WorldSnapshot | null = null;
-  let carPickHandler: ((carIdx: number) => void) | null = null;
 
   // Wire minimap interactions (only when a minimap actually mounted).
   // Minimap drag and car-dot picks are still supported alongside the
@@ -438,7 +424,6 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     markManualInput();
   });
   const stopHostDragging = (e: PointerEvent): void => {
-    const wasClick = primed && !dragging && e.type === 'pointerup';
     activePointers.delete(e.pointerId);
     primed = false;
     dragging = false;
@@ -452,69 +437,9 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       pinchStartDistance = currentPinchDistance();
       pinchStartZoom = zoom;
     }
-    // No drag, just a tap → try to pick a car under the cursor.
-    if (wasClick && carPickHandler && lastSnap) {
-      const picked = pickCarAt(e.clientX, e.clientY);
-      if (picked !== -1) carPickHandler(picked);
-    }
   };
   host.addEventListener('pointerup', stopHostDragging);
   host.addEventListener('pointercancel', stopHostDragging);
-
-  /**
-   * Screen → world coordinate hit-test.  Returns the snapshot index
-   * of the nearest car whose chassis bounding-circle contains the
-   * clicked point, or -1 if no car is within the tolerance.
-   *
-   * The world transform maps a car at world-(wx, wy) onto screen
-   * coords using:
-   *    screenX = (wx - camera.x) * zoom + width  * 0.5
-   *    screenY = (camera.y - wy) * zoom + height * anchor
-   * The inverse maps the click back to world space.
-   *
-   * Tolerance is a per-car "approximate radius" that includes
-   * the chassis hull *and* every wheel — chosen generously so
-   * tiny cars are still tappable on touch screens.
-   */
-  function pickCarAt(clientX: number, clientY: number): number {
-    if (!lastSnap) return -1;
-    const rect = host.getBoundingClientRect();
-    const w = rect.width;
-    const h = rect.height;
-    const aspect = w / h;
-    const anchor = aspect > 1.4 ? 0.72 : 0.55;
-    const sx = clientX - rect.left;
-    const sy = clientY - rect.top;
-    const worldX = (sx - w * 0.5) / zoom + camera.x;
-    const worldY = camera.y - (sy - h * anchor) / zoom;
-
-    let bestIdx = -1;
-    let bestDist = Infinity;
-    for (const car of lastSnap.cars) {
-      // Approximate the car's overall extent: max distance from
-      // chassis centre to any chassis vertex or wheel rim, then
-      // add a generous 0.4 m tap-tolerance (≈ 14 px at default
-      // zoom — comfortable on a finger).
-      let extent = 0;
-      for (const v of car.vertices) {
-        const r = Math.hypot(v.x, v.y);
-        if (r > extent) extent = r;
-      }
-      for (const wh of car.wheels) {
-        const dx = wh.position.x - car.position.x;
-        const dy = wh.position.y - car.position.y;
-        const r = Math.hypot(dx, dy) + wh.radius;
-        if (r > extent) extent = r;
-      }
-      const tolerance = extent + 0.4;
-      const d = Math.hypot(worldX - car.position.x, worldY - car.position.y);
-      if (d <= tolerance && d < bestDist) {
-        bestDist = d;
-        bestIdx = car.index;
-      }
-    }
-    return bestIdx;
-  }
 
   // Mouse-wheel zoom on the main canvas.  Wheel-up zooms in (more
   // pixels per metre), wheel-down zooms out.  preventDefault to
@@ -712,8 +637,6 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       showOnlyLeader?: boolean;
     } = {},
   ): void {
-    // Cache for the canvas-click hit-test (debug-bundle copy).
-    lastSnap = snap;
     const tier: RenderTier = opts.tier ?? 'full';
     // `headless` is the session-level flag the host knows about
     // (true on ×32 / ×64 / ×128 — canvas hidden the whole time).
@@ -933,9 +856,6 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     },
     onCameraChange(handler): void {
       cameraChangeHandler = handler;
-    },
-    onCarPick(handler): void {
-      carPickHandler = handler;
     },
     destroy(): void {
       ro.disconnect();

@@ -38,10 +38,8 @@ import {
   randomGenome,
   SIM_DT,
   TUNING,
-  type CarSnapshot,
   type Genome,
   type ObstacleConfig,
-  type TimelineEntry,
   type Track,
   type TrackOptions,
   type WorldSnapshot,
@@ -570,70 +568,6 @@ async function bootstrap(): Promise<void> {
   }
   const scene = await mountScene(host);
 
-  // Canvas click → build a debug bundle for the picked car and
-  // copy it to the clipboard.  Player can paste this to me when
-  // a specific car is doing something weird and I need to see
-  // its full state (genome + recent trajectory + event counts +
-  // track context).  Registered once at startup; the closure
-  // captures the mutable `session` variable so each click reads
-  // the *current* session even after generation rollovers.
-  scene.onCarPick((carIdx) => {
-    const sess = session;
-    if (!sess) return;
-    // The car state lives in the worker — fetch genome + timeline +
-    // event counts + a snapshot in one round-trip, then build the
-    // bundle.  Async, but the click handler itself returns at once.
-    void (async () => {
-      let carSnap: CarSnapshot | null = null;
-      let genome: Genome | null = null;
-      let timeline: TimelineEntry[] = [];
-      let events = { velClamp: 0, spike: 0 };
-      try {
-        const data = await sess.world.getCar(carIdx);
-        if (data) {
-          carSnap = data.snapshot.cars.find((c) => c.index === carIdx) ?? null;
-          genome = data.genome;
-          timeline = data.timeline;
-          events = data.eventCounts;
-        }
-      } catch (err) {
-        console.warn('[debug-bundle] worker query failed', err);
-      }
-      const bundle = {
-        version: __APP_VERSION__,
-        capturedAt: new Date().toISOString(),
-        trackSeed: sess.trackSeed.toString(16).padStart(8, '0'),
-        trackLength: sess.trackLength,
-        generation: sess.generation,
-        carIndex: carIdx,
-        state: carSnap,
-        eventCounts: events,
-        genome,
-        timeline,
-      };
-      const json = JSON.stringify(bundle, null, 2);
-      try {
-        await navigator.clipboard.writeText(json);
-        const bytes = new TextEncoder().encode(json).byteLength;
-        console.info(
-          `[debug-bundle] copied car #${carIdx} — gen ${sess.generation}, ` +
-            `${timeline.length} timeline samples, ${bytes} bytes.  Paste anywhere.`,
-        );
-        // Brief visible confirmation — flash the canvas border via
-        // a one-shot CSS class.  Falls back to a no-op if no
-        // matching rule is defined.
-        host.classList.add('stage__canvas--copied');
-        setTimeout(() => host.classList.remove('stage__canvas--copied'), 600);
-      } catch (err) {
-        console.error('[debug-bundle] clipboard write failed', err);
-        console.info(
-          '[debug-bundle] full bundle for car #' + carIdx + ' below — copy it manually:',
-        );
-        console.info(json);
-      }
-    })();
-  });
-
   const hud: Hud = {
     total: requireEl('stat-total'),
     lead: requireEl('stat-lead'),
@@ -960,38 +894,67 @@ async function bootstrap(): Promise<void> {
   }
   $locale.subscribe(() => updateCameraButton());
 
+  // "New population" — an inline two-step confirm, no popup:
+  //   click 1  → the button arms: turns red, relabels to a warning,
+  //              and locks for ARM_LOCK_MS (a thin bar animates the
+  //              lockout) so an accidental double-click can't confirm.
+  //   click 2  → once the lockout has passed, wipes the run.
+  //   no click → the armed state auto-reverts after ARM_TIMEOUT_MS.
   const restartBtn = document.getElementById('btn-restart');
-  const restartConfirm = document.getElementById('restart-confirm');
-  const restartConfirmYes = document.getElementById('restart-confirm-yes');
-  const restartConfirmNo = document.getElementById('restart-confirm-no');
-  function isConfirmOpen(): boolean {
-    return restartConfirm instanceof HTMLElement && !restartConfirm.hasAttribute('hidden');
+  let restartArmed = false;
+  let restartLocked = false;
+  let restartLockTimer: ReturnType<typeof setTimeout> | null = null;
+  let restartRevertTimer: ReturnType<typeof setTimeout> | null = null;
+  // Anti-double-click lockout — kept in sync with the CSS fill
+  // animation in `.btn--armed-locked` (see global.css).
+  const ARM_LOCK_MS = 1500;
+  // Auto-revert if the player arms the button then walks away.
+  const ARM_TIMEOUT_MS = 5000;
+
+  function disarmRestart(): void {
+    if (!restartArmed) return;
+    restartArmed = false;
+    restartLocked = false;
+    if (restartLockTimer !== null) {
+      clearTimeout(restartLockTimer);
+      restartLockTimer = null;
+    }
+    if (restartRevertTimer !== null) {
+      clearTimeout(restartRevertTimer);
+      restartRevertTimer = null;
+    }
+    if (restartBtn instanceof HTMLButtonElement) {
+      restartBtn.classList.remove('btn--armed', 'btn--armed-locked');
+      restartBtn.setAttribute('data-i18n', 'panel.restart');
+      restartBtn.textContent = t('panel.restart');
+    }
   }
-  function setConfirmOpen(open: boolean): void {
-    if (!(restartConfirm instanceof HTMLElement)) return;
-    if (open) restartConfirm.removeAttribute('hidden');
-    else restartConfirm.setAttribute('hidden', '');
-  }
+
   if (restartBtn instanceof HTMLButtonElement) {
-    // Click on the trigger toggles the inline popover instead of
-    // showing a modal — the popover's "Confirm" button is what
-    // actually wipes the run.  Toggle (not always-open) so a second
-    // click on the trigger dismisses without firing.
     restartBtn.addEventListener('click', () => {
-      setConfirmOpen(!isConfirmOpen());
       restartBtn.blur();
-    });
-  }
-  if (restartConfirmYes instanceof HTMLButtonElement) {
-    restartConfirmYes.addEventListener('click', () => {
-      setConfirmOpen(false);
+      if (!restartArmed) {
+        // First click — arm: red, warning label, locked for a beat.
+        restartArmed = true;
+        restartLocked = true;
+        restartBtn.classList.add('btn--armed', 'btn--armed-locked');
+        restartBtn.setAttribute('data-i18n', 'panel.restartArmed');
+        restartBtn.textContent = t('panel.restartArmed');
+        restartLockTimer = setTimeout(() => {
+          restartLocked = false;
+          restartBtn.classList.remove('btn--armed-locked');
+          restartLockTimer = null;
+        }, ARM_LOCK_MS);
+        restartRevertTimer = setTimeout(disarmRestart, ARM_TIMEOUT_MS);
+        return;
+      }
+      // Armed but still inside the lockout — an accidental second
+      // click; ignore it.
+      if (restartLocked) return;
+      // Confirmed.
+      disarmRestart();
       freshRun();
       void restart();
-    });
-  }
-  if (restartConfirmNo instanceof HTMLButtonElement) {
-    restartConfirmNo.addEventListener('click', () => {
-      setConfirmOpen(false);
     });
   }
 
@@ -1204,11 +1167,11 @@ async function bootstrap(): Promise<void> {
         scene.followLeader();
         return;
       case 'Escape':
-        // If the inline confirm popover is open, Esc dismisses it.
+        // If the "New population" button is armed, Esc disarms it.
         // Otherwise it's the "calm down" hotkey — drop speed back
         // to realtime.
-        if (isConfirmOpen()) {
-          setConfirmOpen(false);
+        if (restartArmed) {
+          disarmRestart();
           return;
         }
         speedIdx = 0;
@@ -2027,11 +1990,6 @@ async function startSession(opts: StartOptions): Promise<Session> {
     const stepOpts = {
       substeps: eff.substeps,
       solverIterations: eff.solverIterations,
-      // Timeline recordings are only useful when the player can
-      // click a car for a debug bundle — pointless in headless
-      // tiers where the canvas is hidden.  Skip there to drop
-      // ~60 cars × allocs/sec of GC pressure.
-      recordTimeline: !eff.headless,
     };
 
     // Adaptive UI throttle: scale the configured baseline by the

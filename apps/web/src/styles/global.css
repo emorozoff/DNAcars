@@ -472,48 +472,7 @@ button {
   display: none;
 }
 
-/* ─── Inline confirm popover ────────────────────────────────────────────── */
-
-/* The wrapper places the popover above the trigger button without
-   knocking surrounding controls around when it appears. */
-.confirm-anchor {
-  position: relative;
-}
-
-.confirm-popover {
-  position: absolute;
-  bottom: calc(100% + var(--sp-2));
-  right: 0;
-  /* Wider than the trigger button so the body text doesn't wrap into
-     unreadable two-character columns. */
-  width: 16.25rem;
-  background: rgba(22, 22, 26, 0.95);
-  color: var(--color-fg);
-  border: 1px solid var(--color-panel-accent);
-  border-radius: var(--r-md);
-  padding: var(--sp-3);
-  font-size: var(--fs-sm);
-  font-family: var(--font-mono);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(8px);
-  z-index: 3;
-  animation: confirm-pop 0.12s ease-out;
-}
-
-.confirm-popover[hidden] {
-  display: none;
-}
-
-.confirm-popover__text {
-  margin: 0 0 var(--sp-3);
-  line-height: 1.35;
-}
-
-.confirm-popover__actions {
-  display: flex;
-  gap: var(--sp-2);
-  justify-content: flex-end;
-}
+/* ─── Confirm buttons (shared by the strict-determinism modal) ──────────── */
 
 .btn--confirm-yes {
   background: var(--color-panel-accent);
@@ -541,14 +500,50 @@ button {
   border-color: var(--color-fg-muted);
 }
 
-@keyframes confirm-pop {
+/* ─── "New population" armed state — inline two-step confirm ────────────── */
+
+/* First click arms the button: it turns red and relabels to a
+   warning.  A second click (after the lockout) wipes the run. */
+.btn--armed,
+.btn--armed:hover {
+  background: var(--color-bad);
+  border-color: var(--color-bad);
+  color: rgba(0, 0, 0, 0.85);
+  /* The warning label is longer than "New population" — shrink it a
+     touch and tighten the leading so it stays compact if it wraps. */
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+/* During the lockout the button can't be confirmed yet — show a
+   not-allowed cursor and sweep a thin bar across it so the wait is
+   visible.  The 1.5 s duration is kept in sync with ARM_LOCK_MS in
+   main.ts.  When the lockout ends the class is dropped and the bar
+   disappears, leaving the button red + clickable. */
+.btn--armed-locked {
+  cursor: not-allowed;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn--armed-locked::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 0;
+  background: rgba(255, 255, 255, 0.7);
+  animation: restart-arm-fill 1.5s linear forwards;
+}
+
+@keyframes restart-arm-fill {
   from {
-    opacity: 0;
-    transform: translateY(4px);
+    width: 0;
   }
   to {
-    opacity: 1;
-    transform: translateY(0);
+    width: 100%;
   }
 }
 
@@ -699,11 +694,6 @@ button {
   gap: var(--sp-2);
 }
 
-.control-actions .confirm-anchor {
-  display: flex;
-}
-
-.control-actions .confirm-anchor > .btn,
 .control-actions > .btn {
   width: 100%;
 }

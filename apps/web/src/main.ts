@@ -899,7 +899,7 @@ async function bootstrap(): Promise<void> {
   //              and locks for ARM_LOCK_MS (a thin bar animates the
   //              lockout) so an accidental double-click can't confirm.
   //   click 2  → once the lockout has passed, wipes the run.
-  //   no click → the armed state auto-reverts after ARM_TIMEOUT_MS.
+  //   no click → the armed state auto-reverts 1 s after the lockout.
   const restartBtn = document.getElementById('btn-restart');
   let restartArmed = false;
   let restartLocked = false;
@@ -908,8 +908,9 @@ async function bootstrap(): Promise<void> {
   // Anti-double-click lockout — kept in sync with the CSS fill
   // animation in `.btn--armed-locked` (see global.css).
   const ARM_LOCK_MS = 1500;
-  // Auto-revert if the player arms the button then walks away.
-  const ARM_TIMEOUT_MS = 5000;
+  // Once the lockout ends the button is confirmable; if it isn't
+  // clicked within this window it auto-reverts to idle.
+  const ARM_REVERT_MS = 1000;
 
   function disarmRestart(): void {
     if (!restartArmed) return;
@@ -944,8 +945,9 @@ async function bootstrap(): Promise<void> {
           restartLocked = false;
           restartBtn.classList.remove('btn--armed-locked');
           restartLockTimer = null;
+          // Confirmable now — auto-revert if the player doesn't click.
+          restartRevertTimer = setTimeout(disarmRestart, ARM_REVERT_MS);
         }, ARM_LOCK_MS);
-        restartRevertTimer = setTimeout(disarmRestart, ARM_TIMEOUT_MS);
         return;
       }
       // Armed but still inside the lockout — an accidental second

@@ -33,8 +33,6 @@
 import './styles/global.css';
 import { $locale, applyTranslations, bindLanguageToggle, t } from './i18n';
 import {
-  createWorld,
-  ensureRapier,
   generateTrack,
   makeRng,
   randomGenome,
@@ -43,11 +41,12 @@ import {
   type CarSnapshot,
   type Genome,
   type ObstacleConfig,
+  type TimelineEntry,
   type Track,
   type TrackOptions,
-  type WorldHandle,
   type WorldSnapshot,
 } from './sim/world';
+import { getWorldProxy, type WorldProxy } from './worker/worldProxy';
 import { mountScene, type SceneHandle } from './render/scene';
 import { nextGeneration, type GAParams, type Scored } from './ga/population';
 import { collectStats, type GenerationStats } from './stats/collector';
@@ -561,7 +560,9 @@ async function bootstrap(): Promise<void> {
   const langBtn = document.getElementById('lang-toggle');
   if (langBtn instanceof HTMLButtonElement) bindLanguageToggle(langBtn);
 
-  await ensureRapier();
+  // Rapier WASM is compiled inside the simulation worker on its first
+  // `init` — the main thread never loads it, so bootstrap no longer
+  // blocks on a WASM compile.
 
   const host = document.getElementById('pixi-root');
   if (!(host instanceof HTMLElement)) {
@@ -577,36 +578,45 @@ async function bootstrap(): Promise<void> {
   // captures the mutable `session` variable so each click reads
   // the *current* session even after generation rollovers.
   scene.onCarPick((carIdx) => {
-    if (!session) return;
-    let carSnap: CarSnapshot | null = null;
-    try {
-      const snap = session.world.snapshot();
-      carSnap = snap.cars.find((c) => c.index === carIdx) ?? null;
-    } catch (err) {
-      console.warn('[debug-bundle] snapshot failed', err);
-    }
-    const genome = session.world.getCarGenome(carIdx);
-    const timeline = session.world.getCarTimeline(carIdx);
-    const events = session.world.getCarEventCounts(carIdx);
-    const bundle = {
-      version: __APP_VERSION__,
-      capturedAt: new Date().toISOString(),
-      trackSeed: session.trackSeed.toString(16).padStart(8, '0'),
-      trackLength: session.trackLength,
-      generation: session.generation,
-      carIndex: carIdx,
-      state: carSnap,
-      eventCounts: events,
-      genome,
-      timeline,
-    };
-    const json = JSON.stringify(bundle, null, 2);
-    void navigator.clipboard
-      .writeText(json)
-      .then(() => {
+    const sess = session;
+    if (!sess) return;
+    // The car state lives in the worker — fetch genome + timeline +
+    // event counts + a snapshot in one round-trip, then build the
+    // bundle.  Async, but the click handler itself returns at once.
+    void (async () => {
+      let carSnap: CarSnapshot | null = null;
+      let genome: Genome | null = null;
+      let timeline: TimelineEntry[] = [];
+      let events = { velClamp: 0, spike: 0 };
+      try {
+        const data = await sess.world.getCar(carIdx);
+        if (data) {
+          carSnap = data.snapshot.cars.find((c) => c.index === carIdx) ?? null;
+          genome = data.genome;
+          timeline = data.timeline;
+          events = data.eventCounts;
+        }
+      } catch (err) {
+        console.warn('[debug-bundle] worker query failed', err);
+      }
+      const bundle = {
+        version: __APP_VERSION__,
+        capturedAt: new Date().toISOString(),
+        trackSeed: sess.trackSeed.toString(16).padStart(8, '0'),
+        trackLength: sess.trackLength,
+        generation: sess.generation,
+        carIndex: carIdx,
+        state: carSnap,
+        eventCounts: events,
+        genome,
+        timeline,
+      };
+      const json = JSON.stringify(bundle, null, 2);
+      try {
+        await navigator.clipboard.writeText(json);
         const bytes = new TextEncoder().encode(json).byteLength;
         console.info(
-          `[debug-bundle] copied car #${carIdx} — gen ${session?.generation ?? '?'}, ` +
+          `[debug-bundle] copied car #${carIdx} — gen ${sess.generation}, ` +
             `${timeline.length} timeline samples, ${bytes} bytes.  Paste anywhere.`,
         );
         // Brief visible confirmation — flash the canvas border via
@@ -614,14 +624,14 @@ async function bootstrap(): Promise<void> {
         // matching rule is defined.
         host.classList.add('stage__canvas--copied');
         setTimeout(() => host.classList.remove('stage__canvas--copied'), 600);
-      })
-      .catch((err) => {
+      } catch (err) {
         console.error('[debug-bundle] clipboard write failed', err);
         console.info(
           '[debug-bundle] full bundle for car #' + carIdx + ' below — copy it manually:',
         );
         console.info(json);
-      });
+      }
+    })();
   });
 
   const hud: Hud = {
@@ -1275,7 +1285,10 @@ async function bootstrap(): Promise<void> {
     }
     if (session) {
       session.stop();
-      session.world.destroy();
+      // Fire-and-forget: the worker processes this destroy before the
+      // next session's `init` (FIFO message queue), so the order is
+      // guaranteed without blocking restart() on a round-trip.
+      void session.world.destroy();
       // Null it immediately: if a click re-enters restart() during the
       // `await startSession` below, the guard above skips a second
       // stop()/destroy() on the already-freed Rapier world.
@@ -1866,7 +1879,7 @@ function updateSliderFill(input: HTMLInputElement): void {
 }
 
 type Session = {
-  world: WorldHandle;
+  world: WorldProxy;
   stop(): void;
   /** Length of the track this session is running on, in metres.  The
    *  host reads it at gen-end to feed collectStats so the stall-
@@ -1943,7 +1956,11 @@ async function startSession(opts: StartOptions): Promise<Session> {
   const track = generateTrack(trackSeed, trackOpts ?? {});
   scene.setTrack(track.points, track.physicalObstacles, track.finishLineX);
 
-  const world = await createWorld({
+  // The Rapier world lives in the simulation worker; `world` is the
+  // main-thread async proxy to it.  Reused across generations — each
+  // session just re-`init`s a fresh world inside the same worker.
+  const world = getWorldProxy();
+  await world.init({
     track,
     genomes,
     spawnX: SPAWN_X,
@@ -1978,7 +1995,16 @@ async function startSession(opts: StartOptions): Promise<Session> {
   let lastHudTextMs = 0;
   const HUD_TEXT_INTERVAL_MS = 250;
 
-  function tick(): void {
+  // Schedule the next async tick.  A worker crash rejects the
+  // `advance` promise; catch it so the failure is logged rather than
+  // surfacing as a silent unhandled rejection.
+  function scheduleTick(): void {
+    requestAnimationFrame(() => {
+      void tick().catch((err: unknown) => console.error('[sim] tick aborted', err));
+    });
+  }
+
+  async function tick(): Promise<void> {
     if (!running) return;
     const tickStart = performance.now();
     const now = tickStart;
@@ -1988,7 +2014,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
     // backlog of simulated time into the world.
     if (paused) {
       lastTime = now;
-      requestAnimationFrame(tick);
+      scheduleTick();
       return;
     }
     // Multiply real elapsed time by speed multiplier, then feed into
@@ -1998,11 +2024,6 @@ async function startSession(opts: StartOptions): Promise<Session> {
     const dt = Math.min((now - lastTime) / 1000, 0.25) * eff.multiplier;
     lastTime = now;
     acc = Math.min(acc + dt, MAX_ACC_SEC);
-    // Wall-time deadline: spend at most STEP_DEADLINE_MS in physics
-    // each frame.  At high speed multipliers the inner loop hits the
-    // budget and the next RAF picks up the leftover acc — UI never
-    // blocks for more than ~25 ms regardless of the multiplier.
-    const stepBudgetEnd = now + STEP_DEADLINE_MS;
     const stepOpts = {
       substeps: eff.substeps,
       solverIterations: eff.solverIterations,
@@ -2012,56 +2033,60 @@ async function startSession(opts: StartOptions): Promise<Session> {
       // ~60 cars × allocs/sec of GC pressure.
       recordTimeline: !eff.headless,
     };
-    while (acc >= SIM_DT && performance.now() < stepBudgetEnd) {
-      world.step(stepOpts);
-      acc -= SIM_DT;
-      elapsed += SIM_DT;
-      simSecAccum += SIM_DT;
-    }
-    if (elapsed >= TUNING.lifecycle.maxGenerationSec) {
-      world.forceFinishAll();
-    }
 
-    // Strict-determinism fast-forward — uses the lightweight
-    // `allAliveAreElites` query so we don't have to build a full
-    // snapshot every tick at high speeds.
-    if (!shortcutApplied && shortcutCtx && shortcutCtx.eliteCount > 0) {
-      const safeEliteN = Math.min(shortcutCtx.eliteCount, shortcutCtx.cachedEntries.length);
-      if (safeEliteN > 0 && world.allAliveAreElites(safeEliteN)) {
-        shortcutApplied = true;
-        world.forceFinishAll();
-        shortcutCtx.onTrigger();
-      }
-    }
-
-    // UI updates throttled per speed tier.  At ×32+ the canvas is
-    // hidden anyway, so HUD/minimap doesn't need 60 Hz refresh —
-    // dropping to ~10 Hz at ×32 and ~5 Hz at ×128 frees most of
-    // the per-frame budget for physics.
     // Adaptive UI throttle: scale the configured baseline by the
     // current per-frame load so that on a roomy CPU we update the
     // HUD/minimap more often (smoother) and on a saturated CPU we
-    // throttle harder (preserve physics throughput).
+    // throttle harder (preserve physics throughput).  Computed before
+    // `advance` so the worker knows whether to build a snapshot.
     //
     //   utilisation = smoothedFrameMs / 16.7 ms (60-fps budget)
     //   factor      = clamp(utilisation, 0.25, 2.0)
     //   adaptive    = base * factor
-    //
-    // For ×1 / ×8 the base throttle is small (or 0), so the factor
-    // doesn't change the perceived behaviour; the win is on ×32+
-    // where a 100 ms baseline scales down to ~30 ms when CPU is
-    // free, giving ~3× more UI refreshes for the same physics
-    // budget.
     const utilisation = smoothedFrameMs / 16.7;
     const adaptiveFactor = Math.max(0.25, Math.min(2, utilisation));
     // Clamp the per-frame throttle to 16 ms (= 60 Hz) so the canvas
     // never tries to redraw faster than that, even on a 120 Hz
-    // iPhone display where RAF would otherwise fire at 8 ms.  The
-    // physics accumulator is wallclock-based so simulation cadence
-    // is unaffected by the render cap.
+    // display where RAF would otherwise fire at 8 ms.
     const adaptiveThrottle = Math.max(16, eff.uiThrottleMs * adaptiveFactor);
     const uiDue = now - lastUiUpdateMs >= adaptiveThrottle;
-    if (uiDue) {
+
+    // Strict-determinism fast-forward: tell the worker how many
+    // leading cars are known elites so it can watch for "every alive
+    // car is an elite" and cut the run short.  0 once it has fired.
+    let shortcutEliteN = 0;
+    if (!shortcutApplied && shortcutCtx && shortcutCtx.eliteCount > 0) {
+      shortcutEliteN = Math.min(shortcutCtx.eliteCount, shortcutCtx.cachedEntries.length);
+    }
+
+    // Hand one frame's worth of stepping to the worker: the fixed-
+    // timestep batch, the generation hard time-limit and the
+    // strict-det shortcut all run off-thread.  The main thread is
+    // free for input + rendering while `advance` is in flight — that
+    // is the whole point of the worker.  `budgetMs` caps how long the
+    // worker spends so a snapshot always comes back promptly.
+    const result = await world.advance({
+      maxSteps: Math.floor(acc / SIM_DT),
+      budgetMs: STEP_DEADLINE_MS,
+      stepOpts,
+      elapsedBeforeSec: elapsed,
+      shortcutEliteN,
+      wantSnapshot: uiDue,
+    });
+    // restart() may have stopped this session while `advance` was in
+    // flight — bail before touching any stale session state.
+    if (!running) return;
+
+    acc -= result.stepsRun * SIM_DT;
+    elapsed += result.stepsRun * SIM_DT;
+    simSecAccum += result.stepsRun * SIM_DT;
+
+    if (result.shortcutTriggered && !shortcutApplied) {
+      shortcutApplied = true;
+      shortcutCtx?.onTrigger();
+    }
+
+    if (uiDue && result.snapshot) {
       // Throughput sample: realSpeed = (sim seconds advanced since
       // last sample) / (real seconds since last sample).  Smoothed
       // with an EMA so the readout doesn't flicker.
@@ -2075,7 +2100,7 @@ async function startSession(opts: StartOptions): Promise<Session> {
       lastPerfSimSec = simSecAccum;
 
       lastUiUpdateMs = now;
-      const snap = world.snapshot();
+      const snap = result.snapshot;
       let tier: 'full' | 'lite' | 'none' = 'full';
       if (eff.headless) tier = 'none';
       else if (speedIdx === 1) tier = 'lite';
@@ -2098,16 +2123,15 @@ async function startSession(opts: StartOptions): Promise<Session> {
       }
     }
 
-    if (!endNotified && world.allFinished()) {
+    if (!endNotified && result.allFinished) {
       endNotified = true;
       running = false;
-      // Build a fresh snapshot so the gen-end results are based on
-      // the very last physics state (the throttled UI snap above
-      // may be a few ticks stale).
-      const snap = world.snapshot();
+      // `advance` always includes the snapshot when the generation
+      // ended, so this is the final physics state.
+      const snap = result.snapshot;
       const trackLength = track.options.length;
       const results: Scored[] = genomes.map((genome, i) => {
-        const car = snap.cars[i];
+        const car = snap?.cars[i];
         const travel = car?.travel ?? 0;
         const finishTime = car?.finishTime ?? null;
         // Selection score (`fitness`).  Default = travel distance.
@@ -2160,9 +2184,9 @@ async function startSession(opts: StartOptions): Promise<Session> {
     const tickEnd = performance.now();
     const work = tickEnd - tickStart;
     smoothedFrameMs = smoothedFrameMs * (1 - PERF_SMOOTHING) + work * PERF_SMOOTHING;
-    requestAnimationFrame(tick);
+    scheduleTick();
   }
-  requestAnimationFrame(tick);
+  scheduleTick();
 
   return {
     world,

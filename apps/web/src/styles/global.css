@@ -559,8 +559,7 @@ button {
    natural grid row so the canvas claims exactly the remaining height
    instead of fighting for it. */
 .minimap-bar {
-  padding: var(--sp-2) calc(var(--sp-4) + var(--safe-right)) 0
-    calc(var(--sp-4) + var(--safe-left));
+  padding: var(--sp-2) calc(var(--sp-4) + var(--safe-right)) 0 calc(var(--sp-4) + var(--safe-left));
   background: var(--color-bg);
 }
 
@@ -617,8 +616,8 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr);
   gap: var(--sp-2);
-  padding: var(--sp-2) calc(var(--sp-3) + var(--safe-right))
-    max(var(--sp-2), var(--safe-bottom)) calc(var(--sp-3) + var(--safe-left));
+  padding: var(--sp-2) calc(var(--sp-3) + var(--safe-right)) max(var(--sp-2), var(--safe-bottom))
+    calc(var(--sp-3) + var(--safe-left));
   background: rgba(14, 14, 16, 0.96);
   border-top: 1px solid var(--color-border);
 }
@@ -1993,8 +1992,7 @@ button {
   align-items: center;
   gap: var(--sp-2);
   flex: 0 0 auto;
-  padding: var(--sp-3) calc(var(--sp-3) + var(--safe-right)) var(--sp-3)
-    var(--sp-4);
+  padding: var(--sp-3) calc(var(--sp-3) + var(--safe-right)) var(--sp-3) var(--sp-4);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -2047,8 +2045,8 @@ button {
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
-  padding: var(--sp-4) calc(var(--sp-3) + var(--safe-right))
-    calc(var(--sp-4) + var(--safe-bottom)) var(--sp-4);
+  padding: var(--sp-4) calc(var(--sp-3) + var(--safe-right)) calc(var(--sp-4) + var(--safe-bottom))
+    var(--sp-4);
 }
 
 /* ─── Chart card: collapsible, drag-reorderable shell ───────────── */
@@ -2441,14 +2439,12 @@ button {
     height: 60dvh;
     width: 100%;
     flex-shrink: 0;
-    padding: 0 calc(var(--sp-3) + var(--safe-right)) 0
-      calc(var(--sp-3) + var(--safe-left));
+    padding: 0 calc(var(--sp-3) + var(--safe-right)) 0 calc(var(--sp-3) + var(--safe-left));
   }
 
   .stage__canvas {
     position: absolute;
-    inset: 0 calc(var(--sp-3) + var(--safe-right)) 0
-      calc(var(--sp-3) + var(--safe-left));
+    inset: 0 calc(var(--sp-3) + var(--safe-right)) 0 calc(var(--sp-3) + var(--safe-left));
     border-radius: var(--r-md);
     overflow: hidden;
   }

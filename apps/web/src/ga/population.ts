@@ -68,8 +68,7 @@ export function nextGeneration(prev: Scored[], params: GAParams, rng: Rng): Geno
   // fitness — pressure only reshapes the random parent draw, not the
   // ranking (x^k is monotonic, so the top-N set is unchanged anyway).
   const k = params.selectionPressure;
-  const weights =
-    k === 1 ? fitnesses : fitnesses.map((f) => (f > 0 ? Math.pow(f, k) : 0));
+  const weights = k === 1 ? fitnesses : fitnesses.map((f) => (f > 0 ? Math.pow(f, k) : 0));
 
   const pool = prev.map((p) => p.genome);
   while (next.length < params.populationSize) {

@@ -240,335 +240,13 @@
               <button class="segmented__item" data-speed-idx="3" type="button">×64</button>
             </div>
 
-            <div class="control-track">
-              <div class="drawer-pair">
-                <div class="dock__section dock__section--has-drawer">
-                  <button
-                    class="dock__toggle"
-                    id="dock-toggle-seed"
-                    type="button"
-                    aria-expanded="false"
-                    aria-controls="dock-drawer-seed"
-                  >
-                    <span class="dock__toggle-label" data-i18n="ribbon.seed">SEED</span>
-                    <span class="dock__toggle-chevron" aria-hidden="true">▾</span>
-                  </button>
-                  <div class="dock-drawer dock-drawer--seed" id="dock-drawer-seed" hidden>
-                    <div class="seed-input-row">
-                      <input
-                        class="seed-input"
-                        id="seed-input"
-                        type="text"
-                        maxlength="8"
-                        spellcheck="false"
-                        autocomplete="off"
-                        placeholder="hex"
-                      />
-                      <button
-                        class="btn btn--seed-apply"
-                        id="seed-apply"
-                        type="button"
-                        data-i18n="panel.seedApply"
-                      >
-                        Apply
-                      </button>
-                    </div>
-                    <div class="seed-history" id="seed-history"></div>
-                  </div>
-                </div>
-
-                <div class="dock__section dock__section--has-drawer">
-                  <button
-                    class="dock__toggle"
-                    id="dock-toggle-track"
-                    type="button"
-                    aria-expanded="false"
-                    aria-controls="dock-drawer-track"
-                  >
-                    <span class="dock__toggle-label" data-i18n="panel.trackTuning">TRACK</span>
-                    <span class="dock__toggle-chevron" aria-hidden="true">▾</span>
-                  </button>
-                  <div class="dock-drawer dock-drawer--wide" id="dock-drawer-track" hidden>
-                    <div class="dock-drawer__grid">
-                      <div class="ctrl ctrl--stepped">
-                        <label class="ctrl__label" for="ctrl-length" data-i18n="panel.trackLength"
-                          >length</label
-                        >
-                        <button
-                          class="ctrl__step"
-                          type="button"
-                          data-step="ctrl-length"
-                          data-dir="-1"
-                          aria-label="Decrease"
-                        >
-                          −
-                        </button>
-                        <input
-                          class="ctrl__slider"
-                          type="range"
-                          id="ctrl-length"
-                          min="200"
-                          max="2000"
-                          step="50"
-                          value="200"
-                        />
-                        <button
-                          class="ctrl__step"
-                          type="button"
-                          data-step="ctrl-length"
-                          data-dir="1"
-                          aria-label="Increase"
-                        >
-                          +
-                        </button>
-                        <span class="ctrl__value" id="ctrl-length-val">200m</span>
-                      </div>
-                      <div class="ctrl ctrl--stepped">
-                        <label
-                          class="ctrl__label"
-                          for="ctrl-difficulty"
-                          data-i18n="panel.difficulty"
-                          >difficulty</label
-                        >
-                        <button
-                          class="ctrl__step"
-                          type="button"
-                          data-step="ctrl-difficulty"
-                          data-dir="-1"
-                          aria-label="Decrease"
-                        >
-                          −
-                        </button>
-                        <input
-                          class="ctrl__slider"
-                          type="range"
-                          id="ctrl-difficulty"
-                          min="0"
-                          max="100"
-                          step="1"
-                          value="40"
-                        />
-                        <button
-                          class="ctrl__step"
-                          type="button"
-                          data-step="ctrl-difficulty"
-                          data-dir="1"
-                          aria-label="Increase"
-                        >
-                          +
-                        </button>
-                        <span class="ctrl__value" id="ctrl-difficulty-val">40%</span>
-                      </div>
-                      <div class="ctrl ctrl--stepped">
-                        <label class="ctrl__label" for="ctrl-walls" data-i18n="panel.walls"
-                          >walls</label
-                        >
-                        <button
-                          class="ctrl__step"
-                          type="button"
-                          data-step="ctrl-walls"
-                          data-dir="-1"
-                          aria-label="Decrease"
-                        >
-                          −
-                        </button>
-                        <input
-                          class="ctrl__slider"
-                          type="range"
-                          id="ctrl-walls"
-                          min="0"
-                          max="100"
-                          step="1"
-                          value="0"
-                        />
-                        <button
-                          class="ctrl__step"
-                          type="button"
-                          data-step="ctrl-walls"
-                          data-dir="1"
-                          aria-label="Increase"
-                        >
-                          +
-                        </button>
-                        <span class="ctrl__value" id="ctrl-walls-val">0%</span>
-                      </div>
-                      <div class="ctrl ctrl--stepped">
-                        <label class="ctrl__label" for="ctrl-ceilings" data-i18n="panel.ceilings"
-                          >ceilings</label
-                        >
-                        <button
-                          class="ctrl__step"
-                          type="button"
-                          data-step="ctrl-ceilings"
-                          data-dir="-1"
-                          aria-label="Decrease"
-                        >
-                          −
-                        </button>
-                        <input
-                          class="ctrl__slider"
-                          type="range"
-                          id="ctrl-ceilings"
-                          min="0"
-                          max="100"
-                          step="1"
-                          value="0"
-                        />
-                        <button
-                          class="ctrl__step"
-                          type="button"
-                          data-step="ctrl-ceilings"
-                          data-dir="1"
-                          aria-label="Increase"
-                        >
-                          +
-                        </button>
-                        <span class="ctrl__value" id="ctrl-ceilings-val">0%</span>
-                      </div>
-                      <div class="ctrl ctrl--stepped">
-                        <label class="ctrl__label" for="ctrl-cliffs" data-i18n="panel.cliffs"
-                          >cliffs</label
-                        >
-                        <button
-                          class="ctrl__step"
-                          type="button"
-                          data-step="ctrl-cliffs"
-                          data-dir="-1"
-                          aria-label="Decrease"
-                        >
-                          −
-                        </button>
-                        <input
-                          class="ctrl__slider"
-                          type="range"
-                          id="ctrl-cliffs"
-                          min="0"
-                          max="100"
-                          step="1"
-                          value="0"
-                        />
-                        <button
-                          class="ctrl__step"
-                          type="button"
-                          data-step="ctrl-cliffs"
-                          data-dir="1"
-                          aria-label="Increase"
-                        >
-                          +
-                        </button>
-                        <span class="ctrl__value" id="ctrl-cliffs-val">0%</span>
-                      </div>
-                      <div class="ctrl ctrl--stepped">
-                        <label class="ctrl__label" for="ctrl-slick" data-i18n="panel.slick"
-                          >slick</label
-                        >
-                        <button
-                          class="ctrl__step"
-                          type="button"
-                          data-step="ctrl-slick"
-                          data-dir="-1"
-                          aria-label="Decrease"
-                        >
-                          −
-                        </button>
-                        <input
-                          class="ctrl__slider"
-                          type="range"
-                          id="ctrl-slick"
-                          min="0"
-                          max="100"
-                          step="1"
-                          value="0"
-                        />
-                        <button
-                          class="ctrl__step"
-                          type="button"
-                          data-step="ctrl-slick"
-                          data-dir="1"
-                          aria-label="Increase"
-                        >
-                          +
-                        </button>
-                        <span class="ctrl__value" id="ctrl-slick-val">0%</span>
-                      </div>
-                      <div class="ctrl ctrl--stepped">
-                        <label class="ctrl__label" for="ctrl-stairs" data-i18n="panel.stairs"
-                          >stairs</label
-                        >
-                        <button
-                          class="ctrl__step"
-                          type="button"
-                          data-step="ctrl-stairs"
-                          data-dir="-1"
-                          aria-label="Decrease"
-                        >
-                          −
-                        </button>
-                        <input
-                          class="ctrl__slider"
-                          type="range"
-                          id="ctrl-stairs"
-                          min="0"
-                          max="100"
-                          step="1"
-                          value="0"
-                        />
-                        <button
-                          class="ctrl__step"
-                          type="button"
-                          data-step="ctrl-stairs"
-                          data-dir="1"
-                          aria-label="Increase"
-                        >
-                          +
-                        </button>
-                        <span class="ctrl__value" id="ctrl-stairs-val">0%</span>
-                      </div>
-                      <div class="ctrl ctrl--stepped">
-                        <label class="ctrl__label" for="ctrl-gravity" data-i18n="panel.gravity"
-                          >gravity</label
-                        >
-                        <button
-                          class="ctrl__step"
-                          type="button"
-                          data-step="ctrl-gravity"
-                          data-dir="-1"
-                          aria-label="Decrease"
-                        >
-                          −
-                        </button>
-                        <input
-                          class="ctrl__slider"
-                          type="range"
-                          id="ctrl-gravity"
-                          min="1"
-                          max="30"
-                          step="1"
-                          value="10"
-                        />
-                        <button
-                          class="ctrl__step"
-                          type="button"
-                          data-step="ctrl-gravity"
-                          data-dir="1"
-                          aria-label="Increase"
-                        >
-                          +
-                        </button>
-                        <span class="ctrl__value" id="ctrl-gravity-val">1.0 G</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <label class="switch">
-                <span class="switch__label" data-i18n="panel.randomTrack">Random track</span>
-                <input type="checkbox" id="toggle-random-track" class="switch__input" />
-                <span class="switch__track" aria-hidden="true">
-                  <span class="switch__thumb"></span>
-                </span>
-              </label>
-            </div>
+            <label class="switch">
+              <span class="switch__label" data-i18n="panel.randomTrack">Random track</span>
+              <input type="checkbox" id="toggle-random-track" class="switch__input" />
+              <span class="switch__track" aria-hidden="true">
+                <span class="switch__thumb"></span>
+              </span>
+            </label>
 
             <div class="control-actions">
               <button class="btn btn--primary" id="btn-restart" data-i18n="panel.restart">
@@ -577,6 +255,296 @@
               <button class="btn btn--primary" id="btn-charts" data-i18n="panel.chartsToggle">
                 Charts
               </button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel panel--seed">
+          <h2 class="panel__title" data-i18n="ribbon.seed">SEED</h2>
+          <div class="panel__body">
+            <div class="seed-input-row">
+              <input
+                class="seed-input"
+                id="seed-input"
+                type="text"
+                maxlength="8"
+                spellcheck="false"
+                autocomplete="off"
+                placeholder="hex"
+              />
+              <button
+                class="btn btn--seed-apply"
+                id="seed-apply"
+                type="button"
+                data-i18n="panel.seedApply"
+              >
+                Apply
+              </button>
+            </div>
+            <div class="seed-history" id="seed-history"></div>
+          </div>
+        </section>
+
+        <section class="panel panel--track">
+          <h2 class="panel__title" data-i18n="panel.trackTuning">Track</h2>
+          <div class="panel__body">
+            <div class="track-grid">
+              <div class="ctrl ctrl--stepped">
+                <label class="ctrl__label" for="ctrl-length" data-i18n="panel.trackLength"
+                  >length</label
+                >
+                <button
+                  class="ctrl__step"
+                  type="button"
+                  data-step="ctrl-length"
+                  data-dir="-1"
+                  aria-label="Decrease"
+                >
+                  −
+                </button>
+                <input
+                  class="ctrl__slider"
+                  type="range"
+                  id="ctrl-length"
+                  min="200"
+                  max="2000"
+                  step="50"
+                  value="200"
+                />
+                <button
+                  class="ctrl__step"
+                  type="button"
+                  data-step="ctrl-length"
+                  data-dir="1"
+                  aria-label="Increase"
+                >
+                  +
+                </button>
+                <span class="ctrl__value" id="ctrl-length-val">200m</span>
+              </div>
+              <div class="ctrl ctrl--stepped">
+                <label class="ctrl__label" for="ctrl-difficulty" data-i18n="panel.difficulty"
+                  >difficulty</label
+                >
+                <button
+                  class="ctrl__step"
+                  type="button"
+                  data-step="ctrl-difficulty"
+                  data-dir="-1"
+                  aria-label="Decrease"
+                >
+                  −
+                </button>
+                <input
+                  class="ctrl__slider"
+                  type="range"
+                  id="ctrl-difficulty"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="40"
+                />
+                <button
+                  class="ctrl__step"
+                  type="button"
+                  data-step="ctrl-difficulty"
+                  data-dir="1"
+                  aria-label="Increase"
+                >
+                  +
+                </button>
+                <span class="ctrl__value" id="ctrl-difficulty-val">40%</span>
+              </div>
+              <div class="ctrl ctrl--stepped">
+                <label class="ctrl__label" for="ctrl-walls" data-i18n="panel.walls">walls</label>
+                <button
+                  class="ctrl__step"
+                  type="button"
+                  data-step="ctrl-walls"
+                  data-dir="-1"
+                  aria-label="Decrease"
+                >
+                  −
+                </button>
+                <input
+                  class="ctrl__slider"
+                  type="range"
+                  id="ctrl-walls"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="0"
+                />
+                <button
+                  class="ctrl__step"
+                  type="button"
+                  data-step="ctrl-walls"
+                  data-dir="1"
+                  aria-label="Increase"
+                >
+                  +
+                </button>
+                <span class="ctrl__value" id="ctrl-walls-val">0%</span>
+              </div>
+              <div class="ctrl ctrl--stepped">
+                <label class="ctrl__label" for="ctrl-ceilings" data-i18n="panel.ceilings"
+                  >ceilings</label
+                >
+                <button
+                  class="ctrl__step"
+                  type="button"
+                  data-step="ctrl-ceilings"
+                  data-dir="-1"
+                  aria-label="Decrease"
+                >
+                  −
+                </button>
+                <input
+                  class="ctrl__slider"
+                  type="range"
+                  id="ctrl-ceilings"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="0"
+                />
+                <button
+                  class="ctrl__step"
+                  type="button"
+                  data-step="ctrl-ceilings"
+                  data-dir="1"
+                  aria-label="Increase"
+                >
+                  +
+                </button>
+                <span class="ctrl__value" id="ctrl-ceilings-val">0%</span>
+              </div>
+              <div class="ctrl ctrl--stepped">
+                <label class="ctrl__label" for="ctrl-cliffs" data-i18n="panel.cliffs">cliffs</label>
+                <button
+                  class="ctrl__step"
+                  type="button"
+                  data-step="ctrl-cliffs"
+                  data-dir="-1"
+                  aria-label="Decrease"
+                >
+                  −
+                </button>
+                <input
+                  class="ctrl__slider"
+                  type="range"
+                  id="ctrl-cliffs"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="0"
+                />
+                <button
+                  class="ctrl__step"
+                  type="button"
+                  data-step="ctrl-cliffs"
+                  data-dir="1"
+                  aria-label="Increase"
+                >
+                  +
+                </button>
+                <span class="ctrl__value" id="ctrl-cliffs-val">0%</span>
+              </div>
+              <div class="ctrl ctrl--stepped">
+                <label class="ctrl__label" for="ctrl-slick" data-i18n="panel.slick">slick</label>
+                <button
+                  class="ctrl__step"
+                  type="button"
+                  data-step="ctrl-slick"
+                  data-dir="-1"
+                  aria-label="Decrease"
+                >
+                  −
+                </button>
+                <input
+                  class="ctrl__slider"
+                  type="range"
+                  id="ctrl-slick"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="0"
+                />
+                <button
+                  class="ctrl__step"
+                  type="button"
+                  data-step="ctrl-slick"
+                  data-dir="1"
+                  aria-label="Increase"
+                >
+                  +
+                </button>
+                <span class="ctrl__value" id="ctrl-slick-val">0%</span>
+              </div>
+              <div class="ctrl ctrl--stepped">
+                <label class="ctrl__label" for="ctrl-stairs" data-i18n="panel.stairs">stairs</label>
+                <button
+                  class="ctrl__step"
+                  type="button"
+                  data-step="ctrl-stairs"
+                  data-dir="-1"
+                  aria-label="Decrease"
+                >
+                  −
+                </button>
+                <input
+                  class="ctrl__slider"
+                  type="range"
+                  id="ctrl-stairs"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="0"
+                />
+                <button
+                  class="ctrl__step"
+                  type="button"
+                  data-step="ctrl-stairs"
+                  data-dir="1"
+                  aria-label="Increase"
+                >
+                  +
+                </button>
+                <span class="ctrl__value" id="ctrl-stairs-val">0%</span>
+              </div>
+              <div class="ctrl ctrl--stepped">
+                <label class="ctrl__label" for="ctrl-gravity" data-i18n="panel.gravity"
+                  >gravity</label
+                >
+                <button
+                  class="ctrl__step"
+                  type="button"
+                  data-step="ctrl-gravity"
+                  data-dir="-1"
+                  aria-label="Decrease"
+                >
+                  −
+                </button>
+                <input
+                  class="ctrl__slider"
+                  type="range"
+                  id="ctrl-gravity"
+                  min="1"
+                  max="30"
+                  step="1"
+                  value="10"
+                />
+                <button
+                  class="ctrl__step"
+                  type="button"
+                  data-step="ctrl-gravity"
+                  data-dir="1"
+                  aria-label="Increase"
+                >
+                  +
+                </button>
+                <span class="ctrl__value" id="ctrl-gravity-val">1.0 G</span>
+              </div>
             </div>
           </div>
         </section>

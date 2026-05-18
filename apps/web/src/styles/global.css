@@ -606,12 +606,15 @@ button {
 
 /* ─── Bottom panels row (row 4): Statistics / Evolution / Controls ──────── */
 
-/* v1.63 — the old stats-strip + dock are replaced by three side-by-
-   side panels.  Each is a self-contained "window" with a title and
-   a body.  The row sits below the canvas and shrinks to content. */
+/* The bottom band — five side-by-side panels spanning the full
+   screen width: Statistics / Evolution / Controls / Seed / Track.
+   Each is a self-contained "window" with a title and a body.  Track
+   is widest (2.1fr) so its 8 tuning sliders fit a 2-column grid. */
 .panels {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr);
+  grid-template-columns:
+    minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.05fr) minmax(0, 1fr)
+    minmax(0, 2.1fr);
   gap: var(--sp-2);
   padding: var(--sp-2) calc(var(--sp-3) + var(--safe-right)) max(var(--sp-2), var(--safe-bottom))
     calc(var(--sp-3) + var(--safe-left));
@@ -670,21 +673,11 @@ button {
   width: 100%;
 }
 
-/* Track row: SEED + TRACK drawer pair pinned left, the Random-track
-   switch pinned right.  space-between gives the switch room without
-   the drawers drifting. */
-.control-track {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-3);
-  flex-wrap: wrap;
-}
-
-.drawer-pair {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
+/* Track panel — the 8 tuning sliders laid out in a 2-column grid. */
+.track-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2) var(--sp-4);
 }
 
 /* Action buttons — two equal columns so New-population and Charts
@@ -766,15 +759,6 @@ button {
 
 .ribbon-stat__value--copied {
   color: var(--color-panel-accent);
-}
-
-/* ─── Drawer toggles (Seed / Track) ──────────────────────────────────────── */
-
-.dock__section {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  position: relative;
 }
 
 /* Evolution-panel sliders fill the panel width (the inline variant
@@ -869,90 +853,6 @@ button {
 
 .switch:hover .switch__track {
   border-color: var(--color-fg-muted);
-}
-
-.dock__toggle {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: var(--r-sm);
-  color: var(--color-fg);
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: var(--sp-2) var(--sp-3);
-  cursor: pointer;
-  transition:
-    border-color var(--dur-fast) var(--ease-out),
-    background var(--dur-fast) var(--ease-out);
-}
-
-.dock__toggle:hover {
-  border-color: var(--color-fg-muted);
-}
-
-.dock__toggle[aria-expanded='true'] {
-  background: var(--color-surface-2);
-  border-color: var(--color-panel-accent);
-}
-
-.dock__toggle-chevron {
-  font-size: 0.625rem;
-  color: var(--color-fg-muted);
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-
-.dock__toggle[aria-expanded='true'] .dock__toggle-chevron {
-  transform: rotate(180deg);
-}
-
-/* Drawer popover — opens upward from its toggle button.  The toggle's
-   .dock__section ancestor is `position: relative`, providing the
-   containing block; the drawer itself is `position: absolute` and
-   `bottom: 100% + sp-3` so its bottom edge sits just above the dock. */
-.dock-drawer {
-  position: absolute;
-  bottom: calc(100% + var(--sp-3));
-  left: 0;
-  min-width: 17.5rem;
-  background: rgba(22, 22, 26, 0.96);
-  border: 1px solid var(--color-border);
-  border-radius: var(--r-md);
-  padding: var(--sp-3) var(--sp-4);
-  backdrop-filter: blur(10px);
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  z-index: 3;
-  animation: confirm-pop 0.12s ease-out;
-}
-
-.dock-drawer[hidden] {
-  display: none;
-}
-
-.dock-drawer--seed {
-  width: 17.5rem;
-}
-
-.dock-drawer--wide {
-  width: 37.5rem;
-}
-
-.dock-drawer__head {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: var(--sp-1);
-}
-
-.dock-drawer__grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--sp-2) var(--sp-4);
 }
 
 .seed-input-row {
@@ -2449,7 +2349,7 @@ button {
       calc(var(--sp-3) + var(--safe-left));
   }
 
-  /* The three panels stack vertically on a phone — one column. */
+  /* The panels stack vertically on a phone — one column. */
   .panels {
     order: 4;
     grid-template-columns: 1fr;
@@ -2466,33 +2366,14 @@ button {
     border-left: none;
   }
 
-  .dock__section {
-    flex-wrap: wrap;
-    gap: var(--sp-2);
-  }
-
   /* Bigger touch targets — Apple HIG says 44 × 44 pt minimum. */
   .segmented__item,
-  .dock__toggle,
   .btn {
     min-height: 2.5rem;
   }
 
-  /* Drawers pop downward into the scroll flow on mobile instead of
-     upward into the canvas. */
-  .dock-drawer--seed,
-  .dock-drawer--wide {
-    width: calc(100vw - 2 * var(--sp-3));
-    left: var(--sp-3);
-    bottom: auto;
-    top: calc(100% + var(--sp-2));
-  }
-
-  .dock-drawer--wide {
-    width: calc(100vw - 2 * var(--sp-3));
-  }
-
-  .dock-drawer__grid {
+  /* Track sliders drop to a single column when the panel is full-width. */
+  .track-grid {
     grid-template-columns: 1fr;
   }
 

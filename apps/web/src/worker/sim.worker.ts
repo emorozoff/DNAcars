@@ -6,7 +6,6 @@
  *   - `init`    builds a world (and frees any previous one),
  *   - `advance` runs a budgeted batch of fixed-timestep steps and
  *               returns a snapshot + status,
- *   - `getCar`  serves the debug-bundle export,
  *   - `destroy` frees the Rapier world.
  *
  * Messages are processed strictly in order via a promise chain, so an
@@ -41,7 +40,6 @@ type AdvanceMsg = {
 type Incoming =
   | { id: number; type: 'init'; opts: CreateWorldOptions }
   | AdvanceMsg
-  | { id: number; type: 'getCar'; idx: number }
   | { id: number; type: 'destroy' };
 
 // `self` is the DedicatedWorkerGlobalScope; cast to just the surface
@@ -101,19 +99,6 @@ async function handle(msg: Incoming): Promise<void> {
     }
     case 'advance': {
       reply(msg.id, advance(msg));
-      return;
-    }
-    case 'getCar': {
-      if (!world) {
-        reply(msg.id, null);
-        return;
-      }
-      reply(msg.id, {
-        snapshot: world.snapshot(),
-        genome: world.getCarGenome(msg.idx),
-        timeline: world.getCarTimeline(msg.idx),
-        eventCounts: world.getCarEventCounts(msg.idx),
-      });
       return;
     }
     case 'destroy': {

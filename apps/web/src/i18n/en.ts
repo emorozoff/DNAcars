@@ -43,7 +43,7 @@ const enRaw = {
   'panel.mud': 'Mud',
   'panel.zigzag': 'Zigzag',
   'panel.restart': 'New population',
-  'panel.restartConfirm': 'Start a new population?  This wipes every gene of the current run.',
+  'panel.restartArmed': 'Sure?  Progress will be reset',
   'panel.confirmYes': 'Confirm',
   'panel.confirmNo': 'Cancel',
   'panel.pause': 'Pause',

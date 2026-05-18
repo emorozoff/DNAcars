@@ -14,13 +14,7 @@
  * strict-determinism elite cache — all stays on the main thread.
  */
 
-import type {
-  CreateWorldOptions,
-  Genome,
-  StepOptions,
-  TimelineEntry,
-  WorldSnapshot,
-} from '../sim/world';
+import type { CreateWorldOptions, StepOptions, WorldSnapshot } from '../sim/world';
 
 /** One frame's worth of stepping work, sent to the worker. */
 export type AdvanceRequest = {
@@ -48,14 +42,6 @@ export type AdvanceResult = {
   allFinished: boolean;
   /** Present when `wantSnapshot` was set or the generation ended. */
   snapshot: WorldSnapshot | null;
-};
-
-/** Everything the debug-bundle export needs for one car. */
-export type CarBundle = {
-  snapshot: WorldSnapshot;
-  genome: Genome | null;
-  timeline: TimelineEntry[];
-  eventCounts: { velClamp: number; spike: number };
 };
 
 type WorkerResponse = { id: number; ok: boolean; result?: unknown; error?: string };
@@ -103,11 +89,6 @@ export class WorldProxy {
   /** Run one frame's batch of physics steps. */
   advance(req: AdvanceRequest): Promise<AdvanceResult> {
     return this.send<AdvanceResult>('advance', { ...req });
-  }
-
-  /** Snapshot + genome + timeline + event counts for one car. */
-  getCar(idx: number): Promise<CarBundle | null> {
-    return this.send<CarBundle | null>('getCar', { idx });
   }
 
   /** Free the worker's Rapier world. */

@@ -45,7 +45,7 @@ export const ru: Dictionary = {
   'panel.mud': 'Грязь',
   'panel.zigzag': 'Зигзаг',
   'panel.restart': 'Новая популяция',
-  'panel.restartConfirm': 'Создать новую популяцию?  Это удалит все гены текущего поколения.',
+  'panel.restartArmed': 'Вы уверены?  Прогресс будет сброшен',
   'panel.confirmYes': 'Подтвердить',
   'panel.confirmNo': 'Отмена',
   'panel.pause': 'Пауза',

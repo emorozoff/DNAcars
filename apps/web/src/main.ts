@@ -596,7 +596,6 @@ async function bootstrap(): Promise<void> {
   }
 
   bindControls();
-  bindDockDrawers();
   bindLeaderCard();
 
   // Stats dashboard: a grid of sparklines that grows one column per
@@ -1473,13 +1472,11 @@ function bindControls(): void {
 }
 
 /**
- * Wire `−` / `+` buttons next to track-drawer sliders.  Each click
+ * Wire `−` / `+` buttons next to the Track-panel sliders.  Each click
  * nudges the linked input by one `step` (1% for percentage sliders,
  * 50 m for the length slider), clamps to [min, max], and dispatches
  * an `input` event so the existing bindSlider listener picks up the
- * change and re-applies it to trackTuning + paints the fill.  Clicks
- * inside an open drawer are already protected from the close-on-
- * outside listener by the drawer's pointerdown stopPropagation.
+ * change and re-applies it to trackTuning + paints the fill.
  */
 function bindStepButtons(): void {
   const buttons = document.querySelectorAll<HTMLButtonElement>('.ctrl__step');
@@ -1748,69 +1745,6 @@ function renderLeaderModelFromGenome(g: Genome): void {
   const width = maxX - minX + 2 * pad;
   const height = maxY - minY + 2 * pad;
   svg.setAttribute('viewBox', `${minX - pad} ${minY - pad} ${width} ${height}`);
-}
-
-/**
- * Wire the dock toggles (Seed / Evolution / Track) so each opens
- * its sibling drawer popover above the dock and only one drawer is
- * open at a time.  Click-outside or Escape closes the open drawer;
- * the strict-determinism warning popover (which lives inside the
- * Evolution drawer) is treated as part of that drawer for the
- * "outside" test, so opening it doesn't immediately collapse the
- * drawer underneath.
- */
-function bindDockDrawers(): void {
-  const toggles: { btn: HTMLButtonElement; drawer: HTMLElement }[] = [];
-  const ids = ['seed', 'track'];
-  for (const id of ids) {
-    const btn = document.getElementById(`dock-toggle-${id}`);
-    const drawer = document.getElementById(`dock-drawer-${id}`);
-    if (btn instanceof HTMLButtonElement && drawer instanceof HTMLElement) {
-      toggles.push({ btn, drawer });
-    }
-  }
-  if (toggles.length === 0) return;
-
-  const setOpen = (idx: number, open: boolean): void => {
-    const entry = toggles[idx];
-    if (!entry) return;
-    entry.btn.setAttribute('aria-expanded', String(open));
-    entry.drawer.hidden = !open;
-  };
-
-  const closeAll = (): void => {
-    for (let i = 0; i < toggles.length; i++) setOpen(i, false);
-  };
-
-  toggles.forEach((entry, idx) => {
-    entry.btn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      const wasOpen = entry.btn.getAttribute('aria-expanded') === 'true';
-      closeAll();
-      if (!wasOpen) setOpen(idx, true);
-    });
-    // Clicks inside the drawer shouldn't close it (hand-off to the
-    // global pointerdown listener below).
-    entry.drawer.addEventListener('pointerdown', (ev) => ev.stopPropagation());
-  });
-
-  // Click anywhere outside an open drawer collapses it.  Pointerdown
-  // (rather than click) catches drag-start gestures on the canvas so
-  // the player can pan immediately without having to release the
-  // mouse first.
-  document.addEventListener('pointerdown', () => {
-    closeAll();
-  });
-
-  // Escape closes whatever is open.
-  window.addEventListener('keydown', (ev) => {
-    if (ev.key !== 'Escape') return;
-    const anyOpen = toggles.some((t) => t.btn.getAttribute('aria-expanded') === 'true');
-    if (anyOpen) {
-      ev.preventDefault();
-      closeAll();
-    }
-  });
 }
 
 function bindSlider(inputId: string, valueId: string, apply: (v: number) => string): void {

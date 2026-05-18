@@ -55,14 +55,17 @@ function hueToTint(hue: number): number {
 }
 
 /**
- * Pixels per world-metre.  Used to be a const; now mutable so the
- * mouse-wheel zoom can adjust it.  35 is the comfortable default
- * (≈40 m of track visible on a 1400 px screen).  Clamped at every
- * adjustment to ZOOM_MIN..ZOOM_MAX so the UI never goes degenerate.
+ * Pixels per world-metre — mutable so wheel / pinch zoom can adjust
+ * it.  The default is *derived from the canvas width* (see fitZoom)
+ * so the same ≈ TARGET_VIEW_M metres of track are framed on a phone
+ * and on a desktop — a fixed value left phones painfully zoomed in.
+ * ZOOM_DEFAULT is only the pre-measure fallback.
  */
 const ZOOM_DEFAULT = 35;
-const ZOOM_MIN = 12;
+const ZOOM_MIN = 10;
 const ZOOM_MAX = 90;
+/** Metres of track the default zoom aims to fit across the canvas. */
+const TARGET_VIEW_M = 38;
 /**
  * Zoom-per-wheel-tick multiplier.  1.04 means each notch changes the
  * pixels-per-metre by 4 % — gentle enough that holding the wheel for
@@ -274,6 +277,16 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     minimapEl instanceof SVGSVGElement ? mountMinimap(minimapEl) : null;
 
   let zoom = ZOOM_DEFAULT;
+  // True once the player has pinched / wheeled the zoom themselves.
+  // Until then a resize (orientation flip, window resize) re-fits the
+  // zoom to the canvas width; after a manual zoom we leave it alone.
+  let userZoomed = false;
+  /** Default zoom that fits ≈ TARGET_VIEW_M metres across the canvas. */
+  function fitZoom(): number {
+    const wCss = app.renderer.width / (window.devicePixelRatio || 1);
+    if (wCss <= 0) return ZOOM_DEFAULT;
+    return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, wCss / TARGET_VIEW_M));
+  }
   const camera = { x: 0, y: 0 };
   let cameraTarget = { x: 0, y: 0 };
   let cameraMode: CameraMode = { type: 'leader' };
@@ -394,6 +407,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       if (pinchStartDistance > 0 && d > 0) {
         const next = pinchStartZoom * (d / pinchStartDistance);
         zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, next));
+        userZoomed = true;
       }
       return;
     }
@@ -455,12 +469,19 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       e.preventDefault();
       const factor = e.deltaY < 0 ? ZOOM_WHEEL_FACTOR : 1 / ZOOM_WHEEL_FACTOR;
       zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom * factor));
+      userZoomed = true;
     },
     { passive: false },
   );
 
+  zoom = fitZoom();
   applyTransform();
   const ro = new ResizeObserver(() => {
+    // Re-fit the zoom on a real resize (orientation flip, window
+    // resize) unless the player has picked their own zoom.  A
+    // width-based fit means the iOS URL-bar show/hide (height-only
+    // change) doesn't disturb it.
+    if (!userZoomed) zoom = fitZoom();
     drawTrack();
     applyTransform();
   });
@@ -505,14 +526,11 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     // World vertical anchor — adaptive to the canvas aspect ratio.
     // Wide canvases (desktop, aspect > 1.4) keep the v1.12.2 0.72
     // anchor: cars in the lower third with lots of "what's coming"
-    // sky above.  On a portrait phone the same 0.72 lands the cars
-    // way too low — 72 % of a 500-px-tall canvas is 360 px down,
-    // leaving only ~140 px of underground and *all* the sky pinned
-    // at the top.  Center the framing for portrait so the cars
-    // sit near vertical mid + sky and underground share the room
-    // more evenly.
+    // sky above.  A portrait phone is much taller than wide, so the
+    // car is anchored at vertical centre — anything lower buries it
+    // near the bottom edge with a wall of empty sky above.
     const aspect = w / h;
-    const anchor = aspect > 1.4 ? 0.72 : 0.55;
+    const anchor = aspect > 1.4 ? 0.72 : 0.5;
     world.position.set(w / 2 - camera.x * zoom, h * anchor + camera.y * zoom);
     world.scale.set(zoom, -zoom);
     // Parallax silhouettes — partial camera follow so they appear

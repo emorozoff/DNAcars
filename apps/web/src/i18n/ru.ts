@@ -18,7 +18,6 @@ export const ru: Dictionary = {
   'panel.cars': 'Популяция',
   'panel.lead': 'Лидер',
   'panel.bestEver': 'Рекорд',
-  'panel.eliteSolo': 'Элита (соло)',
   'panel.seed': 'Сид трассы',
   'panel.seedSection': 'Сид трассы',
   'panel.seedCopyHint': 'Кликни чтобы скопировать',

@@ -501,44 +501,6 @@ function deriveGaSeed(trackSeed: number, generation: number): number {
 }
 
 /**
- * Hard cap on side-world simulation steps so a buggy / never-
- * stalling elite can't lock up the verification pass.  At 60 sim
- * Hz this is 600 s = 10 min, matching TUNING.lifecycle.maxGenerationSec.
- */
-const VERIFY_MAX_STEPS = 60 * 600;
-
-/**
- * Run a single genome alone in its own freshly-built Rapier world
- * on the same track, simulating until it finishes (stalls, rolls
- * back past threshold, hits a kill-zone, or maxes out the step
- * cap).  Returns the travel distance.
- *
- * "Solo verification" — a diagnostic for the multi-body world's
- * subtle non-determinism.  When the main world reports the elite
- * doing 300 m, we re-run that same genome alone here; if the solo
- * result differs, we know the elite's 300 m run was sensitive to
- * the *other* cars sharing its Rapier world (FP noise from
- * broadphase / solver iteration order).  Identical results mean
- * the multi-body world is well-behaved on this genome.
- */
-async function verifyEliteAlone(genome: Genome, track: Track): Promise<number> {
-  // Side-world always uses an isolated single-car world by
-  // construction (genomes.length === 1), so the `isolated` flag
-  // doesn't change anything here — we leave it default-off to
-  // skip the per-car book-keeping path.
-  const sideWorld = await createWorld({ track, genomes: [genome], spawnX: SPAWN_X });
-  let steps = 0;
-  while (!sideWorld.allFinished() && steps < VERIFY_MAX_STEPS) {
-    sideWorld.step();
-    steps++;
-  }
-  const snap = sideWorld.snapshot();
-  const travel = snap.cars[0]?.travel ?? 0;
-  sideWorld.destroy();
-  return travel;
-}
-
-/**
  * Resolve the multiplier and headless flag the tick loop should use
  * *right now*.
  */
@@ -588,8 +550,6 @@ type Hud = {
   seed: HTMLElement;
   generation: HTMLElement;
   version: HTMLElement;
-  /** Solo-verified elite distance (top-1 re-run alone). */
-  eliteSolo: HTMLElement;
   /** "Alive" count: cars in the current run that haven't finished yet. */
   alive: HTMLElement;
   /** Track length, e.g. "500m", shown next to the leader value. */
@@ -674,10 +634,6 @@ async function bootstrap(): Promise<void> {
     seed: document.getElementById('stat-seed') ?? document.createElement('span'),
     generation: requireEl('stat-generation'),
     version: requireEl('app-version'),
-    // stat-elite-solo no longer exists in the new ribbon — keep the
-    // field as a detached element so the existing "verifyEliteAlone"
-    // codepath can still write to it without an extra null-check.
-    eliteSolo: document.getElementById('stat-elite-solo') ?? document.createElement('span'),
     alive: requireEl('stat-alive'),
     trackLength: requireEl('stat-track-length'),
   };
@@ -825,7 +781,6 @@ async function bootstrap(): Promise<void> {
     trackRecordHistory.length = 0;
     scene.setRecordHistory([]);
     hud.best.textContent = '—';
-    hud.eliteSolo.textContent = '—';
     if (charts) charts.update(history);
   }
 
@@ -1305,11 +1260,26 @@ async function bootstrap(): Promise<void> {
   updateSpeedSegmented();
 
   let session: Session | null = null;
+  // Pending auto-restart timer scheduled at gen-end.  Tracked so a
+  // manual restart (New population / Space) can cancel it — otherwise
+  // the stale timer fires a second restart() that double-increments
+  // the generation and stomps the fresh run.
+  let restartTimer: ReturnType<typeof setTimeout> | null = null;
 
   async function restart(): Promise<void> {
+    // Cancel any pending gen-end auto-restart so this restart is the
+    // only one in flight.
+    if (restartTimer !== null) {
+      clearTimeout(restartTimer);
+      restartTimer = null;
+    }
     if (session) {
       session.stop();
       session.world.destroy();
+      // Null it immediately: if a click re-enters restart() during the
+      // `await startSession` below, the guard above skips a second
+      // stop()/destroy() on the already-freed Rapier world.
+      session = null;
     }
     const trackParams = nextTrackParams();
     const trackSeed = trackParams.seed;
@@ -1449,7 +1419,10 @@ async function bootstrap(): Promise<void> {
         if (charts) charts.update(history);
         generation += 1;
         const effective = effectiveSpeed();
-        setTimeout(() => void restart(), GENERATION_PAUSE_MS / effective.multiplier);
+        restartTimer = setTimeout(() => {
+          restartTimer = null;
+          void restart();
+        }, GENERATION_PAUSE_MS / effective.multiplier);
       },
     });
   }
@@ -2179,13 +2152,6 @@ async function startSession(opts: StartOptions): Promise<Session> {
         };
       });
       onGenerationEnd(results);
-      // Solo-verify the top-1 elite in a side-world.  Runs in the
-      // background; the next generation starts immediately, the
-      // verified-elite HUD just updates whenever this resolves.
-      const top = results.reduce((a, b) => (b.fitness > a.fitness ? b : a));
-      void verifyEliteAlone(top.genome, track).then((solo) => {
-        hud.eliteSolo.textContent = `${solo.toFixed(1)} m`;
-      });
       return;
     }
     // Frame-time EMA for the speed-button colour predictor.  Captures

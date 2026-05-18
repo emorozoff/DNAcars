@@ -16,7 +16,6 @@ const enRaw = {
   'panel.cars': 'Population',
   'panel.lead': 'Leader',
   'panel.bestEver': 'Record',
-  'panel.eliteSolo': 'Elite (solo)',
   'panel.seed': 'Track seed',
   'panel.seedSection': 'Track seed',
   'panel.seedCopyHint': 'Click to copy',
@@ -80,7 +79,7 @@ const enRaw = {
   'stats.speedBest': 'Fastest',
   'panel.strictDeterminism': 'Strict determinism',
   'panel.strictDeterminismHint':
-    'Without it, all cars share one Rapier physics world and the solver iterates contact pairs in an order that depends on every body\'s position — so the same seed produces slightly different runs across sessions. Strict determinism gives each car its own isolated physics world, so the same seed reproduces a bit-identical run every time. Costs ≈ 2× CPU. Turn on when you need exact reproducibility (e.g. sharing a seed with another player).',
+    "Without it, all cars share one Rapier physics world and the solver iterates contact pairs in an order that depends on every body's position — so the same seed produces slightly different runs across sessions. Strict determinism gives each car its own isolated physics world, so the same seed reproduces a bit-identical run every time. Costs ≈ 2× CPU. Turn on when you need exact reproducibility (e.g. sharing a seed with another player).",
   'panel.strictDeterminismWarning':
     'Every car gets its own physics world. Same seed → bit-identical run.\n\nBut ≈2× CPU load. If this is unfamiliar — only enable on a powerful computer, otherwise leave it off.\n\nThe current run will be reset.',
   'tutorial.close': 'Close',

@@ -3,7 +3,7 @@
 Living document — updated on every release. Tracks **what works now**,
 **what's next**, and the long-term direction.
 
-Current version: **1.67.0**. Live at <https://emorozoff.github.io/DNAcars/>.
+Current version: **1.67.1**. Live at <https://emorozoff.github.io/DNAcars/>.
 
 ## Legend
 
@@ -18,25 +18,27 @@ A spectacular browser-only "watch them evolve" sandbox in 2D minimalism,
 inspired by **Genetic Cars 2** and **BoxCar2D** — but with believable
 physics, a calmer feel, and a daily challenge to share.
 
-Stack: TypeScript + Vite + PixiJS + Rapier2D in a Web Worker. Cloudflare
-Pages for the front, Cloudflare Workers + KV for the leaderboard later.
+Stack: TypeScript + Vite + PixiJS + Rapier2D. Cloudflare Pages for the
+front, Cloudflare Workers + KV for the leaderboard later. (Sim + GA
+currently run on the main thread; moving them into a Web Worker is a
+planned optimisation — see Phase 2.)
 
 ---
 
 ## Phase 1 — Foundation (✅ done, v0.5.0)
 
-|     | What                                                              | Where it lives                               |
-| --- | ----------------------------------------------------------------- | -------------------------------------------- |
-| ✅  | TS-strict monorepo (npm workspaces)                               | `apps/web`, `apps/server`, `packages/shared` |
-| ✅  | Vite + PixiJS v8 dev shell, dark minimalist tokens                | `apps/web/src/styles`                        |
-| ✅  | i18n shim EN/RU with localStorage persistence                     | `apps/web/src/i18n`                          |
-| ✅  | Rapier2D in a Web Worker (compat-WASM build)                      | `apps/web/src/sim`, `apps/web/src/worker`    |
-| ✅  | Genetic algorithm core (selection / crossover / mutation)         | `apps/web/src/ga`                            |
-| ✅  | Procedural track generator (layered sines + warm-up)              | `apps/web/src/sim/track.ts`                  |
-| ✅  | Vitest unit tests for PRNG, track, genome, GA, sphere convergence | `apps/web/src/**/__tests__`                  |
-| ✅  | GitHub Actions CI: format, lint, typecheck, test, build           | `.github/workflows/ci.yml`                   |
-| ✅  | GitHub Pages auto-deploy from this branch                         | `.github/workflows/deploy.yml`               |
-| ✅  | Visible version badge in the top bar                              | `apps/web/src/main.ts`                       |
+|     | What                                                      | Where it lives                               |
+| --- | --------------------------------------------------------- | -------------------------------------------- |
+| ✅  | TS-strict monorepo (npm workspaces)                       | `apps/web`, `apps/server`, `packages/shared` |
+| ✅  | Vite + PixiJS v8 dev shell, dark minimalist tokens        | `apps/web/src/styles`                        |
+| ✅  | i18n shim EN/RU with localStorage persistence             | `apps/web/src/i18n`                          |
+| ✅  | Rapier2D physics core (compat-WASM build)                 | `apps/web/src/sim/world.ts`                  |
+| ✅  | Genetic algorithm core (selection / crossover / mutation) | `apps/web/src/ga`                            |
+| ✅  | Procedural track generator (layered sines + warm-up)      | `apps/web/src/sim/world.ts`                  |
+| ✅  | Vitest unit tests for the GA + stats + i18n               | co-located `*.test.ts`                       |
+| ✅  | GitHub Actions CI: format, lint, typecheck, test, build   | `.github/workflows/ci.yml`                   |
+| ✅  | GitHub Pages auto-deploy from this branch                 | `.github/workflows/deploy.yml`               |
+| ✅  | Visible version badge in the top bar                      | `apps/web/src/main.ts`                       |
 
 ## Phase 2 — Convincing Physics (🔄 in iteration, v0.6.0 → 0.8.2)
 
@@ -64,6 +66,7 @@ Each release closed a specific "this looks fake" complaint.
 - ⏳ **Visual indicator that a wheel is in contact** (tint/glow on touching wheels) — makes the physics legible
 - ⏳ **Track difficulty curves**: longer (800-1000 m), bigger amplitude after warmup, occasional jumps
 - ⏳ **Air time and roll counters in the inspector** — for diagnosis
+- ⏳ **Move sim + GA into a Web Worker** — physics currently runs on the main thread; offloading it would stop fast-forward (×32/×64) from janking the UI
 - 💡 **Better contact model**: replace the height-sample with a real Rapier `castShape` on a slim downward arc, once compat-WASM proves stable
 
 ## Phase 3 — Evolution UX (⏳ next)

@@ -166,11 +166,7 @@ export function collectStats(
   };
 }
 
-function zeroStats(
-  generation: number,
-  durationSec: number,
-  trackLength: number,
-): GenerationStats {
+function zeroStats(generation: number, durationSec: number, trackLength: number): GenerationStats {
   return {
     generation,
     durationSec,

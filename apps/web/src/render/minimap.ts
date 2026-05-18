@@ -196,11 +196,11 @@ export function mountMinimap(svg: SVGSVGElement): MinimapHandle {
       }
 
       // Render every car as a full-height vertical tick.  Cars
-       // span the entire minimap height regardless of speed tier so
-       // the player gets a clean "barcode" of population positions
-       // across the track at any zoom.  Headless mode also hides
-       // the camera-viewport rect (nothing to reference) but the
-       // car layout is identical.
+      // span the entire minimap height regardless of speed tier so
+      // the player gets a clean "barcode" of population positions
+      // across the track at any zoom.  Headless mode also hides
+      // the camera-viewport rect (nothing to reference) but the
+      // car layout is identical.
       let leader: { x: number; y: number; isElite: boolean } | null = null;
       let leaderRunning: { x: number; y: number; isElite: boolean } | null = null;
       for (let i = 0; i < snap.cars.length; i++) {

@@ -1,6 +1,6 @@
 {
   "name": "@dnacars/web",
-  "version": "1.67.0",
+  "version": "1.67.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,7 +17,6 @@
     "pixi.js": "^8.6.5"
   },
   "devDependencies": {
-    "@vitest/ui": "^2.1.8",
     "jsdom": "^25.0.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.7",

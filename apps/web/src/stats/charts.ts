@@ -396,7 +396,11 @@ function buildHero(): ChartCard {
     svg.appendChild(line);
   }
 
-  const meanLine = makePolyline('stats-hero__line stats-hero__line--mean', 'var(--color-fg-muted)', 1.4);
+  const meanLine = makePolyline(
+    'stats-hero__line stats-hero__line--mean',
+    'var(--color-fg-muted)',
+    1.4,
+  );
   svg.appendChild(meanLine);
   const bestLine = makePolyline('stats-hero__line stats-hero__line--best', '#a8ff60', 2);
   svg.appendChild(bestLine);
@@ -438,7 +442,10 @@ function buildHero(): ChartCard {
         'stats-hero__tooltip-row stats-hero__tooltip-row--best',
         `${t('stats.progressBest')} · ${gen.best.toFixed(1)} м`,
       ),
-      tooltipRow('stats-hero__tooltip-row', `${t('stats.progressMean')} · ${gen.mean.toFixed(1)} м`),
+      tooltipRow(
+        'stats-hero__tooltip-row',
+        `${t('stats.progressMean')} · ${gen.mean.toFixed(1)} м`,
+      ),
     );
     positionTooltip(tooltip, e.clientX - rect.left, rect.width);
   });

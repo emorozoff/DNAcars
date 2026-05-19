@@ -301,7 +301,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   let userZoomed = false;
   /** Default zoom that fits ≈ TARGET_VIEW_M metres across the canvas. */
   function fitZoom(): number {
-    const wCss = app.renderer.width / (window.devicePixelRatio || 1);
+    const wCss = host.clientWidth;
     if (wCss <= 0) return ZOOM_DEFAULT;
     return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, wCss / TARGET_VIEW_M));
   }
@@ -533,7 +533,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     // Just snap.  Otherwise lerp as before.
     const dx = cameraTarget.x - camera.x;
     const dy = cameraTarget.y - camera.y;
-    const viewportWidth = app.renderer.width / (window.devicePixelRatio || 1) / zoom;
+    const viewportWidth = host.clientWidth / zoom;
     if (Math.abs(dx) > viewportWidth || Math.abs(dy) > viewportWidth * 0.5) {
       camera.x = cameraTarget.x;
       camera.y = cameraTarget.y;
@@ -546,7 +546,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     // follow target / lerp produced, this clamp can only ever pull
     // the camera so the car is fully framed — never crop it.
     if (followAabb) {
-      const hCss = app.renderer.height / (window.devicePixelRatio || 1);
+      const hCss = host.clientHeight;
       const halfWorld = (hCss * 0.5) / zoom;
       const lo = followAabb.maxY + CAMERA_MARGIN_M - halfWorld;
       const hi = followAabb.minY - CAMERA_MARGIN_M + halfWorld;
@@ -561,8 +561,12 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   });
 
   function applyTransform(): void {
-    const w = app.renderer.width / (window.devicePixelRatio || 1);
-    const h = app.renderer.height / (window.devicePixelRatio || 1);
+    // Use the host element's CSS size — the unambiguous logical
+    // canvas size.  `app.renderer.width/height` are physical pixels
+    // and dividing by devicePixelRatio mis-fired on high-DPR phones,
+    // squashing the whole world into the top-left ~third.
+    const w = host.clientWidth;
+    const h = host.clientHeight;
     // The camera target is the centre of the followed car's fit-band,
     // so anchoring it at the canvas centre (0.5) keeps the band — and
     // therefore the whole car — symmetrically in frame.  A non-0.5
@@ -801,7 +805,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     } else {
       followAabb = null;
     }
-    const canvasHCss = app.renderer.height / (window.devicePixelRatio || 1);
+    const canvasHCss = host.clientHeight;
     fitV = canvasHCss > 0 ? canvasHCss / (2 * bandHalf) : ZOOM_MAX;
 
     // Minimap is SVG and ~30–50 attribute writes per call; cheap
@@ -809,8 +813,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     // hidden in ×32/skip mode.  The user can still see the population
     // crawling along the track up there.
     if (minimap) {
-      const dpr = window.devicePixelRatio || 1;
-      const viewportWorldWidth = app.renderer.width / dpr / zoom;
+      const viewportWorldWidth = host.clientWidth / zoom;
       // Use the session-level `headless` flag, not the per-frame
       // tier — at ×8 the skip-alternation flips tier between 'lite'
       // and 'none' which would otherwise toggle the minimap

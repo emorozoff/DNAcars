@@ -66,6 +66,12 @@ const ZOOM_MIN = 10;
 const ZOOM_MAX = 90;
 /** Metres of track the default zoom aims to fit across the canvas. */
 const TARGET_VIEW_M = 38;
+/** Half-height (m) of the vertical band the camera guarantees to keep
+ *  in frame around the followed car — the floor when the car itself
+ *  is small.  The car is always centred inside this band. */
+const MIN_HALF_BAND_M = 10;
+/** Extra clearance (m) added around the followed car's own extent. */
+const CAMERA_MARGIN_M = 3;
 /**
  * Zoom-per-wheel-tick multiplier.  1.04 means each notch changes the
  * pixels-per-metre by 4 % — gentle enough that holding the wheel for
@@ -277,6 +283,13 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     minimapEl instanceof SVGSVGElement ? mountMinimap(minimapEl) : null;
 
   let zoom = ZOOM_DEFAULT;
+  // `desiredZoom` is what the player asked for (width-fit default, or
+  // their own pinch / wheel).  `zoom` — what actually renders — is
+  // `desiredZoom` capped each frame to `fitV`, the largest zoom at
+  // which the followed car + its margin still fit vertically.  So a
+  // pinch-in can never crop the car: it just stops at the cap.
+  let desiredZoom = ZOOM_DEFAULT;
+  let fitV = ZOOM_MAX;
   // True once the player has pinched / wheeled the zoom themselves.
   // Until then a resize (orientation flip, window resize) re-fits the
   // zoom to the canvas width; after a manual zoom we leave it alone.
@@ -388,7 +401,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       dragging = false;
       host.classList.remove('stage__canvas--dragging');
       pinchStartDistance = currentPinchDistance();
-      pinchStartZoom = zoom;
+      pinchStartZoom = desiredZoom;
       return;
     }
     primed = true;
@@ -406,7 +419,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       const d = currentPinchDistance();
       if (pinchStartDistance > 0 && d > 0) {
         const next = pinchStartZoom * (d / pinchStartDistance);
-        zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, next));
+        desiredZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, next));
         userZoomed = true;
       }
       return;
@@ -449,7 +462,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     // re-scale relative to the original two-finger gap).
     if (activePointers.size >= 2) {
       pinchStartDistance = currentPinchDistance();
-      pinchStartZoom = zoom;
+      pinchStartZoom = desiredZoom;
     }
   };
   host.addEventListener('pointerup', stopHostDragging);
@@ -468,26 +481,32 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     (e) => {
       e.preventDefault();
       const factor = e.deltaY < 0 ? ZOOM_WHEEL_FACTOR : 1 / ZOOM_WHEEL_FACTOR;
-      zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom * factor));
+      desiredZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, desiredZoom * factor));
       userZoomed = true;
     },
     { passive: false },
   );
 
-  zoom = fitZoom();
+  desiredZoom = fitZoom();
+  zoom = desiredZoom;
   applyTransform();
   const ro = new ResizeObserver(() => {
     // Re-fit the zoom on a real resize (orientation flip, window
     // resize) unless the player has picked their own zoom.  A
     // width-based fit means the iOS URL-bar show/hide (height-only
     // change) doesn't disturb it.
-    if (!userZoomed) zoom = fitZoom();
+    if (!userZoomed) desiredZoom = fitZoom();
     drawTrack();
     applyTransform();
   });
   ro.observe(host);
 
   app.ticker.add(() => {
+    // Render zoom = the player's desired zoom, capped at `fitV` so the
+    // followed car can never be cropped — a pinch-in past the cap is
+    // simply ignored.  fitV is refreshed from the car's size each
+    // setSnapshot.
+    zoom = Math.max(ZOOM_MIN, Math.min(desiredZoom, ZOOM_MAX, fitV));
     // Auto-return to leader-follow after idle.  Only fires when
     // we're in a manual mode (free / car) — leader mode has no
     // timer to expire.  `lastManualInputAt = 0` is the initial
@@ -523,14 +542,12 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   function applyTransform(): void {
     const w = app.renderer.width / (window.devicePixelRatio || 1);
     const h = app.renderer.height / (window.devicePixelRatio || 1);
-    // World vertical anchor — adaptive to the canvas aspect ratio.
-    // Wide canvases (desktop, aspect > 1.4) keep the v1.12.2 0.72
-    // anchor: cars in the lower third with lots of "what's coming"
-    // sky above.  A portrait phone is much taller than wide, so the
-    // car is anchored at vertical centre — anything lower buries it
-    // near the bottom edge with a wall of empty sky above.
-    const aspect = w / h;
-    const anchor = aspect > 1.4 ? 0.72 : 0.5;
+    // The camera target is the centre of the followed car's fit-band,
+    // so anchoring it at the canvas centre (0.5) keeps the band — and
+    // therefore the whole car — symmetrically in frame.  A non-0.5
+    // anchor would give the band uneven head-room and break the
+    // can't-crop guarantee.
+    const anchor = 0.5;
     world.position.set(w / 2 - camera.x * zoom, h * anchor + camera.y * zoom);
     world.scale.set(zoom, -zoom);
     // Parallax silhouettes — partial camera follow so they appear
@@ -740,6 +757,26 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
         cameraTarget = { x: lastLeaderTarget.x, y: lastLeaderTarget.y };
       }
     }
+
+    // ── Vertical auto-fit ───────────────────────────────────────────
+    // Frame the followed car dead-centre and work out the largest
+    // zoom (`fitV`) at which the car + its margin still fit the
+    // canvas height.  The ticker caps the render zoom at fitV, so the
+    // car can never be cropped — not by the follow logic, and not by
+    // a pinch-in.  In free mode there is no followed car, so the band
+    // is just the fixed minimum around the track surface.
+    const focusCar = cameraMode.type === 'free' ? null : runningLead;
+    let bandHalf = MIN_HALF_BAND_M;
+    if (focusCar) {
+      const span = carVerticalSpan(focusCar);
+      // Re-centre the camera on the car's true bounding-box centre so
+      // the band (and the car) sit symmetric about the canvas middle.
+      cameraTarget = { x: cameraTarget.x, y: (span.minY + span.maxY) / 2 };
+      bandHalf = Math.max((span.maxY - span.minY) / 2 + CAMERA_MARGIN_M, MIN_HALF_BAND_M);
+      lastLeaderTarget = { x: cameraTarget.x, y: cameraTarget.y };
+    }
+    const canvasHCss = app.renderer.height / (window.devicePixelRatio || 1);
+    fitV = canvasHCss > 0 ? canvasHCss / (2 * bandHalf) : ZOOM_MAX;
 
     // Minimap is SVG and ~30–50 attribute writes per call; cheap
     // enough that we keep updating it even when the main canvas is
@@ -1091,6 +1128,29 @@ function visualCenter(car: CarSnapshot): { x: number; y: number } {
     x: car.position.x + cx * cos - cy * sin,
     y: car.position.y + cx * sin + cy * cos,
   };
+}
+
+/**
+ * World-space vertical extent (min/max y) of a car — every chassis
+ * vertex transformed to world space plus every wheel rim.  The camera
+ * uses this to size the fit-band so the whole car stays in frame.
+ */
+function carVerticalSpan(car: CarSnapshot): { minY: number; maxY: number } {
+  let minY = Infinity;
+  let maxY = -Infinity;
+  const cos = Math.cos(car.angle);
+  const sin = Math.sin(car.angle);
+  for (const v of car.vertices) {
+    const wy = car.position.y + v.x * sin + v.y * cos;
+    if (wy < minY) minY = wy;
+    if (wy > maxY) maxY = wy;
+  }
+  for (const wh of car.wheels) {
+    if (wh.position.y - wh.radius < minY) minY = wh.position.y - wh.radius;
+    if (wh.position.y + wh.radius > maxY) maxY = wh.position.y + wh.radius;
+  }
+  if (minY > maxY) return { minY: car.position.y - 1, maxY: car.position.y + 1 };
+  return { minY, maxY };
 }
 
 function sampleTrackY(points: { x: number; y: number }[], x: number): number {

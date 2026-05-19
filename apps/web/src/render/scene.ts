@@ -290,6 +290,11 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   // pinch-in can never crop the car: it just stops at the cap.
   let desiredZoom = ZOOM_DEFAULT;
   let fitV = ZOOM_MAX;
+  // World-space vertical AABB of the car the camera is framing,
+  // refreshed every setSnapshot.  The ticker hard-clamps camera.y to
+  // this each frame so the car is *guaranteed* fully in shot — the
+  // follow target / lerp can't drift it off an edge.
+  let followAabb: { minY: number; maxY: number } | null = null;
   // True once the player has pinched / wheeled the zoom themselves.
   // Until then a resize (orientation flip, window resize) re-fits the
   // zoom to the canvas width; after a manual zoom we leave it alone.
@@ -536,6 +541,22 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       camera.x += dx * CAMERA_LERP;
       camera.y += dy * CAMERA_LERP;
     }
+    // Hard guarantee: force camera.y into the range where the whole
+    // followed car (its AABB + margin) is on screen.  Whatever the
+    // follow target / lerp produced, this clamp can only ever pull
+    // the camera so the car is fully framed — never crop it.
+    if (followAabb) {
+      const hCss = app.renderer.height / (window.devicePixelRatio || 1);
+      const halfWorld = (hCss * 0.5) / zoom;
+      const lo = followAabb.maxY + CAMERA_MARGIN_M - halfWorld;
+      const hi = followAabb.minY - CAMERA_MARGIN_M + halfWorld;
+      if (lo <= hi) {
+        camera.y = Math.max(lo, Math.min(hi, camera.y));
+      } else {
+        // Car taller than the viewport even at min zoom — centre it.
+        camera.y = (followAabb.minY + followAabb.maxY) / 2;
+      }
+    }
     applyTransform();
   });
 
@@ -761,19 +782,24 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     // ── Vertical auto-fit ───────────────────────────────────────────
     // Frame the followed car dead-centre and work out the largest
     // zoom (`fitV`) at which the car + its margin still fit the
-    // canvas height.  The ticker caps the render zoom at fitV, so the
-    // car can never be cropped — not by the follow logic, and not by
-    // a pinch-in.  In free mode there is no followed car, so the band
-    // is just the fixed minimum around the track surface.
-    const focusCar = cameraMode.type === 'free' ? null : runningLead;
+    // canvas height.  The ticker caps the render zoom at fitV AND
+    // hard-clamps camera.y to `followAabb`, so the car can never be
+    // cropped — not by the follow logic, not by a stale lerp, not by
+    // a pinch-in.  Falls back to the furthest car overall when none
+    // is still running, so the camera always frames a real car.  In
+    // free mode there is no followed car — the player is in control.
+    const focusCar = cameraMode.type === 'free' ? null : (runningLead ?? anyLead);
     let bandHalf = MIN_HALF_BAND_M;
     if (focusCar) {
       const span = carVerticalSpan(focusCar);
-      // Re-centre the camera on the car's true bounding-box centre so
-      // the band (and the car) sit symmetric about the canvas middle.
-      cameraTarget = { x: cameraTarget.x, y: (span.minY + span.maxY) / 2 };
+      followAabb = span;
+      let cx = visualCenter(focusCar).x;
+      if (trackFinishLineX !== null && cx > trackFinishLineX) cx = trackFinishLineX;
+      cameraTarget = { x: cx, y: (span.minY + span.maxY) / 2 };
       bandHalf = Math.max((span.maxY - span.minY) / 2 + CAMERA_MARGIN_M, MIN_HALF_BAND_M);
       lastLeaderTarget = { x: cameraTarget.x, y: cameraTarget.y };
+    } else {
+      followAabb = null;
     }
     const canvasHCss = app.renderer.height / (window.devicePixelRatio || 1);
     fitV = canvasHCss > 0 ? canvasHCss / (2 * bandHalf) : ZOOM_MAX;

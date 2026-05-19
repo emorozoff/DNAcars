@@ -62,7 +62,10 @@ function hueToTint(hue: number): number {
  * ZOOM_DEFAULT is only the pre-measure fallback.
  */
 const ZOOM_DEFAULT = 35;
-const ZOOM_MIN = 10;
+// ZOOM_MIN is deliberately low so the player can pull the camera
+// way out (≈ 100 m of track on a phone) — the default fitted zoom
+// is much higher, this is only the manual zoom-out floor.
+const ZOOM_MIN = 4;
 const ZOOM_MAX = 90;
 /** Metres of track the default zoom aims to fit across the canvas. */
 const TARGET_VIEW_M = 38;
@@ -143,9 +146,10 @@ export type RenderTier = 'full' | 'lite' | 'none';
  *   car     a specific car index (set by clicking its minimap dot).
  *           Falls back to leader when that index isn't in the
  *           snapshot any more (e.g. after a population restart).
- *   free    manual mode — a fixed world-x picked by the user via
- *           minimap drag.  Camera doesn't track anything; user
- *           can drag again to re-position or hit "back to leader".
+ *   free    manual mode — a fixed world position the player set by
+ *           hand (a canvas drag pans both axes, the minimap pans X
+ *           only).  Camera doesn't track anything; the player can
+ *           drag again or hit "back to leader".
  */
 export type CameraMode = { type: 'leader' } | { type: 'car'; idx: number } | { type: 'free' };
 
@@ -326,8 +330,11 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
    * transition gets a visible ping (scale-pop + green tint).
    */
   let lastLeaderIdx: number | null = null;
-  /** Sticky world-x for free-camera mode.  Updated each minimap drag. */
+  /** Sticky world position for free-camera mode.  X is updated by
+   *  minimap drag + canvas drag; Y only by a vertical canvas drag
+   *  (the minimap moves the camera horizontally only). */
   let freeCameraX = 0;
+  let freeCameraY = 0;
   let cameraChangeHandler: CameraChangeHandler | null = null;
   function emitCameraChange(): void {
     cameraChangeHandler?.({ mode: cameraMode, manual: cameraMode.type !== 'leader' });
@@ -353,7 +360,9 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     minimap.onJump((worldX) => {
       cameraMode = { type: 'free' };
       freeCameraX = worldX;
-      cameraTarget = { x: worldX, y: cameraTarget.y };
+      // Minimap controls the horizontal only — keep the current Y.
+      freeCameraY = camera.y;
+      cameraTarget = { x: worldX, y: freeCameraY };
       markManualInput();
       emitCameraChange();
     });
@@ -381,6 +390,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
   let dragStartClientX = 0;
   let dragStartClientY = 0;
   let dragLastClientX = 0;
+  let dragLastClientY = 0;
   type Pt = { x: number; y: number };
   const activePointers = new Map<number, Pt>();
   let pinchStartDistance = 0;
@@ -414,6 +424,7 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     dragStartClientX = e.clientX;
     dragStartClientY = e.clientY;
     dragLastClientX = e.clientX;
+    dragLastClientY = e.clientY;
     host.setPointerCapture(e.pointerId);
   });
   host.addEventListener('pointermove', (e) => {
@@ -440,19 +451,24 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
       dragging = true;
       host.classList.add('stage__canvas--dragging');
       // Drag started for real → enter free-camera mode at the
-      // current camera-x so the user grabs whatever they're
+      // current camera position so the user grabs whatever they're
       // already looking at (no teleport).
       cameraMode = { type: 'free' };
       freeCameraX = camera.x;
+      freeCameraY = camera.y;
       markManualInput();
       emitCameraChange();
     }
     const dxPx = e.clientX - dragLastClientX;
+    const dyPx = e.clientY - dragLastClientY;
     dragLastClientX = e.clientX;
-    // Inverted: dragging right pulls the world right, so the camera
-    // slides left.  Matches the standard "grab and pull" gesture.
+    dragLastClientY = e.clientY;
+    // "Grab and pull" — dragging right pulls the world right (camera
+    // slides left); dragging down pulls the world down (camera rises).
+    // A canvas drag pans both axes; the minimap pans X only.
     freeCameraX -= dxPx / zoom;
-    cameraTarget = { x: freeCameraX, y: cameraTarget.y };
+    freeCameraY += dyPx / zoom;
+    cameraTarget = { x: freeCameraX, y: freeCameraY };
     markManualInput();
   });
   const stopHostDragging = (e: PointerEvent): void => {
@@ -739,22 +755,15 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
 
     // Resolve the actual camera target based on mode.
     //
-    //   free mode — X is whatever the user dragged to, Y tracks the
-    //               track surface under that X so the road stays in
-    //               the visible band.  Without this Y-follow the
-    //               camera kept the Y from the moment the user
-    //               grabbed the camera, and panning to a basin or
-    //               a peak left the road off-screen with empty sky
-    //               filling the rest of the canvas (player report).
-    //               sampleTrackY is one array lookup — runs at every
-    //               speed tier without measurable cost.
+    //   free mode — the player drives the camera by hand: a canvas
+    //               drag pans both axes, the minimap pans X only.
+    //               No auto-follow, no fit cap — they framed it.
     //   car mode  — follow that car's chassis position (already
     //               above ground by chassis radius).  Falls back to
     //               leader if the picked car isn't in the snapshot.
     //   leader    — follow the running leader's chassis.
     if (cameraMode.type === 'free') {
-      const groundY = trackPoints ? sampleTrackY(trackPoints, freeCameraX) : cameraTarget.y;
-      cameraTarget = { x: freeCameraX, y: groundY };
+      cameraTarget = { x: freeCameraX, y: freeCameraY };
     } else if (cameraMode.type === 'car' && pickedCar) {
       cameraTarget = visualCenter(pickedCar);
     } else {
@@ -793,20 +802,21 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     // is still running, so the camera always frames a real car.  In
     // free mode there is no followed car — the player is in control.
     const focusCar = cameraMode.type === 'free' ? null : (runningLead ?? anyLead);
-    let bandHalf = MIN_HALF_BAND_M;
     if (focusCar) {
       const span = carVerticalSpan(focusCar);
       followAabb = span;
       let cx = visualCenter(focusCar).x;
       if (trackFinishLineX !== null && cx > trackFinishLineX) cx = trackFinishLineX;
       cameraTarget = { x: cx, y: (span.minY + span.maxY) / 2 };
-      bandHalf = Math.max((span.maxY - span.minY) / 2 + CAMERA_MARGIN_M, MIN_HALF_BAND_M);
+      const bandHalf = Math.max((span.maxY - span.minY) / 2 + CAMERA_MARGIN_M, MIN_HALF_BAND_M);
       lastLeaderTarget = { x: cameraTarget.x, y: cameraTarget.y };
+      const canvasHCss = host.clientHeight;
+      fitV = canvasHCss > 0 ? canvasHCss / (2 * bandHalf) : ZOOM_MAX;
     } else {
+      // Free mode — no followed car, no fit cap; the player frames it.
       followAabb = null;
+      fitV = ZOOM_MAX;
     }
-    const canvasHCss = host.clientHeight;
-    fitV = canvasHCss > 0 ? canvasHCss / (2 * bandHalf) : ZOOM_MAX;
 
     // Minimap is SVG and ~30–50 attribute writes per call; cheap
     // enough that we keep updating it even when the main canvas is
@@ -932,11 +942,14 @@ export async function mountScene(host: HTMLElement): Promise<SceneHandle> {
     setCameraX(worldX): void {
       cameraMode = { type: 'free' };
       freeCameraX = worldX;
-      cameraTarget = { x: worldX, y: cameraTarget.y };
+      // Horizontal-only — keep the current Y.
+      freeCameraY = camera.y;
+      cameraTarget = { x: worldX, y: freeCameraY };
       emitCameraChange();
     },
     zoomBy(factor): void {
-      zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom * factor));
+      desiredZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, desiredZoom * factor));
+      userZoomed = true;
     },
     onCameraChange(handler): void {
       cameraChangeHandler = handler;
